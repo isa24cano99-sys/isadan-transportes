@@ -10,6 +10,7 @@ import {
 import { actualizarTransaccionAction, eliminarTransaccionAction } from '../transaccion/actions'
 import { recategorizarAction } from '../category-actions'
 import CategorySelector from '@/components/CategorySelector'
+import SupplierSelector from '@/components/SupplierSelector'
 import type { PucAccount } from '@/components/PucSelector'
 import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
 
@@ -36,6 +37,8 @@ interface Transaction {
   category_id: string | null
   description: string
   source?: string
+  supplier_nit?: string | null
+  supplier_name?: string | null
   transaction_categories?: TxCategory | null
 }
 
@@ -48,6 +51,8 @@ interface EditForm {
   date: string
   category_id: string
   description: string
+  supplier_nit: string
+  supplier_name: string
 }
 
 interface Props {
@@ -153,11 +158,13 @@ export default function BankDetailClient({
   const openEdit = (t: Transaction) => {
     setEditTxn(t)
     setEditForm({
-      type:        t.type,
-      amount:      String(t.amount),
-      date:        t.date,
-      category_id: t.category_id ?? '',
-      description: t.description,
+      type:          t.type,
+      amount:        String(t.amount),
+      date:          t.date,
+      category_id:   t.category_id ?? '',
+      description:   t.description,
+      supplier_nit:  t.supplier_nit ?? '',
+      supplier_name: t.supplier_name ?? '',
     })
     setEditError('')
   }
@@ -177,11 +184,13 @@ export default function BankDetailClient({
     setSaving(true)
     setEditError('')
     const fd = new FormData()
-    fd.set('type',        editForm.type)
-    fd.set('amount',      editForm.amount)
-    fd.set('date',        editForm.date)
-    fd.set('category_id', editForm.category_id)
-    fd.set('description', editForm.description)
+    fd.set('type',          editForm.type)
+    fd.set('amount',        editForm.amount)
+    fd.set('date',          editForm.date)
+    fd.set('category_id',  editForm.category_id)
+    fd.set('description',  editForm.description)
+    fd.set('supplier_nit', editForm.supplier_nit)
+    fd.set('supplier_name', editForm.supplier_name)
     const result = await actualizarTransaccionAction(editTxn.id, fd)
     if (result.ok) { closeEdit(); window.location.reload() }
     else { setEditError(result.error ?? 'Error al guardar'); setSaving(false) }
@@ -359,6 +368,7 @@ export default function BankDetailClient({
               <th className={thCls} onClick={() => handleSort('description')}>
                 Descripción <SortArrow col="description" />
               </th>
+              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider whitespace-nowrap">Proveedor</th>
               <th className={`${thCls} text-right`} onClick={() => handleSort('amount')}>
                 Monto <SortArrow col="amount" />
               </th>
@@ -369,7 +379,7 @@ export default function BankDetailClient({
           <tbody className="divide-y divide-[#E2E8F0]">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-10 text-xs text-[#64748B]">
+                <td colSpan={8} className="text-center py-10 text-xs text-[#64748B]">
                   <ReceiptText size={28} className="mx-auto mb-2 text-[#CBD5E1]" />
                   No hay transacciones{hasFilters ? ' con estos filtros' : ''}
                 </td>
@@ -390,7 +400,10 @@ export default function BankDetailClient({
                   <td className="px-3 py-1.5">
                     <CategoryBadge cat={t.transaction_categories} />
                   </td>
-                  <td className="px-3 py-1.5 text-xs text-[#0F172A] max-w-[260px] truncate">{t.description}</td>
+                  <td className="px-3 py-1.5 text-xs text-[#0F172A] max-w-[220px] truncate">{t.description}</td>
+                  <td className="px-3 py-1.5 text-xs text-[#94A3B8] whitespace-nowrap max-w-[140px] truncate">
+                    {t.supplier_name ?? '—'}
+                  </td>
                   <td className={`px-3 py-1.5 text-xs font-semibold text-right whitespace-nowrap ${
                     t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'
                   }`}>
@@ -479,6 +492,14 @@ export default function BankDetailClient({
                   onChange={v => setEditForm(p => p && ({ ...p, category_id: v }))}
                   categories={categories}
                   pucAccounts={pucAccounts}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Proveedor (opcional)</label>
+                <SupplierSelector
+                  nit={editForm.supplier_nit}
+                  name={editForm.supplier_name}
+                  onChange={(nit, name) => setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name }))}
                 />
               </div>
               <div>

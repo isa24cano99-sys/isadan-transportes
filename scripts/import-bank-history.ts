@@ -60,6 +60,26 @@ const supabase = createClient(
 const ACCOUNT_NUMBER = '49900005996'
 const BATCH_SIZE     = 50
 
+const SUPPLIER_RULES: { keywords: string[]; nit: string; name: string }[] = [
+  { keywords: ['flypass', 'peaje'],       nit: '900219834', name: 'F2X S.A.S.' },
+  { keywords: ['mundial', 'fap'],         nit: '860037013', name: 'COMPAÑIA MUNDIAL DE SEGUROS S.A.' },
+  { keywords: ['comfama'],                nit: '890900841', name: 'COMFAMA' },
+  { keywords: ['aportes en linea'],       nit: '900147238', name: 'APORTES EN LINEA S.A.' },
+  { keywords: ['epm'],                    nit: '890904996', name: 'EPM' },
+  { keywords: ['comcel', 'claro'],        nit: '800153993', name: 'COMUNICACION CELULAR S.A. COMCEL' },
+  { keywords: ['dataico'],               nit: '901223648', name: 'DATAICO SAS' },
+]
+
+function resolverProveedor(desc: string): { nit: string; name: string } | null {
+  const normed = normalizarDescripcion(desc)
+  for (const rule of SUPPLIER_RULES) {
+    if (rule.keywords.some(kw => normed.includes(kw))) {
+      return { nit: rule.nit, name: rule.name }
+    }
+  }
+  return null
+}
+
 function md5(s: string) {
   return createHash('md5').update(s).digest('hex')
 }
@@ -206,20 +226,23 @@ async function main() {
       if (existingRefs.has(ref)) { stats.duplicates++; return }
       existingRefs.add(ref)
 
-      const cat = resolverCategoria(txDesc)
+      const cat      = resolverCategoria(txDesc)
+      const supplier = resolverProveedor(txDesc)
       if (cat) stats.categorized++
       else stats.sinCategoria++
 
       toInsert.push({
-        account_id:   account.id,
-        type:         tipo,
-        amount:       monto,
-        date:         dateStr,
-        description:  txDesc,
-        category:     cat?.puc_code ?? 'SIN_CLASIFICAR',
-        category_id:  cat?.id ?? null,
-        source:       'MANUAL',
-        external_ref: ref,
+        account_id:    account.id,
+        type:          tipo,
+        amount:        monto,
+        date:          dateStr,
+        description:   txDesc,
+        category:      cat?.puc_code ?? 'SIN_CLASIFICAR',
+        category_id:   cat?.id ?? null,
+        source:        'MANUAL',
+        external_ref:  ref,
+        supplier_nit:  supplier?.nit ?? null,
+        supplier_name: supplier?.name ?? null,
       })
     }
 

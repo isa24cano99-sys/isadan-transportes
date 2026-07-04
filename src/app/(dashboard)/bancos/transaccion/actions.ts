@@ -13,6 +13,8 @@ function extractTxnFields(formData: FormData) {
     description:    formData.get('description') as string,
     reference_type: (formData.get('reference_type') as string) || null,
     reference_id:   (formData.get('reference_id') as string) || null,
+    supplier_nit:   (formData.get('supplier_nit') as string) || null,
+    supplier_name:  (formData.get('supplier_name') as string) || null,
   }
 }
 
@@ -46,18 +48,23 @@ export async function actualizarTransaccionAction(id: string, formData: FormData
         .maybeSingle()
 
       if (existing) {
-        await supabase
-          .from('description_patterns')
-          .update({
-            match_count: existing.match_count + 1,
-            category_id: fields.category_id,
-            updated_at:  new Date().toISOString(),
-          })
-          .eq('id', existing.id)
+        const patternUpdate: Record<string, unknown> = {
+          match_count: existing.match_count + 1,
+          category_id: fields.category_id,
+          updated_at:  new Date().toISOString(),
+        }
+        if (fields.supplier_nit) {
+          patternUpdate.supplier_nit  = fields.supplier_nit
+          patternUpdate.supplier_name = fields.supplier_name
+        }
+        await supabase.from('description_patterns').update(patternUpdate).eq('id', existing.id)
       } else {
-        await supabase
-          .from('description_patterns')
-          .insert({ pattern, category_id: fields.category_id })
+        const patternInsert: Record<string, unknown> = { pattern, category_id: fields.category_id }
+        if (fields.supplier_nit) {
+          patternInsert.supplier_nit  = fields.supplier_nit
+          patternInsert.supplier_name = fields.supplier_name
+        }
+        await supabase.from('description_patterns').insert(patternInsert)
       }
     }
   }

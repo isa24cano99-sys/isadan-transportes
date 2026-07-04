@@ -15,6 +15,7 @@ export default function Sidebar() {
     { href: '/proveedores',   label: 'Proveedores' },
     { href: '/prestamos',     label: 'Préstamos' },
     { href: '/prestaciones',  label: 'Prestaciones' },
+    { href: '/nomina',        label: 'Nómina' },
     { href: '/vehiculos',     label: 'Vehículos' },
     { href: '/conductores',   label: 'Conductores' },
     { href: '/clientes',      label: 'Clientes' },

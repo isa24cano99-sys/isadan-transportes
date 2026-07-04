@@ -14,6 +14,38 @@ export type TransactionCategory = {
   puc_tipo?: string
 }
 
+export type SupplierResult = {
+  id: string
+  nit: string | null
+  nombre: string
+}
+
+export async function buscarProveedoresAction(query: string): Promise<SupplierResult[]> {
+  if (query.trim().length < 2) return []
+  const q = query.trim()
+  const { data } = await supabase
+    .from('supplier_catalog')
+    .select('id, nit, nombre')
+    .or(`nombre.ilike.%${q}%,nit.ilike.%${q}%`)
+    .limit(10)
+  return (data ?? []) as SupplierResult[]
+}
+
+export async function crearProveedorAction(
+  formData: FormData,
+): Promise<{ ok: boolean; supplier?: SupplierResult; error?: string }> {
+  const nit    = (formData.get('nit') as string)?.trim() || null
+  const nombre = (formData.get('nombre') as string)?.trim()
+  if (!nombre) return { ok: false, error: 'Nombre requerido' }
+  const { data, error } = await supabase
+    .from('supplier_catalog')
+    .insert({ nit, nombre })
+    .select('id, nit, nombre')
+    .single()
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, supplier: data as SupplierResult }
+}
+
 export async function crearCategoriaAction(
   formData: FormData,
 ): Promise<{ ok: boolean; category?: TransactionCategory; error?: string }> {
@@ -35,9 +67,18 @@ export async function crearCategoriaAction(
   return { ok: true, category: data as TransactionCategory }
 }
 
+export type SugerirResult = {
+  categoryId:   string
+  categoryName: string
+  categoryType: 'NEGOCIO' | 'CASA'
+  source:       'RULES' | 'PATTERNS'
+  supplierNit?: string | null
+  supplierName?: string | null
+}
+
 export async function sugerirCategoriaAction(
   descripcion: string,
-): Promise<{ categoryId: string; categoryName: string; categoryType: 'NEGOCIO' | 'CASA'; source: 'RULES' | 'PATTERNS' } | null> {
+): Promise<SugerirResult | null> {
   if (descripcion.length < 4) return null
 
   // 1. Reglas fijas
@@ -55,7 +96,7 @@ export async function sugerirCategoriaAction(
   // 2. Patrones aprendidos
   const { data: patterns } = await supabase
     .from('description_patterns')
-    .select('pattern, category_id, transaction_categories(id, name, type)')
+    .select('pattern, category_id, supplier_nit, supplier_name, transaction_categories(id, name, type)')
     .order('match_count', { ascending: false })
     .limit(200)
 
@@ -64,7 +105,14 @@ export async function sugerirCategoriaAction(
     const match = patterns.find(p => normed.includes(p.pattern))
     if (match) {
       const cat = match.transaction_categories as unknown as { id: string; name: string; type: string } | null
-      if (cat) return { categoryId: cat.id, categoryName: cat.name, categoryType: cat.type as 'NEGOCIO' | 'CASA', source: 'PATTERNS' }
+      if (cat) return {
+        categoryId:   cat.id,
+        categoryName: cat.name,
+        categoryType: cat.type as 'NEGOCIO' | 'CASA',
+        source:       'PATTERNS',
+        supplierNit:  (match as any).supplier_nit as string | null ?? null,
+        supplierName: (match as any).supplier_name as string | null ?? null,
+      }
     }
   }
 

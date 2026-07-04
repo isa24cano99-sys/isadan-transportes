@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation'
 import { Zap, X } from 'lucide-react'
 import { crearTransaccionAction } from './actions'
 import CategorySelector from '@/components/CategorySelector'
+import SupplierSelector from '@/components/SupplierSelector'
 import {
   sugerirCategoriaAction,
   type TransactionCategory,
+  type SugerirResult,
 } from '@/app/(dashboard)/bancos/category-actions'
 import type { PucAccount } from '@/components/PucSelector'
 
@@ -32,15 +34,17 @@ export default function TransaccionForm({
   trips: Trip[]
 }) {
   const router = useRouter()
-  const [loading,     setLoading]     = useState(false)
-  const [error,       setError]       = useState('')
-  const [categoryId,  setCategoryId]  = useState('')
-  const [tripId,      setTripId]      = useState('')
-  const [description, setDescription] = useState('')
-  const [suggestion,  setSuggestion]  = useState<{
-    categoryId: string; categoryName: string; categoryType: 'NEGOCIO' | 'CASA'; source: 'RULES' | 'PATTERNS'
-  } | null>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState('')
+  const [categoryId,   setCategoryId]   = useState('')
+  const [tripId,       setTripId]       = useState('')
+  const [description,  setDescription]  = useState('')
+  const [supplierNit,  setSupplierNit]  = useState('')
+  const [supplierName, setSupplierName] = useState('')
+  const [suggestion,   setSuggestion]   = useState<SugerirResult | null>(null)
+  const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const supplierNitRef = useRef('')
+  supplierNitRef.current = supplierNit
 
   const selectedTrip = trips.find(t => t.id === tripId) ?? null
 
@@ -51,6 +55,10 @@ export default function TransaccionForm({
     debounceRef.current = setTimeout(async () => {
       const s = await sugerirCategoriaAction(val)
       setSuggestion(s)
+      if (s?.supplierName && !supplierNitRef.current) {
+        setSupplierNit(s.supplierNit ?? '')
+        setSupplierName(s.supplierName ?? '')
+      }
     }, 400)
   }, [])
 
@@ -69,6 +77,8 @@ export default function TransaccionForm({
     const fd = new FormData(e.currentTarget)
     fd.set('category_id',  categoryId)
     fd.set('description',  description)
+    fd.set('supplier_nit', supplierNit)
+    fd.set('supplier_name', supplierName)
     if (tripId) {
       fd.set('reference_type', 'TRIP')
       fd.set('reference_id',   tripId)
@@ -127,6 +137,15 @@ export default function TransaccionForm({
           categories={categories}
           pucAccounts={pucAccounts}
           typeFilter={suggestion?.categoryType}
+        />
+      </div>
+
+      <div>
+        <label className={labelCls}>Proveedor (opcional)</label>
+        <SupplierSelector
+          nit={supplierNit}
+          name={supplierName}
+          onChange={(nit, name) => { setSupplierNit(nit); setSupplierName(name) }}
         />
       </div>
 
