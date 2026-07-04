@@ -114,9 +114,9 @@ function PylTable({ months, activeOnly = false }: { months: MonthData[]; activeO
     { ingresos: 0, costos: 0, gastos_financieros: 0, utilidad_bruta: 0, utilidad_neta: 0 },
   )
 
-  const colH = 'px-3 py-3 text-xs font-semibold text-[#64748B] text-right first:text-left'
+  const colH = 'px-3 py-2 text-[10px] font-semibold text-[#64748B] text-right first:text-left uppercase tracking-wider'
   const cell = (v: number, bold = false) => (
-    <td className={`px-3 py-3 text-sm text-right tabular-nums ${bold ? 'font-bold' : ''} ${
+    <td className={`px-3 py-2 text-xs text-right tabular-nums ${bold ? 'font-bold' : ''} ${
       v < 0 ? 'text-red-600' : v > 0 ? 'text-[#0F172A]' : 'text-[#94A3B8]'
     }`}>
       {v === 0 ? '—' : formatCOP(v)}
@@ -150,7 +150,7 @@ function PylTable({ months, activeOnly = false }: { months: MonthData[]; activeO
               <tr key={m.month} className={`hover:bg-[#F8FAFC] transition-colors ${
                 m.ingresos === 0 && m.costos === 0 ? 'opacity-40' : ''
               }`}>
-                <td className="px-3 py-3 text-sm font-medium text-[#0F172A]">{m.label}</td>
+                <td className="px-3 py-2 text-xs font-medium text-[#0F172A]">{m.label}</td>
                 {cell(m.ingresos)}
                 {cell(m.costos)}
                 {cell(m.utilidad_bruta, true)}
@@ -162,10 +162,10 @@ function PylTable({ months, activeOnly = false }: { months: MonthData[]; activeO
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC]">
-            <td className="px-3 py-3 text-sm font-bold text-[#0F172A]">TOTAL</td>
+            <td className="px-3 py-2 text-xs font-bold text-[#0F172A]">TOTAL</td>
             {[totals.ingresos, totals.costos, totals.utilidad_bruta,
               totals.gastos_financieros, totals.utilidad_neta].map((v, i) => (
-              <td key={i} className={`px-3 py-3 text-sm font-bold text-right tabular-nums ${
+              <td key={i} className={`px-3 py-2 text-xs font-bold text-right tabular-nums ${
                 v < 0 ? 'text-red-600' : 'text-[#0F172A]'
               }`}>
                 {v === 0 ? '—' : formatCOP(v)}
@@ -202,31 +202,31 @@ function EntityTable({ data, labelHeader }: { data: EntityData[]; labelHeader: s
       <table className="w-full min-w-[640px]">
         <thead>
           <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-            <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748B]">{labelHeader}</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Viajes</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Ingresos</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Costos</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Utilidad</th>
-            <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Margen</th>
+            <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">{labelHeader}</th>
+            <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Viajes</th>
+            <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Ingresos</th>
+            <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Costos</th>
+            <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Utilidad</th>
+            <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Margen</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[#E2E8F0]">
           {data.map(d => (
             <tr key={d.id} className="hover:bg-[#F8FAFC] transition-colors">
-              <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{d.label}</td>
-              <td className="px-4 py-3 text-sm text-right text-[#64748B]">{d.viajes}</td>
-              <td className="px-4 py-3 text-sm text-right font-medium text-[#0F172A] tabular-nums">
+              <td className="px-3 py-2 text-xs font-medium text-[#0F172A]">{d.label}</td>
+              <td className="px-3 py-2 text-xs text-right text-[#64748B]">{d.viajes}</td>
+              <td className="px-3 py-2 text-xs text-right font-medium text-[#0F172A] tabular-nums">
                 {d.ingresos > 0 ? formatCOP(d.ingresos) : '—'}
               </td>
-              <td className="px-4 py-3 text-sm text-right text-[#64748B] tabular-nums">
+              <td className="px-3 py-2 text-xs text-right text-[#64748B] tabular-nums">
                 {d.costos > 0 ? formatCOP(d.costos) : '—'}
               </td>
-              <td className={`px-4 py-3 text-sm text-right font-bold tabular-nums ${
+              <td className={`px-3 py-2 text-xs text-right font-bold tabular-nums ${
                 d.utilidad < 0 ? 'text-red-600' : d.utilidad > 0 ? 'text-green-700' : 'text-[#94A3B8]'
               }`}>
                 {d.utilidad === 0 ? '—' : formatCOP(d.utilidad)}
               </td>
-              <td className="px-4 py-3 text-right">
+              <td className="px-3 py-2 text-right">
                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${
                   d.margen > 20  ? 'bg-green-100 text-green-700'  :
                   d.margen > 0   ? 'bg-blue-100 text-blue-700'    :
@@ -241,14 +241,14 @@ function EntityTable({ data, labelHeader }: { data: EntityData[]; labelHeader: s
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC]">
-            <td className="px-4 py-3 text-sm font-bold text-[#0F172A]">TOTAL</td>
-            <td className="px-4 py-3 text-sm text-right font-bold text-[#0F172A]">{totals.viajes}</td>
-            <td className="px-4 py-3 text-sm text-right font-bold text-[#0F172A] tabular-nums">{formatCOP(totals.ingresos)}</td>
-            <td className="px-4 py-3 text-sm text-right font-bold text-[#0F172A] tabular-nums">{formatCOP(totals.costos)}</td>
-            <td className={`px-4 py-3 text-sm text-right font-bold tabular-nums ${
+            <td className="px-3 py-2 text-xs font-bold text-[#0F172A]">TOTAL</td>
+            <td className="px-3 py-2 text-xs text-right font-bold text-[#0F172A]">{totals.viajes}</td>
+            <td className="px-3 py-2 text-xs text-right font-bold text-[#0F172A] tabular-nums">{formatCOP(totals.ingresos)}</td>
+            <td className="px-3 py-2 text-xs text-right font-bold text-[#0F172A] tabular-nums">{formatCOP(totals.costos)}</td>
+            <td className={`px-3 py-2 text-xs text-right font-bold tabular-nums ${
               totals.utilidad < 0 ? 'text-red-600' : 'text-green-700'
             }`}>{formatCOP(totals.utilidad)}</td>
-            <td className="px-4 py-3 text-right">
+            <td className="px-3 py-2 text-right">
               <span className={`text-xs font-bold px-2 py-1 rounded-full ${
                 totalMargen > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
               }`}>{totalMargen}%</span>
@@ -363,7 +363,7 @@ export function ReportesClient({
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-[#0F172A]">Estado de resultados</h1>
+          <h1 className="text-lg font-semibold text-[#0F172A]">Estado de resultados</h1>
           <p className="text-sm text-[#64748B] mt-0.5">
             {filterMonth
               ? `${MESES_OPTS[filterMonth].label} ${year}`
@@ -374,7 +374,7 @@ export function ReportesClient({
           <select
             value={year}
             onChange={e => navigate(Number(e.target.value), filterMonth, tipo)}
-            className="border border-[#E2E8F0] rounded-xl px-3 py-2 text-sm font-medium text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            className="border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs font-medium text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           >
             {availableYears.map(y => (
               <option key={y} value={y}>{y}</option>
@@ -383,7 +383,7 @@ export function ReportesClient({
           <select
             value={filterMonth ?? 0}
             onChange={e => navigate(year, Number(e.target.value) || null, tipo)}
-            className="border border-[#E2E8F0] rounded-xl px-3 py-2 text-sm font-medium text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            className="border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs font-medium text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           >
             {MESES_OPTS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>

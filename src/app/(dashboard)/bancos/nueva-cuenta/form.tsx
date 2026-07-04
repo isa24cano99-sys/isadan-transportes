@@ -50,8 +50,8 @@ export default function NuevaCuentaForm() {
           required
           type="number"
           min="0"
-          step="1"
-          placeholder="0"
+          step="0.01"
+          placeholder="0.00"
           defaultValue="0"
           className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
         />

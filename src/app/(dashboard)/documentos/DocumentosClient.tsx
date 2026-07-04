@@ -2,8 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Plus, Paperclip, Trash2, FileText } from 'lucide-react'
-import { crearDocumentoAction, eliminarDocumentoAction } from './actions'
+import { X, Plus, Paperclip, Trash2, FileText, Pencil } from 'lucide-react'
+import { crearDocumentoAction, eliminarDocumentoAction, actualizarDocumentoAction, getSignedUrlAction } from './actions'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,7 +20,6 @@ export type DocumentRow = {
   expiration_date: string | null
   notes: string | null
   created_at: string
-  publicUrl?: string
   entityName?: string
   daysLeft?: number
 }
@@ -29,6 +28,9 @@ export type DocumentRow = {
 
 const CATEGORIES = ['SOAT', 'TECNOMECANICA', 'POLIZA', 'CONTRATO', 'LICENCIA', 'RUT', 'OTRO'] as const
 const ENTITY_TYPES = ['VEHICULO', 'CONDUCTOR', 'EMPRESA', 'OTRO'] as const
+
+// UUID placeholder para entidades sin ID específico (EMPRESA, OTRO)
+const PLACEHOLDER_ID = '00000000-0000-0000-0000-000000000001'
 
 const CATEGORY_LABELS: Record<string, string> = {
   SOAT:          'SOAT',
@@ -65,6 +67,32 @@ export function expiryBadge(daysLeft: number | undefined) {
   return                      { label: `Vence en ${daysLeft} días`,             cls: 'bg-green-100 text-green-700' }
 }
 
+// ── Open file (signed URL) ─────────────────────────────────────────────────────
+
+function OpenFileButton({ filePath, fileName }: { filePath: string; fileName: string }) {
+  const [loading, setLoading] = useState(false)
+
+  const handleOpen = async () => {
+    setLoading(true)
+    const res = await getSignedUrlAction(filePath)
+    setLoading(false)
+    if (res.ok && res.url) {
+      window.open(res.url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  return (
+    <button
+      onClick={handleOpen}
+      disabled={loading}
+      className="text-xs font-medium text-[#2563EB] hover:underline flex items-center gap-1.5 disabled:opacity-60"
+    >
+      <Paperclip size={13} />
+      {loading ? 'Abriendo…' : fileName}
+    </button>
+  )
+}
+
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
 function NuevoDocumentoModal({
@@ -81,7 +109,7 @@ function NuevoDocumentoModal({
 
   const [category,       setCategory]       = useState<string>('SOAT')
   const [entityType,     setEntityType]     = useState<string>('VEHICULO')
-  const [entityId,       setEntityId]       = useState<string>('')
+  const [entityId,       setEntityId]       = useState<string>(PLACEHOLDER_ID)
   const [fileName,       setFileName]       = useState<string>('')
   const [expirationDate, setExpirationDate] = useState<string>('')
   const [notes,          setNotes]          = useState<string>('')
@@ -90,6 +118,12 @@ function NuevoDocumentoModal({
   const [error,          setError]          = useState('')
 
   const needsEntityId = entityType === 'VEHICULO' || entityType === 'CONDUCTOR'
+
+  function handleEntityTypeChange(type: string) {
+    setEntityType(type)
+    // EMPRESA y OTRO no tienen selector propio → usar el UUID placeholder
+    setEntityId(type === 'VEHICULO' || type === 'CONDUCTOR' ? '' : PLACEHOLDER_ID)
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
@@ -151,7 +185,7 @@ function NuevoDocumentoModal({
               <label className={labelCls}>Entidad *</label>
               <select
                 value={entityType}
-                onChange={e => { setEntityType(e.target.value); setEntityId('') }}
+                onChange={e => handleEntityTypeChange(e.target.value)}
                 required
                 className={inputCls}
               >
@@ -279,6 +313,65 @@ function NuevoDocumentoModal({
   )
 }
 
+// ── Edit modal ─────────────────────────────────────────────────────────────────
+
+function EditDocumentoModal({ doc, onClose }: { doc: DocumentRow; onClose: () => void }) {
+  const router = useRouter()
+  const [expirationDate, setExpirationDate] = useState(doc.expiration_date ?? '')
+  const [notes,          setNotes]          = useState(doc.notes ?? '')
+  const [loading,        setLoading]        = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    const result = await actualizarDocumentoAction(doc.id, {
+      expiration_date: expirationDate || null,
+      notes: notes.trim() || null,
+    })
+    if (result.ok) { router.refresh(); onClose() }
+    else setLoading(false)
+  }
+
+  const inputCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white'
+  const labelCls = 'block text-xs font-semibold text-[#64748B] mb-1.5'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[#0F172A]">Editar documento</h3>
+          <button onClick={onClose}><X size={16} className="text-[#64748B]" /></button>
+        </div>
+        <p className="text-xs text-[#64748B]">{doc.file_name}</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={labelCls}>Fecha de vencimiento</label>
+            <input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)}
+              className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Notas</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)}
+              rows={3} placeholder="Observaciones..."
+              className={`${inputCls} resize-none`} />
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose}
+              className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading}
+              className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
+              {loading ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Delete confirm ─────────────────────────────────────────────────────────────
 
 function DeleteButton({ id, filePath, fileName }: { id: string; filePath: string | null; fileName: string }) {
@@ -345,6 +438,7 @@ export function DocumentosClient({
   documents: DocumentRow[]
 }) {
   const [modalOpen, setModalOpen] = useState(false)
+  const [editDoc, setEditDoc] = useState<DocumentRow | null>(null)
 
   // Group by category in display order
   const ORDER = ['SOAT', 'TECNOMECANICA', 'POLIZA', 'CONTRATO', 'LICENCIA', 'RUT', 'OTRO']
@@ -384,11 +478,12 @@ export function DocumentosClient({
           onClose={() => setModalOpen(false)}
         />
       )}
+      {editDoc && <EditDocumentoModal doc={editDoc} onClose={() => setEditDoc(null)} />}
 
       {/* Header row */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[#0F172A]">Documentos</h1>
+          <h1 className="text-lg font-semibold text-[#0F172A]">Documentos</h1>
           <p className="text-sm text-[#64748B] mt-0.5">{documents.length} documentos registrados</p>
         </div>
         <button
@@ -444,11 +539,11 @@ export function DocumentosClient({
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748B]">Documento</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748B]">Entidad</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748B]">Vencimiento</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748B]">Notas</th>
-                      <th className="px-4 py-3" />
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Documento</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Entidad</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Vencimiento</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Notas</th>
+                      <th className="px-3 py-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E2E8F0]">
@@ -458,31 +553,23 @@ export function DocumentosClient({
                       const border = LEFT_BORDER[alert] ?? ''
                       return (
                         <tr key={doc.id} className={`hover:bg-[#F8FAFC] transition-colors ${border}`}>
-                          <td className="px-4 py-3">
-                            {doc.publicUrl ? (
-                              <a
-                                href={doc.publicUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm font-medium text-[#2563EB] hover:underline flex items-center gap-1.5"
-                              >
-                                <Paperclip size={13} />
-                                {doc.file_name}
-                              </a>
+                          <td className="px-3 py-2">
+                            {doc.file_path ? (
+                              <OpenFileButton filePath={doc.file_path} fileName={doc.file_name} />
                             ) : (
-                              <span className="text-sm font-medium text-[#0F172A] flex items-center gap-1.5">
+                              <span className="text-xs font-medium text-[#0F172A] flex items-center gap-1.5">
                                 <FileText size={13} className="text-[#94A3B8]" />
                                 {doc.file_name}
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-2">
                             <div className="text-xs text-[#64748B]">{ENTITY_LABELS[doc.entity_type] ?? doc.entity_type}</div>
                             {doc.entityName && (
-                              <div className="text-sm font-medium text-[#0F172A]">{doc.entityName}</div>
+                              <div className="text-xs font-medium text-[#0F172A]">{doc.entityName}</div>
                             )}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-2">
                             <span className={`text-[11px] font-semibold px-2 py-1 rounded-full ${badge.cls}`}>
                               {badge.label}
                             </span>
@@ -492,11 +579,17 @@ export function DocumentosClient({
                               </div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-xs text-[#64748B] max-w-[160px] truncate">
+                          <td className="px-3 py-2 text-xs text-[#64748B] max-w-[160px] truncate">
                             {doc.notes ?? '—'}
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <DeleteButton id={doc.id} filePath={doc.file_path} fileName={doc.file_name} />
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => setEditDoc(doc)}
+                                className="text-[#94A3B8] hover:text-[#2563EB] transition-colors p-1">
+                                <Pencil size={13} />
+                              </button>
+                              <DeleteButton id={doc.id} filePath={doc.file_path} fileName={doc.file_name} />
+                            </div>
                           </td>
                         </tr>
                       )

@@ -2,9 +2,9 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Users, FileText, UserMinus } from 'lucide-react'
+import { X, Users, FileText, UserMinus, Trash2, ChevronDown, Download, Loader2 } from 'lucide-react'
 import { formatCOP, formatDate } from '@/lib/utils'
-import { guardarPrestacionesAction } from './actions'
+import { guardarPrestacionesAction, eliminarPrestacionAction, eliminarEmpleadoAction } from './actions'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ async function generarPDF(params: {
 
   sf(false, 10)
   txt('Firma del empleador: ___________________________________________'); ln()
-  txt('Nombre: Jhona Jairo Cano Valencia');                               ln()
+  txt('Nombre: Jhon Jairo Cano Valencia');                               ln()
   txt('Cargo: Representante Legal');                                       ln()
   txt('Empresa: ISADAN Transportes SAS');                                  ln()
   txt('NIT: 902030120');                                                   ln()
@@ -239,6 +239,26 @@ type Employee = {
   hire_date: string
   salary: number
   active: boolean
+  sourceType: 'empleado' | 'conductor'
+}
+
+type PersonaJoin = {
+  full_name: string
+  document: string
+  hire_date: string
+  salary: number
+}
+
+type HistorialRow = {
+  id: string
+  period: string | null
+  cesantias: number | null
+  intereses: number | null
+  prima: number | null
+  vacaciones: number | null
+  paid_date: string | null
+  employees: PersonaJoin | null
+  drivers:   PersonaJoin | null
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
@@ -287,7 +307,8 @@ function LiquidacionModal({
     }
 
     const result = await guardarPrestacionesAction({
-      employee_id: employee.id,
+      entity_type: employee.sourceType === 'conductor' ? 'DRIVER' : 'EMPLOYEE',
+      entity_id:   employee.id,
       period,
       cesantias:  calc.cesantias,
       intereses:  calc.intereses,
@@ -516,10 +537,130 @@ function LiquidacionModal({
   )
 }
 
+// ── Regenerar PDF desde historial ─────────────────────────────────────────────
+
+async function descargarPDFHistorial(row: HistorialRow) {
+  const persona = row.employees ?? row.drivers
+  if (!persona) return
+
+  const period   = row.period   ?? ''
+  const paidDate = row.paid_date ?? new Date().toISOString().split('T')[0]
+  const hireDate = persona.hire_date ?? paidDate
+
+  const liqType: LiquidationType   = period.endsWith('PRIMA') ? 'solo_prima' : 'completa'
+  const modalType: 'anual' | 'desvinculacion' = period.endsWith('LIQ') ? 'desvinculacion' : 'anual'
+
+  // Derivar fechas aproximadas del código de período
+  const year = parseInt(period.split('-')[0]) || new Date().getFullYear()
+  let inicio = hireDate, fin = paidDate
+  let primaDesde = hireDate, primaHasta = paidDate
+
+  if (period.endsWith('S1')) {
+    inicio = `${year}-01-01`; fin = `${year}-06-30`
+    primaDesde = inicio; primaHasta = fin
+  } else if (period.endsWith('S2')) {
+    inicio = `${year}-07-01`; fin = `${year}-12-31`
+    primaDesde = inicio; primaHasta = fin
+  } else if (period.endsWith('PRIMA')) {
+    primaDesde = `${year}-01-01`; primaHasta = `${year}-06-30`
+    inicio = primaDesde; fin = primaHasta
+  } else if (period.endsWith('LIQ')) {
+    inicio = hireDate; fin = paidDate
+    primaDesde = hireDate; primaHasta = paidDate
+  }
+
+  const ms = (d: string) => new Date(d + 'T00:00:00').getTime()
+  const diasGeneral = Math.max(0, Math.round((ms(fin) - ms(inicio)) / 86_400_000))
+  const diasPrima   = Math.max(0, Math.round((ms(primaHasta) - ms(primaDesde)) / 86_400_000))
+
+  const cesantias  = row.cesantias  ?? 0
+  const intereses  = row.intereses  ?? 0
+  const prima      = row.prima      ?? 0
+  const vacaciones = row.vacaciones ?? 0
+
+  const employee: Employee = {
+    id:         '',
+    full_name:  persona.full_name,
+    document:   persona.document  ?? '',
+    hire_date:  hireDate,
+    salary:     Number(persona.salary ?? 0),
+    active:     true,
+    sourceType: row.employees ? 'empleado' : 'conductor',
+  }
+
+  const calc: CalcResult = {
+    valid: true,
+    diasGeneral, diasPrima,
+    primaDesde, primaHasta,
+    cesantias, intereses, prima, vacaciones,
+    total: cesantias + intereses + prima + vacaciones,
+  }
+
+  await generarPDF({ liqType, modalType, employee, calc, inicio, fin })
+}
+
+function DescargarPDFButton({ row }: { row: HistorialRow }) {
+  const [loading, setLoading] = useState(false)
+  const persona = row.employees ?? row.drivers
+  if (!persona) return null
+
+  const handleClick = async () => {
+    setLoading(true)
+    await descargarPDFHistorial(row)
+    setLoading(false)
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      title="Descargar PDF"
+      className="text-[#94A3B8] hover:text-[#2563EB] transition-colors p-0.5 disabled:opacity-50"
+    >
+      {loading
+        ? <Loader2 size={13} className="animate-spin" />
+        : <Download size={13} />
+      }
+    </button>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function PrestacionesClient({ employees }: { employees: Employee[] }) {
+export function PrestacionesClient({ personas, historial: initialHistorial }: { personas: Employee[]; historial: HistorialRow[] }) {
   const [modal, setModal] = useState<{ employee: Employee; type: 'anual' | 'desvinculacion' } | null>(null)
+  const [historial,     setHistorial]     = useState(initialHistorial)
+  const [selectedId,    setSelectedId]    = useState('')
+  const [deleteHist,    setDeleteHist]    = useState<HistorialRow | null>(null)
+  const [deleteEmp,     setDeleteEmp]     = useState<Employee | null>(null)
+  const [deleting,      setDeleting]      = useState(false)
+  const [personas_,     setPersonas_]     = useState(personas)
+
+  const selected = personas_.find(e => e.id === selectedId) ?? null
+
+  const handleDeleteHistorial = async () => {
+    if (!deleteHist) return
+    setDeleting(true)
+    const res = await eliminarPrestacionAction(deleteHist.id)
+    if (res.ok) {
+      setHistorial(prev => prev.filter(h => h.id !== deleteHist.id))
+      setDeleteHist(null)
+    }
+    setDeleting(false)
+  }
+
+  const handleDeleteEmpleado = async () => {
+    if (!deleteEmp) return
+    setDeleting(true)
+    const res = await eliminarEmpleadoAction(deleteEmp.id)
+    if (res.ok) {
+      setPersonas_(prev => prev.filter(e => e.id !== deleteEmp.id))
+      setHistorial(prev => prev.filter(h => (h as any).employee_id !== deleteEmp.id))
+      setSelectedId('')
+      setDeleteEmp(null)
+    }
+    setDeleting(false)
+  }
 
   return (
     <>
@@ -531,47 +672,198 @@ export function PrestacionesClient({ employees }: { employees: Employee[] }) {
         />
       )}
 
-      {employees.length === 0 ? (
-        <div className="bg-white border border-[#E2E8F0] rounded-xl py-12 text-center">
-          <Users size={32} className="text-[#CBD5E1] mx-auto mb-3" />
-          <p className="text-sm text-[#64748B]">No hay empleados activos registrados</p>
+      {/* Persona selector */}
+      <div className="mb-6">
+        <label className="block text-xs font-semibold text-[#64748B] mb-2">Empleado / Conductor</label>
+        <div className="relative w-96">
+          <select
+            value={selectedId}
+            onChange={e => setSelectedId(e.target.value)}
+            className="w-full appearance-none border border-[#E2E8F0] rounded-xl px-4 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 pr-9"
+          >
+            <option value="">Seleccionar…</option>
+            {personas_.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.full_name} ({p.sourceType === 'conductor' ? 'Conductor' : 'Empleado'})
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8] pointer-events-none" />
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {employees.map(emp => (
-            <div key={emp.id} className="bg-white border border-[#E2E8F0] rounded-xl p-5">
-              <div className="mb-4">
-                <h3 className="text-sm font-semibold text-[#0F172A]">{emp.full_name}</h3>
-                <p className="text-xs text-[#64748B] mt-0.5">C.C. {emp.document}</p>
-              </div>
-              <div className="space-y-1.5 mb-4">
-                <div className="flex justify-between">
-                  <span className="text-xs text-[#64748B]">Fecha de ingreso</span>
-                  <span className="text-xs font-medium text-[#0F172A]">{formatDate(emp.hire_date)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-[#64748B]">Salario</span>
-                  <span className="text-xs font-bold text-[#0F172A]">{formatCOP(emp.salary)}</span>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setModal({ employee: emp, type: 'anual' })}
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-medium py-2 rounded-lg transition-colors"
-                >
-                  <FileText size={12} />
-                  Liquidar prestaciones
-                </button>
-                <button
-                  onClick={() => setModal({ employee: emp, type: 'desvinculacion' })}
-                  className="flex items-center justify-center gap-1.5 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                >
-                  <UserMinus size={12} />
-                  Desvincular
-                </button>
-              </div>
+        {personas_.length === 0 && (
+          <p className="text-xs text-[#94A3B8] mt-2">No hay empleados ni conductores activos</p>
+        )}
+      </div>
+
+      {/* Selected person card */}
+      {selected && (
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 max-w-sm mb-8">
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-sm font-semibold text-[#0F172A]">{selected.full_name}</h3>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                selected.sourceType === 'conductor'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {selected.sourceType === 'conductor' ? 'Conductor' : 'Empleado'}
+              </span>
             </div>
-          ))}
+            <p className="text-xs text-[#64748B]">C.C. {selected.document}</p>
+          </div>
+          <div className="space-y-1.5 mb-5">
+            <div className="flex justify-between">
+              <span className="text-xs text-[#64748B]">Fecha de ingreso</span>
+              <span className="text-xs font-medium text-[#0F172A]">{formatDate(selected.hire_date)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-xs text-[#64748B]">Salario</span>
+              <span className="text-xs font-bold text-[#0F172A]">{formatCOP(selected.salary)}</span>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setModal({ employee: selected, type: 'anual' })}
+              className="flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+            >
+              <FileText size={12} />
+              Liquidar prestaciones
+            </button>
+            <button
+              onClick={() => setModal({ employee: selected, type: 'desvinculacion' })}
+              className="flex items-center gap-1.5 border border-orange-200 text-orange-600 hover:bg-orange-50 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+            >
+              <UserMinus size={12} />
+              Desvincular
+            </button>
+            {selected.sourceType === 'empleado' && (
+              <button
+                onClick={() => setDeleteEmp(selected)}
+                className="flex items-center gap-1.5 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+              >
+                <Trash2 size={12} />
+                Eliminar empleado
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Historial */}
+      <div>
+        <h2 className="text-sm font-semibold text-[#0F172A] mb-4">
+          Historial de liquidaciones
+          <span className="ml-2 text-xs font-normal text-[#64748B]">{historial.length} registros</span>
+        </h2>
+        <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Empleado</th>
+                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Período</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Cesantías</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Intereses</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Prima</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Vacaciones</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Total</th>
+                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha pago</th>
+                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Tipo</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E2E8F0]">
+              {historial.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="text-center py-10 text-xs text-[#64748B]">
+                    No hay liquidaciones registradas
+                  </td>
+                </tr>
+              ) : historial.map(b => {
+                const total   = (b.cesantias ?? 0) + (b.intereses ?? 0) + (b.prima ?? 0) + (b.vacaciones ?? 0)
+                const period  = String(b.period ?? '')
+                const isLiq   = period.endsWith('LIQ')
+                const isPrima = period.endsWith('PRIMA')
+                return (
+                  <tr key={b.id} className="hover:bg-[#F8FAFC] transition-colors">
+                    <td className="px-3 py-2 text-xs font-medium text-[#0F172A]">
+                      {b.employees?.full_name ?? b.drivers?.full_name ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{b.period}</td>
+                    <td className="px-3 py-2 text-xs text-[#0F172A] text-right">{formatCOP(b.cesantias ?? 0)}</td>
+                    <td className="px-3 py-2 text-xs text-[#0F172A] text-right">{formatCOP(b.intereses ?? 0)}</td>
+                    <td className="px-3 py-2 text-xs text-[#0F172A] text-right">{formatCOP(b.prima ?? 0)}</td>
+                    <td className="px-3 py-2 text-xs text-[#0F172A] text-right">{formatCOP(b.vacaciones ?? 0)}</td>
+                    <td className="px-3 py-2 text-xs font-bold text-[#0F172A] text-right">{formatCOP(total)}</td>
+                    <td className="px-3 py-2 text-xs text-[#64748B]">{b.paid_date ? formatDate(b.paid_date) : '—'}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${
+                        isLiq   ? 'bg-orange-100 text-orange-700' :
+                        isPrima ? 'bg-purple-100 text-purple-700' :
+                                  'bg-blue-100 text-blue-700'
+                      }`}>
+                        {isLiq ? 'Desvinculación' : isPrima ? 'Solo prima' : 'Pago anual'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1">
+                        <DescargarPDFButton row={b} />
+                        <button onClick={() => setDeleteHist(b)}
+                          className="text-[#94A3B8] hover:text-red-500 transition-colors p-0.5">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Delete historial modal */}
+      {deleteHist && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h2 className="font-semibold text-[#0F172A]">Eliminar liquidacion</h2>
+            <p className="text-xs text-[#64748B]">
+              Se eliminara la liquidacion{' '}
+              <span className="font-medium text-[#0F172A]">{deleteHist.period}</span>{' '}
+              de <span className="font-medium text-[#0F172A]">{deleteHist.employees?.full_name ?? deleteHist.drivers?.full_name ?? '—'}</span> de forma permanente.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteHist(null)} disabled={deleting}
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                Cancelar
+              </button>
+              <button onClick={handleDeleteHistorial} disabled={deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
+                {deleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete employee modal */}
+      {deleteEmp && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h2 className="font-semibold text-[#0F172A]">Eliminar empleado</h2>
+            <p className="text-xs text-[#64748B]">
+              Se eliminara <span className="font-medium text-[#0F172A]">{deleteEmp.full_name}</span> y todos sus registros de prestaciones de forma permanente.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteEmp(null)} disabled={deleting}
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                Cancelar
+              </button>
+              <button onClick={handleDeleteEmpleado} disabled={deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
+                {deleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>

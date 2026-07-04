@@ -1,41 +1,77 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { Zap, X } from 'lucide-react'
 import { crearTransaccionAction } from './actions'
-import { PREDEFINED } from '@/lib/categories'
+import CategorySelector from '@/components/CategorySelector'
+import {
+  sugerirCategoriaAction,
+  type TransactionCategory,
+} from '@/app/(dashboard)/bancos/category-actions'
+import type { PucAccount } from '@/components/PucSelector'
 
-type CustomCategory = { id: string; name: string; type: string }
+type Trip = {
+  id: string
+  trip_number: string
+  origin: string
+  destination: string
+  load_date: string | null
+  vehicles: { plate: string } | null
+}
 
 export default function TransaccionForm({
   accounts,
-  customCategories,
+  categories,
+  pucAccounts,
+  trips,
 }: {
   accounts: { id: string; bank_name: string }[]
-  customCategories: CustomCategory[]
+  categories: TransactionCategory[]
+  pucAccounts: PucAccount[]
+  trips: Trip[]
 }) {
-  const router    = useRouter()
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState('')
-  const [category,   setCategory]   = useState('')
-  const [newCatName, setNewCatName] = useState('')
-  const [newCatType, setNewCatType] = useState<'NEGOCIO' | 'CASA'>('NEGOCIO')
+  const router = useRouter()
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState('')
+  const [categoryId,  setCategoryId]  = useState('')
+  const [tripId,      setTripId]      = useState('')
+  const [description, setDescription] = useState('')
+  const [suggestion,  setSuggestion]  = useState<{
+    categoryId: string; categoryName: string; categoryType: 'NEGOCIO' | 'CASA'; source: 'RULES' | 'PATTERNS'
+  } | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const isNew = category === '__nueva__'
+  const selectedTrip = trips.find(t => t.id === tripId) ?? null
+
+  const handleDescChange = useCallback((val: string) => {
+    setDescription(val)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (val.length < 4) { setSuggestion(null); return }
+    debounceRef.current = setTimeout(async () => {
+      const s = await sugerirCategoriaAction(val)
+      setSuggestion(s)
+    }, 400)
+  }, [])
+
+  const acceptSuggestion = () => {
+    if (!suggestion) return
+    setCategoryId(suggestion.categoryId)
+    setSuggestion(null)
+  }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (isNew && !newCatName.trim()) {
-      setError('Escribe el nombre de la nueva categoría')
-      return
-    }
-    setLoading(true); setError('')
+    if (!categoryId) { setError('Selecciona una categoría'); return }
+    setLoading(true)
+    setError('')
 
     const fd = new FormData(e.currentTarget)
-    if (isNew) {
-      fd.set('category',          newCatName.trim())
-      fd.set('new_category_name', newCatName.trim())
-      fd.set('new_category_type', newCatType)
+    fd.set('category_id',  categoryId)
+    fd.set('description',  description)
+    if (tripId) {
+      fd.set('reference_type', 'TRIP')
+      fd.set('reference_id',   tripId)
     }
 
     const result = await crearTransaccionAction(fd)
@@ -48,13 +84,9 @@ export default function TransaccionForm({
     }
   }
 
-  const inputCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
-  const labelCls = 'block text-xs font-semibold text-[#64748B] mb-1.5'
-
-  const negocioPred = PREDEFINED.filter(c => c.type === 'NEGOCIO' && c.value !== 'OTRO')
-  const casaPred    = PREDEFINED.filter(c => c.type === 'CASA')
-  const customNeg   = customCategories.filter(c => c.type === 'NEGOCIO')
-  const customCasa  = customCategories.filter(c => c.type === 'CASA')
+  const inputCls    = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+  const labelCls    = 'block text-xs font-semibold text-[#64748B] mb-1.5'
+  const readonlyCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#64748B] bg-[#F8FAFC] outline-none'
 
   return (
     <form onSubmit={handleSubmit} className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-5">
@@ -63,9 +95,7 @@ export default function TransaccionForm({
         <label className={labelCls}>Cuenta bancaria *</label>
         <select name="account_id" required className={inputCls}>
           <option value="">Seleccionar cuenta</option>
-          {accounts.map(a => (
-            <option key={a.id} value={a.id}>{a.bank_name}</option>
-          ))}
+          {accounts.map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
         </select>
       </div>
 
@@ -80,7 +110,7 @@ export default function TransaccionForm({
         </div>
         <div>
           <label className={labelCls}>Monto (COP) *</label>
-          <input name="amount" required type="number" min="1" step="1" placeholder="0" className={inputCls} />
+          <input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" className={inputCls} />
         </div>
       </div>
 
@@ -91,83 +121,76 @@ export default function TransaccionForm({
 
       <div>
         <label className={labelCls}>Categoría *</label>
-        <select
-          name="category"
-          value={category}
-          onChange={e => setCategory(e.target.value)}
-          required={!isNew}
-          className={inputCls}
-        >
-          <option value="">Seleccionar categoría</option>
-
-          <optgroup label="Negocio">
-            {negocioPred.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-            {customNeg.map(c => (
-              <option key={c.id} value={c.name}>{c.name}</option>
-            ))}
-          </optgroup>
-
-          <optgroup label="Casa">
-            {casaPred.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-            {customCasa.map(c => (
-              <option key={c.id} value={c.name}>{c.name}</option>
-            ))}
-          </optgroup>
-
-          <option value="__nueva__">+ Nueva categoría...</option>
-        </select>
-
-        {isNew && (
-          <div className="mt-3 flex gap-2">
-            <input
-              type="text"
-              value={newCatName}
-              onChange={e => setNewCatName(e.target.value)}
-              placeholder="Nombre de la categoría"
-              className="flex-1 border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            />
-            <select
-              value={newCatType}
-              onChange={e => setNewCatType(e.target.value as 'NEGOCIO' | 'CASA')}
-              className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              <option value="NEGOCIO">Negocio</option>
-              <option value="CASA">Casa</option>
-            </select>
-          </div>
-        )}
+        <CategorySelector
+          value={categoryId}
+          onChange={setCategoryId}
+          categories={categories}
+          pucAccounts={pucAccounts}
+          typeFilter={suggestion?.categoryType}
+        />
       </div>
+
+      {trips.length > 0 && (
+        <div>
+          <label className={labelCls}>Viaje asociado (opcional)</label>
+          <select value={tripId} onChange={e => setTripId(e.target.value)} className={inputCls}>
+            <option value="">Sin viaje asociado</option>
+            {trips.map(t => {
+              const fecha = t.load_date ? t.load_date.split('-').reverse().join('/') : '—'
+              const placa = t.vehicles?.plate ?? '—'
+              return (
+                <option key={t.id} value={t.id}>
+                  {t.trip_number} · {placa} · {t.origin} → {t.destination} · {fecha}
+                </option>
+              )
+            })}
+          </select>
+          {selectedTrip && (
+            <div className="mt-2">
+              <label className="block text-xs text-[#64748B] mb-1">Placa del vehículo</label>
+              <input readOnly value={selectedTrip.vehicles?.plate ?? '—'} className={readonlyCls} />
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
         <label className={labelCls}>Descripción *</label>
         <textarea
-          name="description"
           required
           rows={3}
+          value={description}
+          onChange={e => handleDescChange(e.target.value)}
           placeholder="Descripción de la transacción..."
           className={`${inputCls} resize-none`}
         />
+        {suggestion && (
+          <div className="mt-1.5 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <Zap size={12} className="text-blue-500 shrink-0" />
+            <span className="text-xs text-blue-700 flex-1">
+              Sugerido: <span className="font-semibold">{suggestion.categoryName}</span>
+              <span className="ml-1 text-blue-400">· {suggestion.categoryType === 'CASA' ? 'Casa' : 'Negocio'}</span>
+            </span>
+            <button type="button" onClick={acceptSuggestion}
+              className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded font-medium hover:bg-blue-700 shrink-0">
+              Aceptar
+            </button>
+            <button type="button" onClick={() => setSuggestion(null)}>
+              <X size={12} className="text-blue-400 hover:text-blue-600" />
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
 
       <div className="flex gap-3 pt-2">
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors"
-        >
+        <button type="button" onClick={() => router.back()}
+          className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors">
           Cancelar
         </button>
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
-        >
+        <button type="submit" disabled={loading}
+          className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors">
           {loading ? 'Registrando...' : 'Registrar'}
         </button>
       </div>

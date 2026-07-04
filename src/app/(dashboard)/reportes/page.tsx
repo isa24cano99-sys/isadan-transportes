@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase'
 import { ReportesClient } from './ReportesClient'
-import { getCategoryType } from '@/lib/categories'
 
 export type MonthData = {
   month: number
@@ -50,7 +49,7 @@ export default async function ReportesPage({
     to   = `${year}-12-31`
   }
 
-  const [tripsRes, legRes, installRes, bankTxRes, customCatsRes] = await Promise.all([
+  const [tripsRes, legRes, installRes, bankTxRes, pucRes] = await Promise.all([
     supabase
       .from('trips')
       .select(`
@@ -83,21 +82,25 @@ export default async function ReportesPage({
 
     supabase
       .from('bank_transactions')
-      .select('id, type, amount, date, category')
+      .select('id, type, amount, date, category_id, transaction_categories(type, puc_code)')
       .gte('date', from)
       .lte('date', to),
 
     supabase
-      .from('transaction_categories')
-      .select('id, name, type')
-      .order('name'),
+      .from('puc_accounts')
+      .select('codigo, nombre, tipo')
+      .eq('active', true),
   ])
 
-  const trips          = tripsRes.data      ?? []
-  const legalizations  = legRes.data        ?? []
-  const installments   = installRes.data    ?? []
-  const bankTxns       = bankTxRes.data     ?? []
-  const customCategories = customCatsRes.data ?? []
+  const trips         = tripsRes.data   ?? []
+  const legalizations = legRes.data     ?? []
+  const installments  = installRes.data ?? []
+  const bankTxns      = bankTxRes.data  ?? []
+  const pucAccounts   = pucRes.data     ?? []
+
+  // Build lookup map: codigo → { nombre, tipo }
+  const pucMap = new Map<string, { nombre: string; tipo: string }>()
+  for (const p of pucAccounts) pucMap.set(p.codigo, { nombre: p.nombre, tipo: p.tipo })
 
   // ── Estado de resultados por mes ──────────────────────────────────────────
   const months: MonthData[] = Array.from({ length: 12 }, (_, i) => ({
@@ -122,13 +125,17 @@ export default async function ReportesPage({
   }
 
   for (const tx of bankTxns) {
-    const txTipo = getCategoryType(tx.category as string, customCategories)
-    if (tipo === 'NEGOCIO' && txTipo !== 'NEGOCIO') continue
-    if (tipo === 'CASA'    && txTipo !== 'CASA')    continue
+    const cat     = (tx as any).transaction_categories
+    const txFilter = (cat?.type ?? 'NEGOCIO') as 'NEGOCIO' | 'CASA'
+    if (tipo === 'NEGOCIO' && txFilter !== 'NEGOCIO') continue
+    if (tipo === 'CASA'    && txFilter !== 'CASA')    continue
 
+    const pucTipo = cat?.puc_code ? pucMap.get(cat.puc_code)?.tipo : null
     const m = new Date((tx.date as string) + 'T00:00:00').getMonth()
     if (tx.type === 'INGRESO') {
       months[m].ingresos += Number(tx.amount ?? 0)
+    } else if (pucTipo === 'GASTO_FINANCIERO') {
+      months[m].gastos_financieros += Number(tx.amount ?? 0)
     } else {
       months[m].costos += Number(tx.amount ?? 0)
     }

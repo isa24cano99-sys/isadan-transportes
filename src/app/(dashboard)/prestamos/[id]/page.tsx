@@ -5,6 +5,7 @@ import { ChevronLeft } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { InstallmentsTable } from './InstallmentsTable'
 import { SyncButton } from './SyncButton'
+import { AbonoCapitalButton } from './AbonoCapitalButton'
 
 async function getPrestamo(id: string) {
   const { data } = await supabase
@@ -79,6 +80,7 @@ export default async function PrestamoDetailPage({
               Próxima
             </span>
           </div>
+          <AbonoCapitalButton loanId={prestamo.id} installments={installments as any} />
           <SyncButton loanId={prestamo.id} />
         </div>
       </div>

@@ -45,17 +45,9 @@ export default async function DocumentosPage() {
     if (doc.entity_type === 'CONDUCTOR') entityName = driverMap.get(doc.entity_id)  ?? doc.entity_id ?? undefined
     if (doc.entity_type === 'EMPRESA')   entityName = 'ISADAN Transportes SAS'
 
-    // Public URL if file exists
-    let publicUrl: string | undefined
-    if (doc.file_path) {
-      const { data } = supabase.storage.from('documentos').getPublicUrl(doc.file_path)
-      publicUrl = data.publicUrl
-    }
-
     return {
       ...doc,
       entityName,
-      publicUrl,
       daysLeft: getDaysLeft(doc.expiration_date),
     }
   })

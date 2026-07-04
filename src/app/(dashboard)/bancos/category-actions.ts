@@ -1,0 +1,193 @@
+'use server'
+
+import { supabase } from '@/lib/supabase'
+import { revalidatePath } from 'next/cache'
+import { normalizarDescripcion, categorizarPorReglas } from '@/lib/transaction-categorizer'
+
+export type TransactionCategory = {
+  id: string
+  name: string
+  description: string | null
+  puc_code: string | null
+  type: 'NEGOCIO' | 'CASA'
+  active: boolean
+  puc_tipo?: string
+}
+
+export async function crearCategoriaAction(
+  formData: FormData,
+): Promise<{ ok: boolean; category?: TransactionCategory; error?: string }> {
+  const name        = (formData.get('name') as string)?.trim()
+  const type        = formData.get('type') as 'NEGOCIO' | 'CASA'
+  const puc_code    = (formData.get('puc_code') as string) || null
+  const description = (formData.get('description') as string) || null
+
+  if (!name || !type) return { ok: false, error: 'Nombre y tipo son requeridos' }
+
+  const { data, error } = await supabase
+    .from('transaction_categories')
+    .insert({ name, type, puc_code, description, active: true })
+    .select()
+    .single()
+
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/bancos', 'layout')
+  return { ok: true, category: data as TransactionCategory }
+}
+
+export async function sugerirCategoriaAction(
+  descripcion: string,
+): Promise<{ categoryId: string; categoryName: string; categoryType: 'NEGOCIO' | 'CASA'; source: 'RULES' | 'PATTERNS' } | null> {
+  if (descripcion.length < 4) return null
+
+  // 1. Reglas fijas
+  const ruleName = categorizarPorReglas(descripcion)
+  if (ruleName) {
+    const { data: cat } = await supabase
+      .from('transaction_categories')
+      .select('id, name, type')
+      .ilike('name', ruleName)
+      .eq('active', true)
+      .maybeSingle()
+    if (cat) return { categoryId: cat.id, categoryName: cat.name, categoryType: cat.type as 'NEGOCIO' | 'CASA', source: 'RULES' }
+  }
+
+  // 2. Patrones aprendidos
+  const { data: patterns } = await supabase
+    .from('description_patterns')
+    .select('pattern, category_id, transaction_categories(id, name, type)')
+    .order('match_count', { ascending: false })
+    .limit(200)
+
+  if (patterns?.length) {
+    const normed = normalizarDescripcion(descripcion)
+    const match = patterns.find(p => normed.includes(p.pattern))
+    if (match) {
+      const cat = match.transaction_categories as unknown as { id: string; name: string; type: string } | null
+      if (cat) return { categoryId: cat.id, categoryName: cat.name, categoryType: cat.type as 'NEGOCIO' | 'CASA', source: 'PATTERNS' }
+    }
+  }
+
+  return null
+}
+
+export async function recategorizarAction(
+  accountId: string,
+): Promise<{ ok: boolean; categorized: number; skipped: number; error?: string }> {
+  const [{ data: txns, error: txErr }, { data: cats }, { data: patterns }] = await Promise.all([
+    supabase
+      .from('bank_transactions')
+      .select('id, description, type')
+      .eq('account_id', accountId)
+      .is('category_id', null),
+    supabase
+      .from('transaction_categories')
+      .select('id, name')
+      .eq('active', true),
+    supabase
+      .from('description_patterns')
+      .select('pattern, category_id')
+      .order('match_count', { ascending: false })
+      .limit(500),
+  ])
+
+  if (txErr) return { ok: false, categorized: 0, skipped: 0, error: txErr.message }
+  if (!txns?.length) return { ok: true, categorized: 0, skipped: 0 }
+
+  const catByName = new Map((cats ?? []).map(c => [c.name.toLowerCase(), c.id]))
+  const updates: any[] = []
+  let categorized = 0
+
+  for (const tx of txns) {
+    const desc = tx.description ?? ''
+
+    // Try rules
+    const ruleName = categorizarPorReglas(desc)
+    if (ruleName) {
+      const catId = catByName.get(ruleName.toLowerCase())
+      if (catId) {
+        updates.push(supabase.from('bank_transactions').update({ category_id: catId }).eq('id', tx.id))
+        categorized++
+        continue
+      }
+    }
+
+    // Try patterns
+    const normed = normalizarDescripcion(desc)
+    const match = (patterns ?? []).find(p => normed.includes(p.pattern))
+    if (match?.category_id) {
+      updates.push(supabase.from('bank_transactions').update({ category_id: match.category_id }).eq('id', tx.id))
+      categorized++
+    }
+  }
+
+  await Promise.all(updates)
+  revalidatePath('/bancos', 'layout')
+  return { ok: true, categorized, skipped: (txns?.length ?? 0) - categorized }
+}
+
+// ── Migración de campo category (texto) → category_id ───────────────────────
+
+const KEYWORD_TO_NAME: Record<string, string> = {
+  PEAJES:               'Peajes operación',
+  GMF:                  'GMF 4x1000',
+  IMPTO_GOBIERNO:       'GMF 4x1000',
+  INTERESES_BANCARIOS:  'Intereses bancarios recibidos',
+  SEGUROS:              'Seguros vehículos',
+  SEGURIDAD_SOCIAL:     'Seguridad social',
+}
+
+export async function migrarCategoriasAction(): Promise<{ ok: boolean; updated: number; error?: string }> {
+  const { data: txns, error: txErr } = await supabase
+    .from('bank_transactions')
+    .select('id, category')
+    .is('category_id', null)
+    .not('category', 'is', null)
+    .neq('category', '')
+
+  if (txErr) return { ok: false, updated: 0, error: txErr.message }
+  if (!txns?.length) return { ok: true, updated: 0 }
+
+  const { data: cats } = await supabase
+    .from('transaction_categories')
+    .select('id, name, puc_code')
+    .eq('active', true)
+
+  const pucToId  = new Map<string, string>()
+  const nameToId = new Map<string, string>()
+  for (const c of cats ?? []) {
+    if (c.puc_code) pucToId.set(c.puc_code, c.id)
+    if (c.name)     nameToId.set(c.name.toLowerCase().trim(), c.id)
+  }
+
+  const updates: any[] = []
+  let updated = 0
+
+  for (const tx of txns) {
+    const raw = (tx.category as string | null)?.trim() ?? ''
+    if (!raw) continue
+    let catId = pucToId.get(raw)
+    if (!catId) {
+      const targetName = KEYWORD_TO_NAME[raw]
+      if (targetName) catId = nameToId.get(targetName.toLowerCase().trim())
+    }
+    if (catId) {
+      updates.push(supabase.from('bank_transactions').update({ category_id: catId }).eq('id', tx.id))
+      updated++
+    }
+  }
+
+  await Promise.all(updates)
+  revalidatePath('/bancos', 'layout')
+  return { ok: true, updated }
+}
+
+export async function checkUnmigrated(): Promise<number> {
+  const { count } = await supabase
+    .from('bank_transactions')
+    .select('id', { count: 'exact', head: true })
+    .is('category_id', null)
+    .not('category', 'is', null)
+    .neq('category', '')
+  return count ?? 0
+}

@@ -20,11 +20,16 @@ export default function NuevoPrestamoForm() {
   const [error, setError]       = useState('')
   const [entity, setEntity]     = useState('')
   const [amount, setAmount]     = useState('')
-  const [rate, setRate]         = useState('')
+  const [annualRate, setAnnualRate] = useState('')
   const [term, setTerm]         = useState('')
   const [startDate, setStartDate] = useState('')
 
-  const cuota          = calcCuota(num(amount), num(rate), num(term))
+  // Tasa mensual efectiva: (1 + tasa_anual)^(1/12) - 1
+  const monthlyRate = annualRate
+    ? (Math.pow(1 + num(annualRate) / 100, 1 / 12) - 1) * 100
+    : 0
+
+  const cuota          = calcCuota(num(amount), monthlyRate, num(term))
   const totalPagar     = cuota * num(term)
   const totalIntereses = totalPagar - num(amount)
 
@@ -32,7 +37,9 @@ export default function NuevoPrestamoForm() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const result = await crearPrestamoAction(new FormData(e.currentTarget))
+    const fd = new FormData(e.currentTarget)
+    fd.set('interest_rate', monthlyRate.toFixed(6))
+    const result = await crearPrestamoAction(fd)
     if (result.ok) {
       router.push(result.id ? `/prestamos/${result.id}` : '/prestamos')
       router.refresh()
@@ -76,18 +83,22 @@ export default function NuevoPrestamoForm() {
             />
           </div>
           <div>
-            <label className={labelCls}>Tasa de interés mensual (%) *</label>
+            <label className={labelCls}>Tasa de interés anual (%) *</label>
             <input
-              name="interest_rate"
               type="number"
               min="0.01"
-              step="0.001"
-              value={rate}
-              onChange={e => setRate(e.target.value)}
-              placeholder="0.000"
+              step="0.01"
+              value={annualRate}
+              onChange={e => setAnnualRate(e.target.value)}
+              placeholder="Ej: 18"
               required
               className={inputCls}
             />
+            {monthlyRate > 0 && (
+              <p className="text-xs text-[#64748B] mt-1">
+                Equivale a <span className="font-semibold text-[#2563EB]">{monthlyRate.toFixed(4)}% mensual</span>
+              </p>
+            )}
           </div>
           <div>
             <label className={labelCls}>Plazo (meses) *</label>

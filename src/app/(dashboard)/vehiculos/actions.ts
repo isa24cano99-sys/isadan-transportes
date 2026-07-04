@@ -18,6 +18,25 @@ export async function crearVehiculoAction(formData: FormData) {
   return { ok: true, data: created }
 }
 
+export async function eliminarVehiculoAction(id: string, force = false): Promise<
+  | { ok: true }
+  | { ok: false; tripCount: number }
+  | { ok: false; error: string }
+> {
+  if (!force) {
+    const { count } = await supabase
+      .from('trips').select('*', { count: 'exact', head: true }).eq('vehicle_id', id)
+    if ((count ?? 0) > 0) return { ok: false, tripCount: count! }
+  }
+  if (force) {
+    await supabase.from('trips').update({ vehicle_id: null }).eq('vehicle_id', id)
+  }
+  const { error } = await supabase.from('vehicles').delete().eq('id', id)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/vehiculos')
+  return { ok: true }
+}
+
 export async function actualizarVehiculoAction(formData: FormData) {
   const id = formData.get('id') as string
   const data = {

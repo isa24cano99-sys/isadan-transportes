@@ -21,7 +21,7 @@ export default async function PrestamosPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#0F172A]">Préstamos</h1>
+          <h1 className="text-lg font-semibold text-[#0F172A]">Préstamos</h1>
           <p className="text-sm text-[#64748B] mt-0.5">{prestamos.length} préstamos registrados</p>
         </div>
         <Link

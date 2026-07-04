@@ -1,26 +1,41 @@
 import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import BankDetailClient from './client'
+import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
+
+export const dynamic = 'force-dynamic'
 
 async function getBankDetail(id: string) {
-  const [{ data: account }, { data: transactions }, { data: customCats }] = await Promise.all([
+  const [{ data: account }, { data: transactions }, { data: catsRaw }, { data: pucRaw }] = await Promise.all([
     supabase.from('bank_accounts').select('*').eq('id', id).single(),
     supabase
       .from('bank_transactions')
-      .select('*')
+      .select('*, transaction_categories(id, name, type, puc_code)')
       .eq('account_id', id)
       .order('date', { ascending: false }),
-    supabase.from('transaction_categories').select('id, name, type').order('name'),
+    supabase
+      .from('transaction_categories')
+      .select('id, name, description, puc_code, type, active')
+      .eq('active', true)
+      .order('type')
+      .order('name'),
+    supabase.from('puc_accounts').select('id, codigo, nombre, tipo, active').order('tipo').order('codigo'),
   ])
 
   if (!account) return null
+
+  const pucMap = new Map((pucRaw ?? []).map(p => [p.codigo, p.tipo]))
+  const categories: TransactionCategory[] = (catsRaw ?? []).map(c => ({
+    ...c,
+    puc_tipo: c.puc_code ? (pucMap.get(c.puc_code) ?? undefined) : undefined,
+  }))
 
   const txns     = transactions ?? []
   const ingresos = txns.filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0)
   const egresos  = txns.filter(t => t.type === 'EGRESO').reduce((s, t) => s + Number(t.amount), 0)
   const balance  = Number(account.initial_balance) + ingresos - egresos
 
-  return { account, transactions: txns, ingresos, egresos, balance, customCategories: customCats ?? [] }
+  return { account, transactions: txns, ingresos, egresos, balance, categories, pucAccounts: pucRaw ?? [] }
 }
 
 export default async function BankDetailPage({
@@ -33,5 +48,5 @@ export default async function BankDetailPage({
 
   if (!data) notFound()
 
-  return <BankDetailClient {...data} />
+  return <BankDetailClient {...data as any} />
 }

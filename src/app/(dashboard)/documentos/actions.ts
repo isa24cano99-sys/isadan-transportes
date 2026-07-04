@@ -8,7 +8,8 @@ export async function crearDocumentoAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const category        = formData.get('category') as string
   const entity_type     = formData.get('entity_type') as string
-  const entity_id       = (formData.get('entity_id') as string) || null
+  const PLACEHOLDER_ID  = '00000000-0000-0000-0000-000000000001'
+  const entity_id       = (formData.get('entity_id') as string) || PLACEHOLDER_ID
   const file_name       = formData.get('file_name') as string
   const expiration_date = (formData.get('expiration_date') as string) || null
   const notes           = (formData.get('notes') as string) || null
@@ -44,7 +45,7 @@ export async function crearDocumentoAction(
   const { error: dbError } = await supabase.from('documents').insert({
     category,
     entity_type,
-    entity_id:       entity_id || null,
+    entity_id,
     file_path,
     file_name,
     expiration_date: expiration_date || null,
@@ -58,6 +59,29 @@ export async function crearDocumentoAction(
 
   revalidatePath('/documentos', 'layout')
   revalidatePath('/', 'layout')
+  return { ok: true }
+}
+
+export async function getSignedUrlAction(
+  filePath: string,
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const { data, error } = await supabase.storage
+    .from('documentos')
+    .createSignedUrl(filePath, 3600)
+
+  if (error || !data?.signedUrl) {
+    return { ok: false, error: error?.message ?? 'No se pudo generar el enlace' }
+  }
+  return { ok: true, url: data.signedUrl }
+}
+
+export async function actualizarDocumentoAction(
+  id: string,
+  data: { expiration_date: string | null; notes: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('documents').update(data).eq('id', id)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/documentos', 'layout')
   return { ok: true }
 }
 

@@ -12,6 +12,7 @@ export default function Sidebar() {
     { href: '/legalizaciones', label: 'Legalizaciones' },
     { href: '/bancos',        label: 'Bancos' },
     { href: '/facturas',      label: 'Facturación DIAN' },
+    { href: '/proveedores',   label: 'Proveedores' },
     { href: '/prestamos',     label: 'Préstamos' },
     { href: '/prestaciones',  label: 'Prestaciones' },
     { href: '/vehiculos',     label: 'Vehículos' },
@@ -34,7 +35,7 @@ export default function Sidebar() {
             key={href}
             href={href}
             className={`flex items-center px-2 py-2 rounded-lg text-sm mb-0.5 transition-colors
-              ${pathname === href
+              ${(href === '/' ? pathname === href : pathname.startsWith(href))
                 ? 'bg-blue-600/25 text-blue-400 font-medium'
                 : 'text-white/60 hover:text-white hover:bg-white/10'
               }`}
