@@ -3,26 +3,26 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
+const links = [
+  { href: '/',              label: 'Dashboard' },
+  { href: '/viajes',        label: 'Viajes' },
+  { href: '/legalizaciones', label: 'Legalizaciones' },
+  { href: '/bancos',        label: 'Bancos' },
+  { href: '/facturas',      label: 'Facturación DIAN' },
+  { href: '/proveedores',   label: 'Proveedores' },
+  { href: '/prestamos',     label: 'Préstamos' },
+  { href: '/prestaciones',  label: 'Prestaciones' },
+  { href: '/nomina',        label: 'Nómina' },
+  { href: '/vehiculos',     label: 'Vehículos' },
+  { href: '/conductores',   label: 'Conductores' },
+  { href: '/clientes',      label: 'Clientes' },
+  { href: '/documentos',    label: 'Documentos' },
+  { href: '/reportes',      label: 'Estado resultados' },
+  { href: '/impuesto',      label: 'Impuesto SIMPLE' },
+]
+
 export default function Sidebar() {
   const pathname = usePathname()
-
-  const links = [
-    { href: '/',              label: 'Dashboard' },
-    { href: '/viajes',        label: 'Viajes' },
-    { href: '/legalizaciones', label: 'Legalizaciones' },
-    { href: '/bancos',        label: 'Bancos' },
-    { href: '/facturas',      label: 'Facturación DIAN' },
-    { href: '/proveedores',   label: 'Proveedores' },
-    { href: '/prestamos',     label: 'Préstamos' },
-    { href: '/prestaciones',  label: 'Prestaciones' },
-    { href: '/nomina',        label: 'Nómina' },
-    { href: '/vehiculos',     label: 'Vehículos' },
-    { href: '/conductores',   label: 'Conductores' },
-    { href: '/clientes',      label: 'Clientes' },
-    { href: '/documentos',    label: 'Documentos' },
-    { href: '/reportes',      label: 'Estado resultados' },
-    { href: '/impuesto',      label: 'Impuesto SIMPLE' },
-  ]
 
   return (
     <aside className="w-56 bg-[#0F172A] flex flex-col h-screen flex-shrink-0">

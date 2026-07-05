@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
-  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus,
+  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter,
 } from 'lucide-react'
 import { actualizarTransaccionAction, eliminarTransaccionAction } from '../transaccion/actions'
 import { recategorizarAction } from '../category-actions'
@@ -47,22 +47,13 @@ type TipoFilter = 'TODOS' | 'NEGOCIO' | 'CASA'
 type SortCol    = 'date' | 'type' | 'category' | 'description' | 'amount'
 
 interface EditForm {
-  type: string
-  amount: string
-  date: string
-  category_id: string
-  description: string
-  supplier_nit: string
-  supplier_name: string
+  type: string; amount: string; date: string; category_id: string
+  description: string; supplier_nit: string; supplier_name: string
 }
 
 type Trip = {
-  id: string
-  trip_number: string
-  origin: string
-  destination: string
-  load_date: string | null
-  vehicles: { plate: string } | null
+  id: string; trip_number: string; origin: string; destination: string
+  load_date: string | null; vehicles: { plate: string } | null
 }
 
 interface Props {
@@ -109,13 +100,13 @@ export default function BankDetailClient({
   const [recategorizing, setRecategorizing] = useState(false)
   const [recatMsg,       setRecatMsg]       = useState<string | null>(null)
   const [showNewTxn,     setShowNewTxn]     = useState(false)
+  const [showFilters,    setShowFilters]    = useState(false)
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir('asc') }
   }
 
-  // ── Filtering (without sort) for totals ──────────────────────────────────
   const filteredBase = useMemo(() => transactions.filter(t => {
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo   && t.date > dateTo)   return false
@@ -130,7 +121,6 @@ export default function BankDetailClient({
     return true
   }), [transactions, dateFrom, dateTo, categoryFilter, tipoFilter, searchDesc])
 
-  // ── Filtered totals ──────────────────────────────────────────────────────
   const filteredIngresos = useMemo(
     () => filteredBase.filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0),
     [filteredBase],
@@ -140,7 +130,6 @@ export default function BankDetailClient({
     [filteredBase],
   )
 
-  // ── Sorted output ────────────────────────────────────────────────────────
   const filtered = useMemo(() => [...filteredBase].sort((a, b) => {
     let cmp = 0
     switch (sortCol) {
@@ -158,25 +147,17 @@ export default function BankDetailClient({
   const uniqueCategories = useMemo(() => {
     const seen = new Map<string, string>()
     for (const t of transactions) {
-      if (t.category_id && t.transaction_categories?.name) {
-        seen.set(t.category_id, t.transaction_categories.name)
-      }
+      if (t.category_id && t.transaction_categories?.name) seen.set(t.category_id, t.transaction_categories.name)
     }
-    return [...seen.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [transactions])
 
   const openEdit = (t: Transaction) => {
     setEditTxn(t)
     setEditForm({
-      type:          t.type,
-      amount:        String(t.amount),
-      date:          t.date,
-      category_id:   t.category_id ?? '',
-      description:   t.description,
-      supplier_nit:  t.supplier_nit ?? '',
-      supplier_name: t.supplier_name ?? '',
+      type: t.type, amount: String(t.amount), date: t.date,
+      category_id: t.category_id ?? '', description: t.description,
+      supplier_nit: t.supplier_nit ?? '', supplier_name: t.supplier_name ?? '',
     })
     setEditError('')
   }
@@ -193,29 +174,23 @@ export default function BankDetailClient({
 
   const handleSave = async () => {
     if (!editTxn || !editForm) return
-    setSaving(true)
-    setEditError('')
+    setSaving(true); setEditError('')
     const fd = new FormData()
-    fd.set('type',          editForm.type)
-    fd.set('amount',        editForm.amount)
-    fd.set('date',          editForm.date)
-    fd.set('category_id',  editForm.category_id)
-    fd.set('description',  editForm.description)
-    fd.set('supplier_nit', editForm.supplier_nit)
-    fd.set('supplier_name', editForm.supplier_name)
+    fd.set('type', editForm.type); fd.set('amount', editForm.amount); fd.set('date', editForm.date)
+    fd.set('category_id', editForm.category_id); fd.set('description', editForm.description)
+    fd.set('supplier_nit', editForm.supplier_nit); fd.set('supplier_name', editForm.supplier_name)
     const result = await actualizarTransaccionAction(editTxn.id, fd)
     if (result.ok) { closeEdit(); window.location.reload() }
     else { setEditError(result.error ?? 'Error al guardar'); setSaving(false) }
   }
 
   const clearFilters = () => {
-    setDateFrom(''); setDateTo(''); setCategoryFilter('')
-    setTipoFilter('TODOS'); setSearchDesc('')
+    setDateFrom(''); setDateTo(''); setCategoryFilter(''); setTipoFilter('TODOS'); setSearchDesc('')
   }
 
   const tipoBtn = (v: TipoFilter, label: string) => (
     <button onClick={() => setTipoFilter(v)}
-      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors min-h-[36px] ${
         tipoFilter === v ? 'bg-[#2563EB] text-white' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
       }`}>
       {label}
@@ -229,30 +204,30 @@ export default function BankDetailClient({
     </span>
   )
 
-  const inpCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+  const inpCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-base md:text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-5 md:mb-6 gap-3">
         <div className="flex items-center gap-3">
-          <Link href="/bancos" className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] transition-colors">
+          <Link href="/bancos" className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] transition-colors flex-shrink-0">
             <ArrowLeft size={18} />
           </Link>
           <div>
-            <h1 className="text-xl font-semibold text-[#0F172A]">{account.bank_name}</h1>
-            <p className="text-sm text-[#64748B] mt-0.5">
+            <h1 className="text-lg md:text-xl font-semibold text-[#0F172A]">{account.bank_name}</h1>
+            <p className="text-xs md:text-sm text-[#64748B] mt-0.5">
               {account.account_number ? `Cuenta ${account.account_number}` : 'Sin número de cuenta'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {recatMsg && <span className="text-xs text-[#64748B]">{recatMsg}</span>}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {recatMsg && <span className="text-xs text-[#64748B] hidden sm:inline">{recatMsg}</span>}
           <button
             onClick={() => setShowNewTxn(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors min-h-[40px]"
           >
-            <Plus size={13} /> Nueva transacción
+            <Plus size={13} /> <span className="hidden sm:inline">Nueva transacción</span><span className="sm:hidden">Nueva</span>
           </button>
           <button
             onClick={async () => {
@@ -267,130 +242,131 @@ export default function BankDetailClient({
               }
             }}
             disabled={recategorizing}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors border border-purple-200"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors border border-purple-200 min-h-[40px]"
           >
             {recategorizing
-              ? <><Loader2 size={13} className="animate-spin" /> Categorizando...</>
-              : <><Sparkles size={13} /> Recategorizar</>}
+              ? <><Loader2 size={13} className="animate-spin" /> <span className="hidden sm:inline">Categorizando...</span></>
+              : <><Sparkles size={13} /> <span className="hidden sm:inline">Recategorizar</span></>}
           </button>
         </div>
       </div>
 
-      {/* Summary cards — reflect current filter */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-3 mb-5 md:mb-6">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
+          <p className="text-xs font-semibold text-[#64748B] mb-1 truncate">
             {hasFilters ? 'Neto filtrado' : 'Saldo actual'}
           </p>
-          <p className="text-xl font-semibold text-[#0F172A]">
+          <p className="text-base md:text-xl font-semibold text-[#0F172A]">
             {formatCOP(hasFilters ? filteredIngresos - filteredEgresos : balance)}
           </p>
-          {hasFilters && <p className="text-[10px] text-[#94A3B8] mt-0.5">del total filtrado</p>}
         </div>
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <ArrowDownCircle size={13} className="text-green-500" />
-            <p className="text-xs font-semibold text-[#64748B]">Total ingresos</p>
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
+          <div className="flex items-center gap-1 mb-1">
+            <ArrowDownCircle size={12} className="text-green-500 flex-shrink-0" />
+            <p className="text-xs font-semibold text-[#64748B] truncate">Ingresos</p>
           </div>
-          <p className="text-xl font-semibold text-green-600">
+          <p className="text-base md:text-xl font-semibold text-green-600">
             {formatCOP(hasFilters ? filteredIngresos : ingresos)}
           </p>
-          {hasFilters && <p className="text-[10px] text-[#94A3B8] mt-0.5">del total filtrado</p>}
         </div>
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <ArrowUpCircle size={13} className="text-red-400" />
-            <p className="text-xs font-semibold text-[#64748B]">Total egresos</p>
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
+          <div className="flex items-center gap-1 mb-1">
+            <ArrowUpCircle size={12} className="text-red-400 flex-shrink-0" />
+            <p className="text-xs font-semibold text-[#64748B] truncate">Egresos</p>
           </div>
-          <p className="text-xl font-semibold text-red-500">
+          <p className="text-base md:text-xl font-semibold text-red-500">
             {formatCOP(hasFilters ? filteredEgresos : egresos)}
           </p>
-          {hasFilters && <p className="text-[10px] text-[#94A3B8] mt-0.5">del total filtrado</p>}
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 mb-4 space-y-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Desde</label>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Hasta</label>
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría</label>
-            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-              className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="">Todas</option>
-              <option value="__sin__">Sin clasificar</option>
-              {uniqueCategories.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex-1 min-w-[160px]">
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Buscar descripción</label>
-            <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-              <input
-                type="text"
-                value={searchDesc}
-                onChange={e => setSearchDesc(e.target.value)}
-                placeholder="Filtrar por texto..."
-                className="w-full border border-[#E2E8F0] rounded-lg pl-8 pr-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-              {searchDesc && (
-                <button onClick={() => setSearchDesc('')} className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <X size={12} className="text-[#94A3B8] hover:text-[#64748B]" />
-                </button>
-              )}
-            </div>
-          </div>
-          {hasFilters && (
-            <button onClick={clearFilters}
-              className="text-xs text-[#64748B] hover:text-[#0F172A] underline transition-colors self-end pb-2">
-              Limpiar filtros
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-[#64748B] mr-1">Tipo:</span>
-          {tipoBtn('TODOS',   'Todas')}
-          {tipoBtn('NEGOCIO', 'Negocio')}
-          {tipoBtn('CASA',    'Casa')}
-          <span className="ml-auto text-[10px] text-[#94A3B8]">
-            {filtered.length} transacción{filtered.length !== 1 ? 'es' : ''}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 mb-4">
+        {/* Mobile: toggle button */}
+        <button
+          onClick={() => setShowFilters(v => !v)}
+          className="flex items-center gap-2 w-full md:hidden mb-1"
+        >
+          <Filter size={14} className="text-[#64748B]" />
+          <span className="text-sm font-semibold text-[#64748B]">
+            Filtrar {hasFilters ? `(${filtered.length})` : ''}
           </span>
+          {hasFilters && (
+            <span className="ml-auto text-xs text-[#2563EB] font-medium" onClick={e => { e.stopPropagation(); clearFilters() }}>
+              Limpiar
+            </span>
+          )}
+        </button>
+
+        <div className={`space-y-3 ${showFilters ? 'block' : 'hidden md:block'}`}>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-full sm:w-auto">
+              <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Desde</label>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="w-full sm:w-auto border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+            </div>
+            <div className="w-full sm:w-auto">
+              <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Hasta</label>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="w-full sm:w-auto border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+            </div>
+            <div className="w-full sm:w-auto">
+              <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría</label>
+              <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
+                className="w-full sm:w-auto border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                <option value="">Todas</option>
+                <option value="__sin__">Sin clasificar</option>
+                {uniqueCategories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Buscar descripción</label>
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+                <input type="text" value={searchDesc} onChange={e => setSearchDesc(e.target.value)}
+                  placeholder="Filtrar por texto..."
+                  className="w-full border border-[#E2E8F0] rounded-lg pl-8 pr-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                {searchDesc && (
+                  <button onClick={() => setSearchDesc('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <X size={12} className="text-[#94A3B8] hover:text-[#64748B]" />
+                  </button>
+                )}
+              </div>
+            </div>
+            {hasFilters && (
+              <button onClick={clearFilters}
+                className="hidden sm:block text-xs text-[#64748B] hover:text-[#0F172A] underline transition-colors self-end pb-2">
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-[#64748B] mr-1">Tipo:</span>
+            {tipoBtn('TODOS',   'Todas')}
+            {tipoBtn('NEGOCIO', 'Negocio')}
+            {tipoBtn('CASA',    'Casa')}
+            <span className="ml-auto text-[10px] text-[#94A3B8]">
+              {filtered.length} transacción{filtered.length !== 1 ? 'es' : ''}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Transactions table */}
-      <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-              <th className={thCls} onClick={() => handleSort('date')}>
-                Fecha <SortArrow col="date" />
-              </th>
-              <th className={thCls} onClick={() => handleSort('type')}>
-                Tipo <SortArrow col="type" />
-              </th>
-              <th className={thCls} onClick={() => handleSort('category')}>
-                Categoría <SortArrow col="category" />
-              </th>
-              <th className={thCls} onClick={() => handleSort('description')}>
-                Descripción <SortArrow col="description" />
-              </th>
-              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider whitespace-nowrap">Proveedor</th>
-              <th className={`${thCls} text-right`} onClick={() => handleSort('amount')}>
-                Monto <SortArrow col="amount" />
-              </th>
-              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Origen</th>
+              <th className={thCls} onClick={() => handleSort('date')}>Fecha <SortArrow col="date" /></th>
+              <th className={thCls} onClick={() => handleSort('type')}>Tipo <SortArrow col="type" /></th>
+              <th className={thCls} onClick={() => handleSort('category')}>Categoría <SortArrow col="category" /></th>
+              <th className={thCls} onClick={() => handleSort('description')}>Descripción <SortArrow col="description" /></th>
+              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider whitespace-nowrap hidden lg:table-cell">Proveedor</th>
+              <th className={`${thCls} text-right`} onClick={() => handleSort('amount')}>Monto <SortArrow col="amount" /></th>
+              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Origen</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -415,11 +391,9 @@ export default function BankDetailClient({
                       {t.type}
                     </span>
                   </td>
-                  <td className="px-3 py-1.5">
-                    <CategoryBadge cat={t.transaction_categories} />
-                  </td>
+                  <td className="px-3 py-1.5"><CategoryBadge cat={t.transaction_categories} /></td>
                   <td className="px-3 py-1.5 text-xs text-[#0F172A] max-w-[220px] truncate">{t.description}</td>
-                  <td className="px-3 py-1.5 text-xs text-[#94A3B8] whitespace-nowrap max-w-[140px] truncate">
+                  <td className="px-3 py-1.5 text-xs text-[#94A3B8] whitespace-nowrap max-w-[140px] truncate hidden lg:table-cell">
                     {t.supplier_name ?? '—'}
                   </td>
                   <td className={`px-3 py-1.5 text-xs font-semibold text-right whitespace-nowrap ${
@@ -427,7 +401,7 @@ export default function BankDetailClient({
                   }`}>
                     {t.type === 'EGRESO' ? '−' : '+'}{formatCOP(Number(t.amount))}
                   </td>
-                  <td className="px-3 py-1.5">
+                  <td className="px-3 py-1.5 hidden lg:table-cell">
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                       isExtracto ? 'bg-gray-100 text-gray-600' : 'bg-blue-50 text-blue-600'
                     }`}>
@@ -440,8 +414,7 @@ export default function BankDetailClient({
                         className="inline-flex items-center gap-0.5 text-[10px] text-[#2563EB] hover:underline font-medium">
                         <Pencil size={10} /> Editar
                       </button>
-                      <button onClick={() => setDeleteTxn(t)}
-                        className="text-[#94A3B8] hover:text-red-500 transition-colors">
+                      <button onClick={() => setDeleteTxn(t)} className="text-[#94A3B8] hover:text-red-500 transition-colors">
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -453,21 +426,62 @@ export default function BankDetailClient({
         </table>
       </div>
 
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-2">
+        {filtered.length === 0 ? (
+          <div className="text-center py-10 text-xs text-[#64748B]">
+            <ReceiptText size={28} className="mx-auto mb-2 text-[#CBD5E1]" />
+            No hay transacciones{hasFilters ? ' con estos filtros' : ''}
+          </div>
+        ) : filtered.map(t => (
+          <div key={t.id} className="bg-white border border-[#E2E8F0] rounded-xl p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[#0F172A] font-medium truncate">{t.description}</p>
+                <p className="text-[10px] text-[#94A3B8] mt-0.5">{formatDate(t.date)}</p>
+              </div>
+              <span className={`text-sm font-bold flex-shrink-0 ${t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>
+                {t.type === 'EGRESO' ? '−' : '+'}{formatCOP(Number(t.amount))}
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                  t.type === 'INGRESO' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+                }`}>
+                  {t.type === 'INGRESO' ? <ArrowDownCircle size={9} /> : <ArrowUpCircle size={9} />}
+                  {t.type}
+                </span>
+                <CategoryBadge cat={t.transaction_categories} />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => openEdit(t)}
+                  className="text-xs text-[#2563EB] font-medium min-h-[36px] px-1">Editar</button>
+                <button onClick={() => setDeleteTxn(t)}
+                  className="text-[#94A3B8] hover:text-red-500 min-h-[36px] px-1">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Delete confirm */}
       {deleteTxn && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-5 md:p-6 w-full sm:max-w-sm shadow-xl space-y-4">
             <h2 className="font-semibold text-[#0F172A]">Eliminar transacción</h2>
             <p className="text-sm text-[#64748B]">
               Se eliminará <span className="font-medium text-[#0F172A]">{deleteTxn.description}</span> de forma permanente.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setDeleteTxn(null)} disabled={deleting}
-                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
                 Cancelar
               </button>
               <button onClick={handleDeleteConfirm} disabled={deleting}
-                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-3 rounded-lg text-sm">
                 {deleting ? 'Eliminando...' : 'Eliminar'}
               </button>
             </div>
@@ -477,23 +491,20 @@ export default function BankDetailClient({
 
       {/* New transaction modal */}
       {showNewTxn && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#E2E8F0]">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 md:px-6 pt-5 pb-4 border-b border-[#E2E8F0]">
               <div>
                 <h2 className="font-semibold text-[#0F172A]">Nueva transacción</h2>
                 <p className="text-xs text-[#64748B] mt-0.5">{account.bank_name}</p>
               </div>
-              <button onClick={() => setShowNewTxn(false)}>
+              <button onClick={() => setShowNewTxn(false)} className="p-1">
                 <X size={18} className="text-[#64748B]" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-5 md:p-6">
               <TransaccionForm
-                accounts={[]}
-                categories={categories}
-                pucAccounts={pucAccounts}
-                trips={trips}
+                accounts={[]} categories={categories} pucAccounts={pucAccounts} trips={trips}
                 defaultAccountId={account.id}
                 onClose={() => setShowNewTxn(false)}
                 onSuccess={() => { setShowNewTxn(false); window.location.reload() }}
@@ -505,14 +516,14 @@ export default function BankDetailClient({
 
       {/* Edit modal */}
       {editTxn && editForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-5 md:p-6 w-full sm:max-w-md shadow-xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-semibold text-[#0F172A]">Editar transacción</h2>
-              <button onClick={closeEdit}><X size={18} className="text-[#64748B]" /></button>
+              <button onClick={closeEdit} className="p-1"><X size={18} className="text-[#64748B]" /></button>
             </div>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tipo</label>
                   <select value={editForm.type} onChange={e => setEditForm(p => p && ({ ...p, type: e.target.value }))} className={inpCls}>
@@ -533,20 +544,14 @@ export default function BankDetailClient({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría</label>
-                <CategorySelector
-                  value={editForm.category_id}
+                <CategorySelector value={editForm.category_id}
                   onChange={v => setEditForm(p => p && ({ ...p, category_id: v }))}
-                  categories={categories}
-                  pucAccounts={pucAccounts}
-                />
+                  categories={categories} pucAccounts={pucAccounts} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Proveedor (opcional)</label>
-                <SupplierSelector
-                  nit={editForm.supplier_nit}
-                  name={editForm.supplier_name}
-                  onChange={(nit, name) => setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name }))}
-                />
+                <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
+                  onChange={(nit, name) => setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name }))} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción</label>
@@ -557,11 +562,11 @@ export default function BankDetailClient({
               {editError && <p className="text-sm text-red-500">{editError}</p>}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={closeEdit}
-                  className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                  className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
                   Cancelar
                 </button>
                 <button type="button" onClick={handleSave} disabled={saving}
-                  className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
+                  className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-3 rounded-lg text-sm">
                   {saving ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>

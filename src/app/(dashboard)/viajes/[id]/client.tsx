@@ -44,8 +44,8 @@ export default function ViajeDetailClient({
 }) {
   const [trip, setTrip] = useState(initial)
   const router = useRouter()
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleting,      setDeleting]      = useState(false)
+  const [confirmDelete,    setConfirmDelete]    = useState(false)
+  const [deleting,         setDeleting]         = useState(false)
   const [changingStatus,   setChangingStatus]   = useState(false)
   const [assigningVehicle, setAssigningVehicle] = useState(false)
   const [assigningDriver,  setAssigningDriver]  = useState(false)
@@ -53,14 +53,14 @@ export default function ViajeDetailClient({
   const [selectedDriver,   setSelectedDriver]   = useState('')
   const [savingVehicle,    setSavingVehicle]    = useState(false)
   const [savingDriver,     setSavingDriver]     = useState(false)
-  const [invoicing, setInvoicing] = useState(false)
-  const [invoiceResult, setInvoiceResult] = useState<{ number: string; pdfUrl: string } | null>(
+  const [invoicing,      setInvoicing]      = useState(false)
+  const [invoiceResult,  setInvoiceResult]  = useState<{ number: string; pdfUrl: string } | null>(
     initialInvNum ? { number: initialInvNum, pdfUrl: initialPdf ?? '' } : null,
   )
   const [invoiceError, setInvoiceError] = useState<string | null>(null)
 
-  const currentStatus = STATUS_FLOW.find(s => s.key === trip.status)
-  const canInvoice = ['FINALIZADO', 'FACTURADO'].includes(trip.status)
+  const currentStatus  = STATUS_FLOW.find(s => s.key === trip.status)
+  const canInvoice     = ['FINALIZADO', 'FACTURADO'].includes(trip.status)
   const alreadyInvoiced = !!trip.dataico_invoice_id || !!invoiceResult
 
   const handleStatusChange = async (newStatus: string) => {
@@ -116,9 +116,9 @@ export default function ViajeDetailClient({
   }
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-4 md:p-6 max-w-4xl">
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5 md:mb-6">
         <div className="flex items-center gap-3">
           <Link
             href="/viajes"
@@ -132,13 +132,12 @@ export default function ViajeDetailClient({
             <span className="text-xs text-[#94A3B8]">· MF {trip.manifest_number}</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {currentStatus && (
             <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border ${currentStatus.cls}`}>
               {currentStatus.label}
             </span>
           )}
-          {/* Invoice button / badge in header */}
           {trip.status === 'FINALIZADO' && !alreadyInvoiced && (
             <button
               onClick={handleGenerarFactura}
@@ -199,7 +198,7 @@ export default function ViajeDetailClient({
           <Field label="Razón social">
             <span className="font-medium">{trip.clients?.name ?? '—'}</span>
           </Field>
-          {trip.clients?.nit && <Field label="NIT">{trip.clients.nit}</Field>}
+          {trip.clients?.nit   && <Field label="NIT">{trip.clients.nit}</Field>}
           {trip.clients?.email && <Field label="Email">{trip.clients.email}</Field>}
         </div>
 
@@ -417,7 +416,7 @@ export default function ViajeDetailClient({
                   Factura electrónica emitida y validada por la DIAN
                 </p>
               </div>
-              {(invoiceResult?.pdfUrl) && (
+              {invoiceResult?.pdfUrl && (
                 <a
                   href={invoiceResult.pdfUrl}
                   target="_blank"

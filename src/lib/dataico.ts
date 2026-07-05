@@ -168,14 +168,7 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
   const body = {
     dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
     send_dian: false,
-    number_template: {
-      prefix:            process.env.DATAICO_PREFIX,
-      resolution_number: process.env.DATAICO_RESOLUTION_NUMBER,
-      resolution_date:   process.env.DATAICO_RESOLUTION_DATE,
-      from:              Number(process.env.DATAICO_FROM),
-      to:                Number(process.env.DATAICO_TO),
-      next_consecutive:  params.nextConsecutive,
-    },
+    invoice_type: 'FV',
     customer: {
       name: params.customerName,
       identification_number: params.customerNit,
@@ -198,12 +191,44 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
     notes: [noteParts.join(' - ')],
   }
 
+  // DEBUG: listar numeraciones disponibles en la cuenta
+  try {
+    const ntRes = await fetch(`${BASE}/number_templates`, {
+      headers: authHeaders(),
+      cache: 'no-store',
+    })
+    const ntText = await ntRes.text()
+    console.log('NUMBER_TEMPLATES STATUS:', ntRes.status)
+    console.log('NUMBER_TEMPLATES RESPONSE:', ntText)
+  } catch (e) {
+    console.log('NUMBER_TEMPLATES ERROR:', e)
+  }
+
+  console.log('ENV VARS:', {
+    prefix:     process.env.DATAICO_PREFIX,
+    resolution: process.env.DATAICO_RESOLUTION_NUMBER,
+    date:       process.env.DATAICO_RESOLUTION_DATE,
+    from:       process.env.DATAICO_FROM,
+    to:         process.env.DATAICO_TO,
+  })
+
   const payload = { invoice: body }
   console.log('DATAICO PAYLOAD:', JSON.stringify(payload, null, 2))
 
+  const invoiceHeaders = {
+    'Content-Type':       'application/json',
+    'Auth-token':         process.env.DATAICO_AUTH_TOKEN ?? '',
+    'dataico_account_id': process.env.DATAICO_ACCOUNT_ID ?? '',
+  }
+  console.log('HEADERS ENVIADOS:', {
+    'Content-Type':       'application/json',
+    'Auth-token':         process.env.DATAICO_AUTH_TOKEN?.substring(0, 10),
+    'dataico_account_id': process.env.DATAICO_ACCOUNT_ID,
+  })
+
   const res = await fetch(`${BASE}/invoices`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: invoiceHeaders,
     body: JSON.stringify(payload),
     cache: 'no-store',
   })

@@ -162,6 +162,40 @@ export async function generarFacturaAction(tripId: string): Promise<
   }
 }
 
+export async function registrarFacturaManualAction(params: {
+  tripId: string
+  invoiceNumber: string
+  cufe: string
+  clientName: string
+  clientNit: string
+  totalAmount: number
+  date: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const { error: invErr } = await supabase.from('invoices').insert({
+    trip_id:        params.tripId,
+    invoice_number: params.invoiceNumber,
+    cufe:           params.cufe || null,
+    issue_date:     params.date,
+    client_name:    params.clientName,
+    client_nit:     params.clientNit,
+    total_amount:   params.totalAmount,
+    tax_amount:     0,
+    invoice_type:   'EMITIDA',
+    dataico_id:     params.invoiceNumber,
+  })
+  if (invErr) return { ok: false, error: invErr.message }
+
+  const { error: tripErr } = await supabase
+    .from('trips')
+    .update({ status: 'FACTURADO', dataico_invoice_id: params.invoiceNumber })
+    .eq('id', params.tripId)
+  if (tripErr) return { ok: false, error: tripErr.message }
+
+  revalidatePath('/viajes')
+  revalidatePath(`/viajes/${params.tripId}`)
+  return { ok: true }
+}
+
 export async function eliminarViajeAction(tripId: string): Promise<{ ok: boolean; error?: string }> {
   // 1. Get legalization IDs
   const { data: legs, error: legsErr } = await supabase

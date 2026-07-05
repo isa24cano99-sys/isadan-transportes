@@ -68,18 +68,17 @@ export default async function DashboardPage() {
   const yellowDocs = expiringDocs.filter((d: any) => d.daysLeft >= 30)
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-[#0F172A]">Dashboard</h1>
         <p className="text-sm text-[#64748B] mt-0.5">Bienvenido a ISADAN Transportes</p>
       </div>
 
-      {/* Document alerts widget */}
       {expiringDocs.length > 0 && (
-        <div className="bg-white border border-[#E2E8F0] rounded-2xl p-5">
+        <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 md:p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={16} className="text-red-600" />
               </div>
               <div>
@@ -87,16 +86,12 @@ export default async function DashboardPage() {
                 <p className="text-xs text-[#64748B]">{expiringDocs.length} documento{expiringDocs.length !== 1 ? 's' : ''} requieren atención</p>
               </div>
             </div>
-            <Link
-              href="/documentos"
-              className="text-xs font-medium text-[#2563EB] hover:underline"
-            >
+            <Link href="/documentos" className="text-xs font-medium text-[#2563EB] hover:underline flex-shrink-0">
               Ver todos →
             </Link>
           </div>
 
-          {/* Summary chips */}
-          <div className="flex gap-2 mb-4">
+          <div className="flex flex-wrap gap-2 mb-4">
             {redDocs.length > 0 && (
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-red-100 text-red-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
@@ -111,7 +106,6 @@ export default async function DashboardPage() {
             )}
           </div>
 
-          {/* List of expiring docs (max 8) */}
           <div className="space-y-2">
             {expiringDocs.slice(0, 8).map((doc: any) => {
               const isRed = doc.daysLeft < 30
@@ -139,12 +133,7 @@ export default async function DashboardPage() {
                   </div>
                   <div className="shrink-0 text-right">
                     <span className={`text-[11px] font-bold ${isRed ? 'text-red-600' : 'text-yellow-700'}`}>
-                      {doc.daysLeft < 0
-                        ? `Vencido`
-                        : doc.daysLeft === 0
-                          ? 'Hoy'
-                          : `${doc.daysLeft}d`
-                      }
+                      {doc.daysLeft < 0 ? 'Vencido' : doc.daysLeft === 0 ? 'Hoy' : `${doc.daysLeft}d`}
                     </span>
                   </div>
                 </div>
@@ -155,8 +144,8 @@ export default async function DashboardPage() {
       )}
 
       {expiringDocs.length === 0 && (
-        <div className="bg-white border border-[#E2E8F0] rounded-2xl p-5 flex items-center gap-3">
-          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+        <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 md:p-5 flex items-center gap-3">
+          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <FileText size={16} className="text-green-600" />
           </div>
           <div>

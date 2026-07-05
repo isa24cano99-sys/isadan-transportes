@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import Sidebar from '@/components/layout/sidebar'
+import AppShell from '@/components/layout/AppShell'
 
 function isValidToken(token: string | undefined): boolean {
   if (!token) return false
@@ -25,11 +25,8 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        {children}
-      </main>
-    </div>
+    <AppShell>
+      {children}
+    </AppShell>
   )
 }
