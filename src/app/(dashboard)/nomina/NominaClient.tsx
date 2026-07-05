@@ -219,7 +219,7 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
           (l.balance > 0 ? '+' : l.balance < 0 ? '-' : '') + formatCOP(Math.abs(l.balance)),
           l.balance > 0 ? 'Cond. debe' : l.balance < 0 ? 'Emp. debe' : 'Cuadrado',
         ]),
-        styles: { fontSize: 7, cellPadding: 1.6, overflow: 'ellipsis' },
+        styles: { fontSize: 7, cellPadding: 1.6, overflow: 'ellipsize' },
         headStyles: { fillColor: [37, 99, 235], fontSize: 7, fontStyle: 'bold' },
         columnStyles: {
           0: { cellWidth: 20 },
