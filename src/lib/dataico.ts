@@ -140,7 +140,6 @@ export async function createDataicoCustomer(params: {
 export type CreateInvoiceParams = {
   customerName: string
   customerNit: string
-  customerDv: string
   customerEmail?: string
   date: string
   freightValue: number
@@ -168,11 +167,18 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
   const body = {
     dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
     send_dian: false,
-    number_template: { prefix: 'FEIT', number: 11 },
+    number_template: {
+      prefix:            process.env.DATAICO_PREFIX ?? 'FEIT',
+      resolution_number: process.env.DATAICO_RESOLUTION_NUMBER ?? '',
+      resolution_date:   process.env.DATAICO_RESOLUTION_DATE   ?? '',
+      technical_key:     '',
+      from:              Number(process.env.DATAICO_FROM ?? 1),
+      to:                Number(process.env.DATAICO_TO   ?? 1000),
+      next_consecutive:  11,
+    },
     customer: {
       name: params.customerName,
       identification_number: params.customerNit,
-      dv: params.customerDv,
       company: true,
       ...(params.customerEmail ? { email: params.customerEmail } : {}),
     },
@@ -201,10 +207,13 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
     body: JSON.stringify(payload),
     cache: 'no-store',
   })
+  console.log('DATAICO STATUS:', res.status)
+  const responseText = await res.text()
+  console.log('DATAICO RESPONSE:', responseText)
+
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Dataico createInvoice ${res.status}: ${text}`)
+    throw new Error(`Dataico createInvoice ${res.status}: ${responseText}`)
   }
-  const json = await res.json()
+  const json = JSON.parse(responseText)
   return json.invoice as DataicoInvoice
 }

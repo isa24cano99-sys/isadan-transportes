@@ -104,9 +104,8 @@ export async function generarFacturaAction(tripId: string): Promise<
     invoice = await createDataicoInvoice({
       customerName:  client.name,
       customerNit:   nitBase,
-      customerDv:    dv,
       customerEmail: client.email ?? undefined,
-      date:          trip.load_date,
+      date:          new Date().toISOString().split('T')[0],
       freightValue:  Number(trip.freight_value),
       plate:         vehicle?.plate ?? '',
       origin:        trip.origin,
