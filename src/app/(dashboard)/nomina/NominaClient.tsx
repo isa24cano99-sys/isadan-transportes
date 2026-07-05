@@ -37,7 +37,7 @@ type Driver = {
   payrollHistory: Payroll[]
 }
 
-const inputCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+const inputCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-base md:text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
 const labelCls = 'block text-xs font-semibold text-[#64748B] mb-1'
 
 function LiqRow({ label, value, sign = '+', bold = false, color }: {
@@ -173,7 +173,6 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
     const mesLabel = MESES[month - 1]
 
-    // Header
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
     doc.text('COMPROBANTE DE PAGO DE NÓMINA', 105, 18, { align: 'center' })
@@ -187,7 +186,6 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
     doc.setDrawColor(200, 200, 200)
     doc.line(15, 41, 195, 41)
 
-    // Empleado
     doc.setFontSize(9)
     doc.setFont('helvetica', 'bold')
     doc.text('DATOS DEL EMPLEADO', 15, 48)
@@ -200,7 +198,6 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
     let currentY = 82
 
-    // Detalle de viajes
     if (calc.legalizaciones.length > 0) {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
@@ -233,7 +230,6 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
       currentY = (doc as any).lastAutoTable?.finalY + 8
     }
 
-    // Liquidación
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
     doc.text('LIQUIDACIÓN', 15, currentY)
@@ -267,7 +263,6 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
     const footerY = (doc as any).lastAutoTable?.finalY + 14
 
-    // Footer
     doc.setDrawColor(200, 200, 200)
     doc.line(15, footerY, 195, footerY)
     doc.setFontSize(8.5)
@@ -307,8 +302,8 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 md:p-6">
+      <div className="flex items-center justify-between mb-5 md:mb-6">
         <div>
           <h1 className="text-xl font-semibold text-[#0F172A]">Nómina conductores</h1>
           <p className="text-sm text-[#64748B] mt-0.5">{drivers.length} conductor{drivers.length !== 1 ? 'es' : ''} activo{drivers.length !== 1 ? 's' : ''}</p>
@@ -328,42 +323,68 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
           const lastPayroll = d.payrollHistory[0] ?? null
           return (
             <div key={d.id} className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4">
-                <div className="flex items-center gap-4">
+              {/* Driver row */}
+              <div className="px-4 sm:px-5 py-4">
+                {/* Info row */}
+                <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
                     <span className="text-blue-700 text-xs font-bold">{d.full_name.slice(0,2).toUpperCase()}</span>
                   </div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#0F172A]">{d.full_name}</p>
                     <p className="text-xs text-[#64748B] mt-0.5">C.C. {d.document} · Salario: {formatCOP(d.salary)}</p>
+                    {/* Last payroll - mobile only */}
+                    {lastPayroll && (
+                      <p className="text-xs text-[#64748B] sm:hidden mt-0.5">
+                        Último: {lastPayroll.period} · {formatCOP(lastPayroll.net_payment)}
+                      </p>
+                    )}
+                  </div>
+                  {/* Desktop: last payroll + actions */}
+                  <div className="hidden sm:flex items-center gap-3 shrink-0">
+                    {lastPayroll && (
+                      <div className="text-right">
+                        <p className="text-xs text-[#64748B]">Último pago</p>
+                        <p className="text-xs font-semibold text-[#0F172A]">{lastPayroll.period} · {formatCOP(lastPayroll.net_payment)}</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => openModal(d)}
+                      className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                      Pagar nómina
+                    </button>
+                    {d.payrollHistory.length > 0 && (
+                      <button
+                        onClick={() => toggleHistory(d.id)}
+                        className="text-[#64748B] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#F1F5F9] transition-colors">
+                        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {lastPayroll && (
-                    <div className="text-right">
-                      <p className="text-xs text-[#64748B]">Último pago</p>
-                      <p className="text-xs font-semibold text-[#0F172A]">{lastPayroll.period} · {formatCOP(lastPayroll.net_payment)}</p>
-                    </div>
-                  )}
+
+                {/* Mobile actions row */}
+                <div className="flex items-center gap-2 mt-3 sm:hidden">
                   <button
                     onClick={() => openModal(d)}
-                    className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                    className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors min-h-[44px]">
                     Pagar nómina
                   </button>
                   {d.payrollHistory.length > 0 && (
                     <button
                       onClick={() => toggleHistory(d.id)}
-                      className="text-[#64748B] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#F1F5F9] transition-colors">
+                      className="border border-[#E2E8F0] text-[#64748B] hover:text-[#0F172A] p-2.5 rounded-lg hover:bg-[#F1F5F9] transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">
                       {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* History */}
+              {/* Payroll history */}
               {expanded && d.payrollHistory.length > 0 && (
                 <div className="border-t border-[#E2E8F0] bg-[#F8FAFC]">
-                  <table className="w-full">
+                  {/* Desktop table */}
+                  <table className="w-full hidden md:table">
                     <thead>
                       <tr className="border-b border-[#E2E8F0]">
                         {['Período','Salario base','Porcentaje','Saldo cond.','Saldo empresa','Prima','Total neto','Estado',''].map(h => (
@@ -407,6 +428,38 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                       ))}
                     </tbody>
                   </table>
+
+                  {/* Mobile history cards */}
+                  <div className="md:hidden divide-y divide-[#E2E8F0]">
+                    {d.payrollHistory.map(p => (
+                      <div key={p.id} className="px-4 py-3 bg-white">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[#0F172A]">{p.period}</p>
+                            <p className="text-base font-bold text-[#0F172A] mt-0.5">{formatCOP(p.net_payment)}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {p.paid
+                              ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-700"><CheckCircle2 size={9} /> Pagado</span>
+                              : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700">Pendiente</span>
+                            }
+                            <button
+                              onClick={() => openEditModal(d, p)}
+                              className="text-[#2563EB] p-1.5 rounded-lg hover:bg-blue-50 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeletePayrollTarget({ id: p.id, period: p.period, netPayment: p.net_payment })}
+                              className="text-[#94A3B8] hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -416,17 +469,22 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
       {/* ── Modal de nómina ───────────────────────────────────────────────────── */}
       {payingDriver && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="border-b border-[#E2E8F0] px-6 pt-4 pb-4 space-y-3">
+        <div className="fixed inset-0 bg-black/40 flex sm:items-center sm:justify-center z-50 sm:p-4">
+          <div className="bg-white w-full h-full sm:h-auto sm:rounded-2xl sm:max-w-2xl sm:max-h-[90vh] flex flex-col shadow-2xl">
+
+            {/* Modal header — fixed */}
+            <div className="border-b border-[#E2E8F0] px-4 sm:px-6 pt-4 pb-4 space-y-3 flex-shrink-0">
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="font-semibold text-[#0F172A]">{isEditMode ? 'Editar' : 'Liquidar'} nómina — {payingDriver.full_name}</h2>
                   <p className="text-xs text-[#64748B] mt-0.5">Salario base: {formatCOP(payingDriver.salary)}</p>
                 </div>
-                <button onClick={closeModal} className="mt-0.5"><X size={18} className="text-[#64748B]" /></button>
+                <button onClick={closeModal} className="mt-0.5 p-1 min-h-[36px] min-w-[36px] flex items-center justify-center">
+                  <X size={18} className="text-[#64748B]" />
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              {/* Mes/año — single column on mobile */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Mes</label>
                   <select value={month} onChange={e => setMonth(Number(e.target.value))} className={inputCls}>
@@ -442,9 +500,10 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
               </div>
             </div>
 
-            <div className="p-6 space-y-5">
+            {/* Modal body — scrollable */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
 
-              {/* Legalization detail */}
+              {/* Legalizations */}
               {calculating ? (
                 <div className="flex items-center gap-2 py-4 justify-center text-[#64748B]">
                   <Loader2 size={16} className="animate-spin" />
@@ -459,7 +518,9 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                   ) : (
                     <div>
                       <p className="text-xs font-semibold text-[#64748B] mb-2">Legalizaciones del período</p>
-                      <div className="border border-[#E2E8F0] rounded-xl overflow-hidden">
+
+                      {/* Desktop table */}
+                      <div className="hidden sm:block border border-[#E2E8F0] rounded-xl overflow-hidden">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
@@ -491,15 +552,52 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                           </tbody>
                         </table>
                       </div>
+
+                      {/* Mobile legalizations cards */}
+                      <div className="sm:hidden space-y-2">
+                        {calculo.legalizaciones.map(l => (
+                          <div key={l.id} className="border border-[#E2E8F0] rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-mono font-bold text-[#2563EB] text-sm">{l.trip?.trip_number ?? '—'}</span>
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                l.balance > 0 ? 'bg-red-50 text-red-600'
+                                : l.balance < 0 ? 'bg-green-50 text-green-700'
+                                : 'bg-[#F1F5F9] text-[#64748B]'
+                              }`}>
+                                {l.balance > 0 ? 'Conductor debe' : l.balance < 0 ? 'Empresa debe' : 'Cuadrado'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#64748B] mb-2 truncate">
+                              {l.trip ? `${l.trip.origin} → ${l.trip.destination}` : '—'}
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <p className="text-[10px] text-[#94A3B8] font-medium">Anticipo</p>
+                                <p className="text-xs font-semibold text-[#0F172A]">{formatCOP(l.advance_amount)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-[#94A3B8] font-medium">Gastos</p>
+                                <p className="text-xs font-semibold text-[#0F172A]">{formatCOP(l.total_expenses)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-[#94A3B8] font-medium">Balance</p>
+                                <p className={`text-xs font-bold ${l.balance > 0 ? 'text-red-500' : l.balance < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                                  {l.balance > 0 ? '+' : l.balance < 0 ? '−' : ''}{formatCOP(Math.abs(l.balance))}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Editable amounts */}
+              {/* Adjustments — single column on mobile */}
               <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 space-y-3">
                 <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Ajustes y deducciones</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>Saldo a favor conductor (viajes)</label>
                     <input type="number" min="0" step="1" value={totalFavorCond}
@@ -563,14 +661,14 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
               {saveError && <p className="text-sm text-red-500 font-medium">{saveError}</p>}
             </div>
 
-            {/* Modal footer */}
-            <div className="border-t border-[#E2E8F0] px-6 py-4 flex gap-3">
+            {/* Modal footer — fixed at bottom */}
+            <div className="border-t border-[#E2E8F0] px-4 sm:px-6 py-4 flex gap-3 flex-shrink-0 bg-white">
               <button onClick={closeModal}
-                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors">
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors min-h-[44px]">
                 Cancelar
               </button>
               <button onClick={handleConfirmar} disabled={saving || netPayment <= 0}
-                className="flex-1 flex items-center justify-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors">
+                className="flex-1 flex items-center justify-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors min-h-[44px]">
                 {saving
                   ? <><Loader2 size={14} className="animate-spin" /> Guardando...</>
                   : <><FileDown size={14} /> {isEditMode ? 'Guardar cambios' : 'Confirmar y descargar PDF'}</>
@@ -583,8 +681,8 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
       {/* ── Confirmación eliminar nómina ──────────────────────────────────────── */}
       {deletePayrollTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-6 w-full sm:max-w-sm shadow-xl space-y-4">
             <h2 className="font-semibold text-[#0F172A]">Eliminar nómina</h2>
             <p className="text-sm text-[#64748B]">
               ¿Eliminar la nómina de{' '}
@@ -595,14 +693,14 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
               <button
                 onClick={() => setDeletePayrollTarget(null)}
                 disabled={deletingPayroll}
-                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]"
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] min-h-[44px]"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDeletePayroll}
                 disabled={deletingPayroll}
-                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm"
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm min-h-[44px]"
               >
                 {deletingPayroll ? 'Eliminando...' : 'Eliminar'}
               </button>
