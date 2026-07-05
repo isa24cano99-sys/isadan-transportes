@@ -164,6 +164,7 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
   ].filter(Boolean)
 
   const body = {
+    send_dian: false,
     number_template: { prefix: 'FEIT' },
     customer: {
       name: params.customerName,
@@ -191,7 +192,7 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
   const res = await fetch(`${BASE}/invoices`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify(body),
+    body: JSON.stringify({ invoice: body }),
     cache: 'no-store',
   })
   if (!res.ok) {
