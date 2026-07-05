@@ -166,6 +166,7 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
   ].filter(Boolean)
 
   const body = {
+    dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
     send_dian: false,
     number_template: { prefix: 'FEIT' },
     customer: {
