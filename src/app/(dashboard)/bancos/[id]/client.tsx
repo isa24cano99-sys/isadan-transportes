@@ -253,29 +253,29 @@ export default function BankDetailClient({
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3 mb-5 md:mb-6">
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4 overflow-hidden min-w-0">
           <p className="text-xs font-semibold text-[#64748B] mb-1 truncate">
             {hasFilters ? 'Neto filtrado' : 'Saldo actual'}
           </p>
-          <p className="text-base md:text-xl font-semibold text-[#0F172A]">
+          <p className="text-xs sm:text-sm md:text-base font-bold text-[#0F172A] truncate">
             {formatCOP(hasFilters ? filteredIngresos - filteredEgresos : balance)}
           </p>
         </div>
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4 overflow-hidden min-w-0">
           <div className="flex items-center gap-1 mb-1">
             <ArrowDownCircle size={12} className="text-green-500 flex-shrink-0" />
             <p className="text-xs font-semibold text-[#64748B] truncate">Ingresos</p>
           </div>
-          <p className="text-base md:text-xl font-semibold text-green-600">
+          <p className="text-xs sm:text-sm md:text-base font-bold text-green-600 truncate">
             {formatCOP(hasFilters ? filteredIngresos : ingresos)}
           </p>
         </div>
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4 overflow-hidden min-w-0">
           <div className="flex items-center gap-1 mb-1">
             <ArrowUpCircle size={12} className="text-red-400 flex-shrink-0" />
             <p className="text-xs font-semibold text-[#64748B] truncate">Egresos</p>
           </div>
-          <p className="text-base md:text-xl font-semibold text-red-500">
+          <p className="text-xs sm:text-sm md:text-base font-bold text-red-500 truncate">
             {formatCOP(hasFilters ? filteredEgresos : egresos)}
           </p>
         </div>
