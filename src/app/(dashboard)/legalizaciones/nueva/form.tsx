@@ -333,11 +333,14 @@ export default function NuevaLegalizacionForm({ trips, initialData }: Props) {
               </div>
             </Section>
 
-            {gastosViaje > 0 && (
+            {(gastosViaje > 0 || porcentajeCalc > 0) && (
               <Section title="Detalle de gastos">
                 {EXPENSE_FIELDS.filter(f => num(expenses[f.key] ?? '') > 0).map(f => (
                   <PreviewRow key={f.key} label={f.label} value={formatCOP(num(expenses[f.key] ?? ''))} />
                 ))}
+                {porcentajeCalc > 0 && (
+                  <PreviewRow label={`Porcentaje conductor (${percentage}%)`} value={formatCOP(porcentajeCalc)} />
+                )}
               </Section>
             )}
           </div>

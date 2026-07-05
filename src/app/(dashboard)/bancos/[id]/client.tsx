@@ -5,10 +5,11 @@ import { useState, useMemo } from 'react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
-  X, Pencil, Trash2, Sparkles, Loader2, Search,
+  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus,
 } from 'lucide-react'
 import { actualizarTransaccionAction, eliminarTransaccionAction } from '../transaccion/actions'
 import { recategorizarAction } from '../category-actions'
+import TransaccionForm from '../transaccion/form'
 import CategorySelector from '@/components/CategorySelector'
 import SupplierSelector from '@/components/SupplierSelector'
 import type { PucAccount } from '@/components/PucSelector'
@@ -55,6 +56,15 @@ interface EditForm {
   supplier_name: string
 }
 
+type Trip = {
+  id: string
+  trip_number: string
+  origin: string
+  destination: string
+  load_date: string | null
+  vehicles: { plate: string } | null
+}
+
 interface Props {
   account: Account
   transactions: Transaction[]
@@ -63,6 +73,7 @@ interface Props {
   balance: number
   categories: TransactionCategory[]
   pucAccounts: PucAccount[]
+  trips: Trip[]
 }
 
 function CategoryBadge({ cat }: { cat?: TxCategory | null }) {
@@ -80,7 +91,7 @@ function CategoryBadge({ cat }: { cat?: TxCategory | null }) {
 }
 
 export default function BankDetailClient({
-  account, transactions, ingresos, egresos, balance, categories, pucAccounts,
+  account, transactions, ingresos, egresos, balance, categories, pucAccounts, trips,
 }: Props) {
   const [dateFrom,       setDateFrom]       = useState('')
   const [dateTo,         setDateTo]         = useState('')
@@ -97,6 +108,7 @@ export default function BankDetailClient({
   const [deleting,       setDeleting]       = useState(false)
   const [recategorizing, setRecategorizing] = useState(false)
   const [recatMsg,       setRecatMsg]       = useState<string | null>(null)
+  const [showNewTxn,     setShowNewTxn]     = useState(false)
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -236,6 +248,12 @@ export default function BankDetailClient({
         </div>
         <div className="flex items-center gap-3">
           {recatMsg && <span className="text-xs text-[#64748B]">{recatMsg}</span>}
+          <button
+            onClick={() => setShowNewTxn(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition-colors"
+          >
+            <Plus size={13} /> Nueva transacción
+          </button>
           <button
             onClick={async () => {
               setRecategorizing(true); setRecatMsg(null)
@@ -452,6 +470,34 @@ export default function BankDetailClient({
                 className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm">
                 {deleting ? 'Eliminando...' : 'Eliminar'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New transaction modal */}
+      {showNewTxn && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#E2E8F0]">
+              <div>
+                <h2 className="font-semibold text-[#0F172A]">Nueva transacción</h2>
+                <p className="text-xs text-[#64748B] mt-0.5">{account.bank_name}</p>
+              </div>
+              <button onClick={() => setShowNewTxn(false)}>
+                <X size={18} className="text-[#64748B]" />
+              </button>
+            </div>
+            <div className="p-6">
+              <TransaccionForm
+                accounts={[]}
+                categories={categories}
+                pucAccounts={pucAccounts}
+                trips={trips}
+                defaultAccountId={account.id}
+                onClose={() => setShowNewTxn(false)}
+                onSuccess={() => { setShowNewTxn(false); window.location.reload() }}
+              />
             </div>
           </div>
         </div>

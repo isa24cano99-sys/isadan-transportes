@@ -138,6 +138,32 @@ export default function ViajeDetailClient({
               {currentStatus.label}
             </span>
           )}
+          {/* Invoice button / badge in header */}
+          {trip.status === 'FINALIZADO' && !alreadyInvoiced && (
+            <button
+              onClick={handleGenerarFactura}
+              disabled={invoicing}
+              className="flex items-center gap-1.5 text-xs text-white font-semibold px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 rounded-lg transition-colors"
+            >
+              {invoicing
+                ? <><RefreshCw size={11} className="animate-spin" /> Generando factura...</>
+                : <><FileText size={11} /> Generar factura DIAN</>}
+            </button>
+          )}
+          {alreadyInvoiced && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-50 text-green-700 border border-green-200">
+              <CheckCircle size={11} />
+              {invoiceResult?.number ?? trip.dataico_invoice_id?.slice(0, 8) ?? 'Facturado'}
+              {invoiceResult?.pdfUrl && (
+                <a href={invoiceResult.pdfUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-green-600 hover:text-green-800">
+                  <ExternalLink size={10} />
+                </a>
+              )}
+            </span>
+          )}
+          {invoiceError && (
+            <span className="text-xs text-red-500 font-medium">{invoiceError}</span>
+          )}
           <Link
             href={`/viajes/${trip.id}/editar`}
             className="flex items-center gap-1.5 text-xs text-[#2563EB] font-medium px-3 py-1.5 border border-[#E2E8F0] rounded-lg hover:border-[#2563EB]/40 transition-colors"
@@ -164,7 +190,7 @@ export default function ViajeDetailClient({
           <Field label="Destino">
             <span className="font-medium">{trip.destination}</span>
           </Field>
-          <Field label="Fecha de cargue">{formatDate(trip.load_date)}</Field>
+          <Field label="Fecha de expedición">{formatDate(trip.load_date)}</Field>
         </div>
 
         {/* Cliente */}

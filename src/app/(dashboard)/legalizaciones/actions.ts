@@ -10,3 +10,13 @@ export async function eliminarLegalizacionAction(id: string): Promise<{ ok: bool
   revalidatePath('/legalizaciones')
   return { ok: true }
 }
+
+export async function cambiarEstadoLegalizacionAction(
+  id: string,
+  status: 'BORRADOR' | 'PENDIENTE' | 'APROBADA',
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('legalizations').update({ status }).eq('id', id)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/legalizaciones')
+  return { ok: true }
+}

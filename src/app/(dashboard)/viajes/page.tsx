@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { formatCOP, formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import { Plus, TruckIcon, Pencil, Eye } from 'lucide-react'
+import ManifiestoUpload from '../ManifiestoUpload'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   PLANEADO:   { label: 'Planeado',   className: 'bg-gray-100 text-gray-600' },
@@ -48,13 +49,16 @@ export default async function ViajesPage() {
           <h1 className="text-lg font-semibold text-[#0F172A]">Viajes</h1>
           <p className="text-xs text-[#64748B] mt-0.5">{trips.length} viajes registrados</p>
         </div>
-        <Link
-          href="/viajes/nuevo"
-          className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          <Plus size={15} />
-          Nuevo viaje
-        </Link>
+        <div className="flex items-center gap-2">
+          <ManifiestoUpload compact />
+          <Link
+            href="/viajes/nuevo"
+            className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Plus size={15} />
+            Nuevo viaje
+          </Link>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -85,7 +89,7 @@ export default async function ViajesPage() {
               <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Cliente</th>
               <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Vehículo</th>
               <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Conductor</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha cargue</th>
+              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha expedición</th>
               <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Flete</th>
               <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Estado</th>
               <th className="px-3 py-2"></th>

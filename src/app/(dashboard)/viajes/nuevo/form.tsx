@@ -46,6 +46,7 @@ const INP = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-
 
 export interface TripData {
   id: string
+  manifest_auth: string | null
   manifest_number: string | null
   client_id: string
   vehicle_id: string
@@ -69,16 +70,22 @@ interface Props {
 }
 
 function parseLocation(raw: string): { dept: string; city: string } {
-  const idx = raw.lastIndexOf(', ')
+  const rawTrimmed = raw.trim()
+  const idx = rawTrimmed.lastIndexOf(', ')
   if (idx !== -1) {
-    const city = raw.slice(0, idx)
-    const dept = raw.slice(idx + 2)
-    if (COLOMBIA_GEO[dept]) return { dept, city }
+    const city = rawTrimmed.slice(0, idx)
+    const dept = rawTrimmed.slice(idx + 2)
+    const deptKey = Object.keys(COLOMBIA_GEO).find(k => k.toLowerCase() === dept.toLowerCase())
+    if (deptKey) {
+      const cityKey = COLOMBIA_GEO[deptKey].find(c => c.toLowerCase() === city.toLowerCase())
+      return { dept: deptKey, city: cityKey ?? city }
+    }
   }
   for (const [dept, cities] of Object.entries(COLOMBIA_GEO)) {
-    if (cities.includes(raw)) return { dept, city: raw }
+    const cityKey = cities.find(c => c.toLowerCase() === rawTrimmed.toLowerCase())
+    if (cityKey) return { dept, city: cityKey }
   }
-  return { dept: '', city: raw }
+  return { dept: '', city: rawTrimmed }
 }
 
 function calcFreight(kg: string, ppt: string): number | null {
@@ -93,6 +100,7 @@ export default function ViajeForm({ clients, vehicles, drivers, trip }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isEdit = !!trip
+  const isManifest = !!trip?.manifest_auth
 
   const initOrigin = trip ? parseLocation(trip.origin) : { dept: '', city: '' }
   const initDest   = trip ? parseLocation(trip.destination) : { dept: '', city: '' }
@@ -101,6 +109,9 @@ export default function ViajeForm({ clients, vehicles, drivers, trip }: Props) {
   const [originCity, setOriginCity] = useState(initOrigin.city)
   const [destDept,   setDestDept]   = useState(initDest.dept)
   const [destCity,   setDestCity]   = useState(initDest.city)
+
+  const [originText, setOriginText] = useState(trip?.origin ?? '')
+  const [destText,   setDestText]   = useState(trip?.destination ?? '')
 
   const [weightKg,    setWeightKg]    = useState(trip?.weight_kg?.toString() ?? '')
   const [pricePerTon, setPricePerTon] = useState(trip?.price_per_ton?.toString() ?? '')
@@ -121,16 +132,26 @@ export default function ViajeForm({ clients, vehicles, drivers, trip }: Props) {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!originDept || !originCity) { setError('Selecciona departamento y ciudad de origen'); return }
-    if (!destDept   || !destCity)   { setError('Selecciona departamento y ciudad de destino'); return }
+    if (isManifest) {
+      if (!originText.trim()) { setError('El origen es obligatorio'); return }
+      if (!destText.trim())   { setError('El destino es obligatorio'); return }
+    } else {
+      if (!originDept || !originCity) { setError('Selecciona departamento y ciudad de origen'); return }
+      if (!destDept   || !destCity)   { setError('Selecciona departamento y ciudad de destino'); return }
+    }
     if (!freight || Number(freight) <= 0) { setError('El valor del flete es obligatorio'); return }
 
     setLoading(true)
     setError('')
 
     const formData = new FormData(e.currentTarget)
-    formData.set('origin',      `${originCity}, ${originDept}`)
-    formData.set('destination', `${destCity}, ${destDept}`)
+    if (isManifest) {
+      formData.set('origin',      originText.trim())
+      formData.set('destination', destText.trim())
+    } else {
+      formData.set('origin',      `${originCity}, ${originDept}`)
+      formData.set('destination', `${destCity}, ${destDept}`)
+    }
     formData.set('freight_value', freight)
     formData.set('weight_kg',    weightKg)
     formData.set('price_per_ton', pricePerTon)
@@ -185,39 +206,49 @@ export default function ViajeForm({ clients, vehicles, drivers, trip }: Props) {
         </select>
       </div>
 
-      {/* Origen en cascada */}
+      {/* Origen */}
       <div>
         <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Origen *</label>
-        <div className="grid grid-cols-2 gap-2">
-          <select value={originDept} onChange={e => { setOriginDept(e.target.value); setOriginCity('') }} className={SEL}>
-            <option value="">Departamento</option>
-            {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select value={originCity} onChange={e => setOriginCity(e.target.value)} disabled={!originDept} className={SEL}>
-            <option value="">Ciudad</option>
-            {(COLOMBIA_GEO[originDept] ?? []).map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
+        {isManifest ? (
+          <input type="text" value={originText} onChange={e => setOriginText(e.target.value)}
+            placeholder="Ej: BELLO ANTIOQUIA" className={INP} />
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <select value={originDept} onChange={e => { setOriginDept(e.target.value); setOriginCity('') }} className={SEL}>
+              <option value="">Departamento</option>
+              {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={originCity} onChange={e => setOriginCity(e.target.value)} disabled={!originDept} className={SEL}>
+              <option value="">Ciudad</option>
+              {(COLOMBIA_GEO[originDept] ?? []).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* Destino en cascada */}
+      {/* Destino */}
       <div>
         <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Destino *</label>
-        <div className="grid grid-cols-2 gap-2">
-          <select value={destDept} onChange={e => { setDestDept(e.target.value); setDestCity('') }} className={SEL}>
-            <option value="">Departamento</option>
-            {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select value={destCity} onChange={e => setDestCity(e.target.value)} disabled={!destDept} className={SEL}>
-            <option value="">Ciudad</option>
-            {(COLOMBIA_GEO[destDept] ?? []).map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
+        {isManifest ? (
+          <input type="text" value={destText} onChange={e => setDestText(e.target.value)}
+            placeholder="Ej: VALLEDUPAR CESAR" className={INP} />
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <select value={destDept} onChange={e => { setDestDept(e.target.value); setDestCity('') }} className={SEL}>
+              <option value="">Departamento</option>
+              {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={destCity} onChange={e => setDestCity(e.target.value)} disabled={!destDept} className={SEL}>
+              <option value="">Ciudad</option>
+              {(COLOMBIA_GEO[destDept] ?? []).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* Fecha de cargue */}
+      {/* Fecha */}
       <div>
-        <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Fecha de cargue *</label>
+        <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Fecha de expedición *</label>
         <input name="load_date" required type="date" defaultValue={trip?.load_date ?? ''} className={INP} />
       </div>
 

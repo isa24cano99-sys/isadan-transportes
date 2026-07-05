@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import {
-  Users, ChevronDown, ChevronUp, Loader2, CheckCircle2, X, FileDown,
+  Users, ChevronDown, ChevronUp, Loader2, CheckCircle2, X, FileDown, Pencil, Trash2,
 } from 'lucide-react'
-import { calcularNominaAction, guardarNominaAction, type NominaCalculo } from './actions'
+import { calcularNominaAction, guardarNominaAction, eliminarNominaAction, type NominaCalculo, type LegalizacionCalculo } from './actions'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
@@ -61,23 +61,26 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
   const [year,              setYear]              = useState(now.getFullYear())
   const [calculating,       setCalculating]       = useState(false)
   const [calculo,           setCalculo]           = useState<NominaCalculo | null>(null)
-  const [totalPercentage,   setTotalPercentage]   = useState('0')
   const [totalFavorCond,    setTotalFavorCond]    = useState('0')
   const [totalFavorEmpresa, setTotalFavorEmpresa] = useState('0')
   const [prima,             setPrima]             = useState('0')
+  const [primaSource,       setPrimaSource]       = useState<{ paidDate: string } | null>(null)
   const [otherAdditions,    setOtherAdditions]    = useState('0')
   const [otherDeductions,   setOtherDeductions]   = useState('0')
   const [notes,             setNotes]             = useState('')
-  const [saving,            setSaving]            = useState(false)
-  const [saveError,         setSaveError]         = useState('')
-  const [expandedIds,       setExpandedIds]       = useState<Set<string>>(new Set())
-  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [saving,              setSaving]              = useState(false)
+  const [saveError,           setSaveError]           = useState('')
+  const [expandedIds,         setExpandedIds]         = useState<Set<string>>(new Set())
+  const [isEditMode,          setIsEditMode]          = useState(false)
+  const [deletePayrollTarget, setDeletePayrollTarget] = useState<{ id: string; period: string; netPayment: number } | null>(null)
+  const [deletingPayroll,     setDeletingPayroll]     = useState(false)
+  const debRef         = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const skipAutoFillRef = useRef(false)
 
   const num = (s: string) => parseFloat(s) || 0
 
   const netPayment =
     (payingDriver?.salary ?? 0)
-    + num(totalPercentage)
     + num(totalFavorCond)
     - num(totalFavorEmpresa)
     + num(prima)
@@ -90,10 +93,16 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
     const res = await calcularNominaAction(driver.id, y, m, driver.salary, driver.hire_date)
     if (res.ok && res.data) {
       setCalculo(res.data)
-      setTotalPercentage(String(res.data.totalPercentage))
-      setTotalFavorCond(String(res.data.totalFavorConductor))
-      setTotalFavorEmpresa(String(res.data.totalFavorEmpresa))
-      setPrima(String(res.data.primaCalculada))
+      console.log('totalFavorCond:', res.data.totalFavorConductor)
+      console.log('totalFavorEmpresa:', res.data.totalFavorEmpresa)
+      console.log('legalizaciones:', res.data.legalizaciones)
+      if (!skipAutoFillRef.current) {
+        setTotalFavorCond(String(res.data.totalFavorConductor))
+        setTotalFavorEmpresa(String(res.data.totalFavorEmpresa))
+        setPrima(String(res.data.primaCalculada))
+        setPrimaSource(res.data.primaSource)
+      }
+      skipAutoFillRef.current = false
     }
     setCalculating(false)
   }, [])
@@ -106,14 +115,46 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
   const openModal = (d: Driver) => {
     setPayingDriver(d)
-    setTotalPercentage('0'); setTotalFavorCond('0'); setTotalFavorEmpresa('0')
-    setPrima('0'); setOtherAdditions('0'); setOtherDeductions('0')
+    setIsEditMode(false)
+    setTotalFavorCond('0'); setTotalFavorEmpresa('0')
+    setPrima('0'); setPrimaSource(null)
+    setOtherAdditions('0'); setOtherDeductions('0')
     setNotes(''); setSaveError(''); setCalculo(null)
   }
 
   const closeModal = () => {
     setPayingDriver(null)
+    setIsEditMode(false)
+    skipAutoFillRef.current = false
     if (debRef.current) clearTimeout(debRef.current)
+  }
+
+  const openEditModal = (d: Driver, p: Payroll) => {
+    skipAutoFillRef.current = true
+    setIsEditMode(true)
+    setMonth(p.month)
+    setYear(p.year)
+    setTotalFavorCond(String(p.total_favor_conductor))
+    setTotalFavorEmpresa(String(p.total_favor_empresa))
+    setPrima(String(p.prima))
+    setPrimaSource(null)
+    setOtherAdditions(String(p.other_additions))
+    setOtherDeductions(String(p.other_deductions))
+    setNotes(p.notes ?? '')
+    setSaveError(''); setCalculo(null)
+    setPayingDriver(d)
+  }
+
+  const handleDeletePayroll = async () => {
+    if (!deletePayrollTarget) return
+    setDeletingPayroll(true)
+    const res = await eliminarNominaAction(deletePayrollTarget.id)
+    if (res.ok) {
+      setDeletePayrollTarget(null)
+      window.location.reload()
+    } else {
+      setDeletingPayroll(false)
+    }
   }
 
   const toggleHistory = (id: string) => {
@@ -168,16 +209,26 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
       autoTable(doc, {
         startY: currentY,
-        head: [['Viaje', 'Ruta', 'Porcentaje', 'Balance']],
-        body: calc.legalizaciones.map(l => [
+        margin: { left: 15, right: 15 },
+        head: [['Viaje', 'Ruta', 'Anticipo', 'Gastos', 'Balance', 'Resultado']],
+        body: calc.legalizaciones.map((l: LegalizacionCalculo) => [
           l.trip?.trip_number ?? '—',
           l.trip ? `${l.trip.origin} → ${l.trip.destination}` : '—',
-          formatCOP(l.porcentaje),
-          formatCOP(l.balance),
+          formatCOP(l.advance_amount),
+          formatCOP(l.total_expenses),
+          (l.balance > 0 ? '+' : l.balance < 0 ? '-' : '') + formatCOP(Math.abs(l.balance)),
+          l.balance > 0 ? 'Cond. debe' : l.balance < 0 ? 'Emp. debe' : 'Cuadrado',
         ]),
-        styles: { fontSize: 7.5, cellPadding: 1.8 },
-        headStyles: { fillColor: [37, 99, 235], fontSize: 7.5 },
-        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' } },
+        styles: { fontSize: 7, cellPadding: 1.6, overflow: 'ellipsis' },
+        headStyles: { fillColor: [37, 99, 235], fontSize: 7, fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 20 },
+          1: { cellWidth: 70 },
+          2: { cellWidth: 25, halign: 'right' },
+          3: { cellWidth: 25, halign: 'right' },
+          4: { cellWidth: 25, halign: 'right' },
+          5: { cellWidth: 30 },
+        },
       })
       currentY = (doc as any).lastAutoTable?.finalY + 8
     }
@@ -190,10 +241,9 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
     const rows: [string, string][] = [
       ['Salario básico mensual', formatCOP(driver.salary)],
-      ['(+) Porcentaje de viajes', formatCOP(num(totalPercentage))],
     ]
-    if (num(totalFavorCond) > 0)    rows.push(['(+) Saldo a favor conductor', formatCOP(num(totalFavorCond))])
-    if (num(totalFavorEmpresa) > 0) rows.push(['(-) Saldo a favor empresa',   formatCOP(num(totalFavorEmpresa))])
+    if (num(totalFavorCond) > 0)    rows.push(['(+) Saldo a favor conductor (viajes)', formatCOP(num(totalFavorCond))])
+    if (num(totalFavorEmpresa) > 0) rows.push(['(-) Saldo a favor empresa (viajes)',   formatCOP(num(totalFavorEmpresa))])
     if (num(prima) > 0)             rows.push(['(+) Prima de servicios',       formatCOP(num(prima))])
     if (num(otherAdditions) > 0)    rows.push(['(+) Otras adiciones',          formatCOP(num(otherAdditions))])
     if (num(otherDeductions) > 0)   rows.push(['(-) Otras deducciones',        formatCOP(num(otherDeductions))])
@@ -201,9 +251,10 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
     autoTable(doc, {
       startY: currentY,
+      margin: { left: 15, right: 15 },
       body: rows,
       styles: { fontSize: 8.5, cellPadding: 2 },
-      columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+      columnStyles: { 0: { cellWidth: 130 }, 1: { cellWidth: 50, halign: 'right', fontStyle: 'bold' } },
       didParseCell: (data: any) => {
         if (data.row.index === rows.length - 1) {
           data.cell.styles.fillColor   = [239, 246, 255]
@@ -233,17 +284,16 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
     if (!payingDriver) return
     setSaving(true); setSaveError('')
     const fd = new FormData()
-    fd.set('driver_id',            payingDriver.id)
-    fd.set('year',                 String(year))
-    fd.set('month',                String(month))
-    fd.set('base_salary',          String(payingDriver.salary))
-    fd.set('total_percentage',     totalPercentage)
+    fd.set('driver_id',             payingDriver.id)
+    fd.set('year',                  String(year))
+    fd.set('month',                 String(month))
+    fd.set('base_salary',           String(payingDriver.salary))
     fd.set('total_favor_conductor', totalFavorCond)
-    fd.set('total_favor_empresa',  totalFavorEmpresa)
-    fd.set('prima',                prima)
-    fd.set('other_additions',      otherAdditions)
-    fd.set('other_deductions',     otherDeductions)
-    fd.set('notes',                notes)
+    fd.set('total_favor_empresa',   totalFavorEmpresa)
+    fd.set('prima',                 prima)
+    fd.set('other_additions',       otherAdditions)
+    fd.set('other_deductions',      otherDeductions)
+    fd.set('notes',                 notes)
 
     const res = await guardarNominaAction(fd)
     if (!res.ok) { setSaveError(res.error ?? 'Error al guardar'); setSaving(false); return }
@@ -316,7 +366,7 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-[#E2E8F0]">
-                        {['Período','Salario base','Porcentaje','Saldo cond.','Saldo empresa','Prima','Total neto','Estado'].map(h => (
+                        {['Período','Salario base','Porcentaje','Saldo cond.','Saldo empresa','Prima','Total neto','Estado',''].map(h => (
                           <th key={h} className="text-left px-4 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">{h}</th>
                         ))}
                       </tr>
@@ -337,6 +387,22 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                               : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700">Pendiente</span>
                             }
                           </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => openEditModal(d, p)}
+                                className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline font-medium"
+                              >
+                                <Pencil size={11} /> Editar
+                              </button>
+                              <button
+                                onClick={() => setDeletePayrollTarget({ id: p.id, period: p.period, netPayment: p.net_payment })}
+                                className="text-[#94A3B8] hover:text-red-500 transition-colors p-0.5"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -350,20 +416,17 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
       {/* ── Modal de nómina ───────────────────────────────────────────────────── */}
       {payingDriver && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-4">
-            {/* Modal header */}
-            <div className="sticky top-0 bg-white border-b border-[#E2E8F0] px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
-              <div>
-                <h2 className="font-semibold text-[#0F172A]">Liquidar nómina — {payingDriver.full_name}</h2>
-                <p className="text-xs text-[#64748B] mt-0.5">Salario base: {formatCOP(payingDriver.salary)}</p>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="border-b border-[#E2E8F0] px-6 pt-4 pb-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="font-semibold text-[#0F172A]">{isEditMode ? 'Editar' : 'Liquidar'} nómina — {payingDriver.full_name}</h2>
+                  <p className="text-xs text-[#64748B] mt-0.5">Salario base: {formatCOP(payingDriver.salary)}</p>
+                </div>
+                <button onClick={closeModal} className="mt-0.5"><X size={18} className="text-[#64748B]" /></button>
               </div>
-              <button onClick={closeModal}><X size={18} className="text-[#64748B]" /></button>
-            </div>
-
-            <div className="p-6 space-y-5">
-              {/* Period selector */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Mes</label>
                   <select value={month} onChange={e => setMonth(Number(e.target.value))} className={inputCls}>
@@ -377,6 +440,9 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                   </select>
                 </div>
               </div>
+            </div>
+
+            <div className="p-6 space-y-5">
 
               {/* Legalization detail */}
               {calculating ? (
@@ -392,27 +458,33 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                     </p>
                   ) : (
                     <div>
-                      <p className="text-xs font-semibold text-[#64748B] mb-2">Legalizaciones aprobadas del período</p>
+                      <p className="text-xs font-semibold text-[#64748B] mb-2">Legalizaciones del período</p>
                       <div className="border border-[#E2E8F0] rounded-xl overflow-hidden">
-                        <table className="w-full">
+                        <table className="w-full text-xs">
                           <thead>
                             <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
                               <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Viaje</th>
                               <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Ruta</th>
-                              <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Porcentaje</th>
+                              <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Anticipo</th>
+                              <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Gastos</th>
                               <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Balance</th>
+                              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Resultado</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#E2E8F0]">
                             {calculo.legalizaciones.map(l => (
                               <tr key={l.id} className="hover:bg-[#F8FAFC]">
-                                <td className="px-3 py-1.5 text-xs font-mono font-bold text-[#2563EB]">{l.trip?.trip_number ?? '—'}</td>
-                                <td className="px-3 py-1.5 text-xs text-[#64748B]">
+                                <td className="px-3 py-1.5 font-mono font-bold text-[#2563EB]">{l.trip?.trip_number ?? '—'}</td>
+                                <td className="px-3 py-1.5 text-[#64748B] max-w-[140px] truncate">
                                   {l.trip ? `${l.trip.origin} → ${l.trip.destination}` : '—'}
                                 </td>
-                                <td className="px-3 py-1.5 text-xs text-right font-medium text-green-700">{formatCOP(l.porcentaje)}</td>
-                                <td className={`px-3 py-1.5 text-xs text-right font-semibold ${l.balance >= 0 ? 'text-green-700' : 'text-red-500'}`}>
-                                  {l.balance < 0 ? '−' : '+'}{formatCOP(Math.abs(l.balance))}
+                                <td className="px-3 py-1.5 text-right text-[#0F172A]">{formatCOP(l.advance_amount)}</td>
+                                <td className="px-3 py-1.5 text-right text-[#0F172A]">{formatCOP(l.total_expenses)}</td>
+                                <td className={`px-3 py-1.5 text-right font-semibold ${l.balance > 0 ? 'text-red-500' : l.balance < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                                  {l.balance > 0 ? '+' : l.balance < 0 ? '−' : ''}{formatCOP(Math.abs(l.balance))}
+                                </td>
+                                <td className={`px-3 py-1.5 font-medium ${l.balance > 0 ? 'text-red-500' : l.balance < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                                  {l.balance > 0 ? 'Conductor debe a empresa' : l.balance < 0 ? 'Empresa debe a conductor' : 'Cuadrado'}
                                 </td>
                               </tr>
                             ))}
@@ -426,15 +498,10 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
 
               {/* Editable amounts */}
               <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 space-y-3">
-                <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Componentes del pago</p>
+                <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Ajustes y deducciones</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className={labelCls}>Porcentaje de viajes (COP)</label>
-                    <input type="number" min="0" step="1" value={totalPercentage}
-                      onChange={e => setTotalPercentage(e.target.value)} className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Saldo a favor conductor</label>
+                    <label className={labelCls}>Saldo a favor conductor (viajes)</label>
                     <input type="number" min="0" step="1" value={totalFavorCond}
                       onChange={e => setTotalFavorCond(e.target.value)} className={inputCls} />
                   </div>
@@ -444,11 +511,16 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                       onChange={e => setTotalFavorEmpresa(e.target.value)} className={inputCls} />
                   </div>
                   <div>
-                    <label className={labelCls}>
-                      Prima de servicios {(month === 6 || month === 12) && <span className="text-blue-500">(aplica)</span>}
-                    </label>
+                    <label className={labelCls}>Prima de servicios</label>
                     <input type="number" min="0" step="1" value={prima}
                       onChange={e => setPrima(e.target.value)} className={inputCls} />
+                    {calculo && (
+                      <p className={`text-[11px] mt-1 ${primaSource ? 'text-blue-600' : 'text-[#94A3B8]'}`}>
+                        {primaSource
+                          ? `Tomado de liquidación del ${primaSource.paidDate}`
+                          : 'Sin prima liquidada — ingresa manualmente'}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className={labelCls}>Otras adiciones</label>
@@ -476,9 +548,8 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                     <span className="text-sm text-[#64748B]">Salario base</span>
                     <span className="text-sm font-semibold text-green-700">+{formatCOP(payingDriver.salary)}</span>
                   </div>
-                  <LiqRow label="Porcentaje viajes del mes" value={num(totalPercentage)} />
-                  <LiqRow label="Saldo a favor conductor" value={num(totalFavorCond)} />
-                  <LiqRow label="Saldo a favor empresa" value={num(totalFavorEmpresa)} sign="-" />
+                  <LiqRow label="Saldo a favor conductor (viajes)" value={num(totalFavorCond)} />
+                  <LiqRow label="Saldo a favor empresa (viajes)" value={num(totalFavorEmpresa)} sign="-" />
                   <LiqRow label="Prima de servicios" value={num(prima)} />
                   <LiqRow label="Otras adiciones" value={num(otherAdditions)} />
                   <LiqRow label="Otras deducciones" value={num(otherDeductions)} sign="-" />
@@ -502,8 +573,38 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                 className="flex-1 flex items-center justify-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors">
                 {saving
                   ? <><Loader2 size={14} className="animate-spin" /> Guardando...</>
-                  : <><FileDown size={14} /> Confirmar y descargar PDF</>
+                  : <><FileDown size={14} /> {isEditMode ? 'Guardar cambios' : 'Confirmar y descargar PDF'}</>
                 }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmación eliminar nómina ──────────────────────────────────────── */}
+      {deletePayrollTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h2 className="font-semibold text-[#0F172A]">Eliminar nómina</h2>
+            <p className="text-sm text-[#64748B]">
+              ¿Eliminar la nómina de{' '}
+              <span className="font-medium text-[#0F172A]">{deletePayrollTarget.period}</span>{' '}
+              ({formatCOP(deletePayrollTarget.netPayment)})? Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeletePayrollTarget(null)}
+                disabled={deletingPayroll}
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeletePayroll}
+                disabled={deletingPayroll}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm"
+              >
+                {deletingPayroll ? 'Eliminando...' : 'Eliminar'}
               </button>
             </div>
           </div>

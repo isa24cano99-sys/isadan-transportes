@@ -30,21 +30,27 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
 
   const expensesMap: Record<string, string> = {}
   let otrosDesc = ''
+  let percentage = 0
   for (const e of expenses) {
+    if (e.expense_type === 'porcentaje') {
+      // description stores the raw % value saved at creation time
+      percentage = e.description ? Number(e.description) : 0
+      continue
+    }
     expensesMap[e.expense_type] = String(e.amount)
     if (e.expense_type === 'otros' && e.description) otrosDesc = e.description
   }
 
   const tripData = trips.find((t: any) => t.id === leg.trip_id)
-  const freight = (tripData as any)?.freight_value ?? leg.advance_amount ?? 0
+  const freight  = (tripData as any)?.freight_value ?? 0
 
   const initialData: LegalizacionInitialData = {
     id:         leg.id,
     trip_id:    leg.trip_id,
     trip_date:  leg.date ?? '',
-    freight:    freight,
+    freight,
     advance:    leg.advance_amount ?? 0,
-    percentage: 0,
+    percentage,
     expenses:   expensesMap,
     otrosDesc,
   }

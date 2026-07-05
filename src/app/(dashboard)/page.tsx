@@ -1,7 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { AlertTriangle, Clock, FileText } from 'lucide-react'
-import ManifiestoUpload from './ManifiestoUpload'
 
 function getDaysLeft(expirationDate: string | null): number | undefined {
   if (!expirationDate) return undefined
@@ -73,17 +72,6 @@ export default async function DashboardPage() {
       <div>
         <h1 className="text-xl font-semibold text-[#0F172A]">Dashboard</h1>
         <p className="text-sm text-[#64748B] mt-0.5">Bienvenido a ISADAN Transportes</p>
-      </div>
-
-      {/* Manifest upload */}
-      <div className="bg-white border border-[#E2E8F0] rounded-2xl p-5">
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-[#0F172A]">Cargar manifiesto</h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Carga un PDF del Ministerio de Transporte para crear el viaje automáticamente
-          </p>
-        </div>
-        <ManifiestoUpload />
       </div>
 
       {/* Document alerts widget */}

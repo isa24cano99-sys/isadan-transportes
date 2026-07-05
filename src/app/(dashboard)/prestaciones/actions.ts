@@ -11,8 +11,9 @@ export async function guardarPrestacionesAction(data: {
   intereses: number
   prima: number
   vacaciones: number
+  paid_date?: string
 }): Promise<{ ok: boolean; error?: string }> {
-  const { entity_type, entity_id, ...rest } = data
+  const { entity_type, entity_id, paid_date, ...rest } = data
   const employee_id = entity_type === 'EMPLOYEE' ? entity_id : null
   const driver_id   = entity_type === 'DRIVER'   ? entity_id : null
 
@@ -23,7 +24,7 @@ export async function guardarPrestacionesAction(data: {
       employee_id,
       driver_id,
       paid: true,
-      paid_date: new Date().toISOString().split('T')[0],
+      paid_date: paid_date || new Date().toISOString().split('T')[0],
     })
 
   if (error) {

@@ -44,7 +44,7 @@ function ExtractedFields({ data }: { data: ManifiestoExtraido }) {
   )
 }
 
-export default function ManifiestoUpload() {
+export default function ManifiestoUpload({ compact = false }: { compact?: boolean }) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging,    setDragging]    = useState(false)
@@ -109,59 +109,87 @@ export default function ManifiestoUpload() {
     }
   }
 
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept="application/pdf"
+      className="hidden"
+      onChange={e => {
+        const f = e.target.files?.[0]
+        if (f) processFile(f)
+        e.target.value = ''
+      }}
+    />
+  )
+
   return (
     <>
-      <div
-        role="button"
-        tabIndex={0}
-        aria-label="Cargar manifiesto PDF"
-        className={`border-2 border-dashed rounded-lg p-4 flex items-center gap-4 cursor-pointer transition-colors select-none ${
-          dragging
-            ? 'border-[#2563EB] bg-blue-50'
-            : 'border-[#E2E8F0] hover:border-blue-400 hover:bg-blue-50/30'
-        }`}
-        onClick={() => !processing && inputRef.current?.click()}
-        onKeyDown={e => e.key === 'Enter' && !processing && inputRef.current?.click()}
-        onDragOver={e => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={e => {
-            const f = e.target.files?.[0]
-            if (f) processFile(f)
-            e.target.value = ''
-          }}
-        />
-
-        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-          {processing
-            ? <RefreshCw size={18} className="text-blue-500 animate-spin" />
-            : <Upload size={18} className="text-blue-500" />
-          }
-        </div>
-        <div>
-          <p className="text-sm font-medium text-[#0F172A]">
-            {processing ? 'Procesando manifiesto…' : 'Cargar manifiesto de carga'}
-          </p>
-          <p className="text-xs text-[#64748B]">
+      {compact ? (
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={() => !processing && inputRef.current?.click()}
+            disabled={processing}
+            className="flex items-center gap-2 border border-[#E2E8F0] bg-white text-[#0F172A] text-sm font-medium px-4 py-2 rounded-lg hover:border-blue-400 hover:bg-blue-50/30 transition-colors disabled:opacity-60"
+          >
             {processing
-              ? 'Extrayendo datos del PDF'
-              : 'Arrastra el PDF aquí o haz click · Solo PDF del Ministerio de Transporte'
+              ? <RefreshCw size={14} className="text-blue-500 animate-spin" />
+              : <Upload size={14} className="text-blue-500" />
             }
-          </p>
+            {processing ? 'Procesando…' : 'Cargar manifiesto'}
+          </button>
+          {fileInput}
+          {error && (
+            <p className="text-[11px] text-red-600 flex items-center gap-1">
+              <AlertTriangle size={11} /> {error}
+            </p>
+          )}
         </div>
-      </div>
+      ) : (
+        <>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Cargar manifiesto PDF"
+            className={`border-2 border-dashed rounded-lg p-4 flex items-center gap-4 cursor-pointer transition-colors select-none ${
+              dragging
+                ? 'border-[#2563EB] bg-blue-50'
+                : 'border-[#E2E8F0] hover:border-blue-400 hover:bg-blue-50/30'
+            }`}
+            onClick={() => !processing && inputRef.current?.click()}
+            onKeyDown={e => e.key === 'Enter' && !processing && inputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+          >
+            {fileInput}
+            <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              {processing
+                ? <RefreshCw size={18} className="text-blue-500 animate-spin" />
+                : <Upload size={18} className="text-blue-500" />
+              }
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[#0F172A]">
+                {processing ? 'Procesando manifiesto…' : 'Cargar manifiesto de carga'}
+              </p>
+              <p className="text-xs text-[#64748B]">
+                {processing
+                  ? 'Extrayendo datos del PDF'
+                  : 'Arrastra el PDF aquí o haz click · Solo PDF del Ministerio de Transporte'
+                }
+              </p>
+            </div>
+          </div>
 
-      {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mt-3">
-          <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </div>
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mt-3">
+              <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal overlay — solo aparece para manifiestos duplicados */}

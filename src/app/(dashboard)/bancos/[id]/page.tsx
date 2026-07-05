@@ -6,7 +6,7 @@ import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-acti
 export const dynamic = 'force-dynamic'
 
 async function getBankDetail(id: string) {
-  const [{ data: account }, { data: transactions }, { data: catsRaw }, { data: pucRaw }] = await Promise.all([
+  const [{ data: account }, { data: transactions }, { data: catsRaw }, { data: pucRaw }, { data: tripsRaw }] = await Promise.all([
     supabase.from('bank_accounts').select('*').eq('id', id).single(),
     supabase
       .from('bank_transactions')
@@ -20,6 +20,7 @@ async function getBankDetail(id: string) {
       .order('type')
       .order('name'),
     supabase.from('puc_accounts').select('id, codigo, nombre, tipo, active').order('tipo').order('codigo'),
+    supabase.from('trips').select('id, trip_number, origin, destination, load_date, vehicles(plate)').order('created_at', { ascending: false }),
   ])
 
   if (!account) return null
@@ -35,7 +36,7 @@ async function getBankDetail(id: string) {
   const egresos  = txns.filter(t => t.type === 'EGRESO').reduce((s, t) => s + Number(t.amount), 0)
   const balance  = Number(account.initial_balance) + ingresos - egresos
 
-  return { account, transactions: txns, ingresos, egresos, balance, categories, pucAccounts: pucRaw ?? [] }
+  return { account, transactions: txns, ingresos, egresos, balance, categories, pucAccounts: pucRaw ?? [], trips: tripsRaw ?? [] }
 }
 
 export default async function BankDetailPage({

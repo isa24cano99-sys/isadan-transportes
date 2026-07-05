@@ -35,11 +35,19 @@ function buildLegalizationPayload(formData: FormData) {
   const balance_anticipo     = advance - gastos_viaje
   const saldo_final          = porcentaje_calculado - balance_anticipo
 
+  if (porcentaje_calculado > 0) {
+    expenses.push({
+      expense_type: 'porcentaje',
+      amount:       porcentaje_calculado,
+      description:  String(percentage),   // store raw % in description for reload
+    })
+  }
+
   return { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses }
 }
 
 export async function crearLegalizacionAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, advance, gastos_viaje, expenses } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 
@@ -65,7 +73,7 @@ export async function crearLegalizacionAction(formData: FormData): Promise<{ ok:
 }
 
 export async function actualizarLegalizacionAction(id: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, advance, gastos_viaje, expenses } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 

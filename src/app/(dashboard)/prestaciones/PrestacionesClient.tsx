@@ -280,6 +280,7 @@ function LiquidacionModal({
   const [inicio,           setInicio]           = useState('')
   const [iniciosPrima,     setIniciosPrima]     = useState('')
   const [fin,              setFin]              = useState('')
+  const [paidDate,         setPaidDate]         = useState(new Date().toISOString().split('T')[0])
   const [loading,          setLoading]          = useState(false)
   const [error,            setError]            = useState('')
 
@@ -314,6 +315,7 @@ function LiquidacionModal({
       intereses:  calc.intereses,
       prima:      calc.prima,
       vacaciones: calc.vacaciones,
+      paid_date:  paidDate,
     })
 
     if (!result.ok) { setError(result.error ?? 'Error al guardar'); setLoading(false); return }
@@ -345,12 +347,23 @@ function LiquidacionModal({
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
 
-          {/* Badge */}
-          <span className={`inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full ${
-            type === 'anual' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-          }`}>
-            {type === 'anual' ? 'Pago anual' : 'Desvinculación'}
-          </span>
+          {/* Badge + Fecha de pago */}
+          <div className="flex items-center justify-between gap-4">
+            <span className={`inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full ${
+              type === 'anual' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+            }`}>
+              {type === 'anual' ? 'Pago anual' : 'Desvinculación'}
+            </span>
+            <div className="flex items-center gap-2">
+              <label className={labelCls + ' mb-0'}>Fecha de pago</label>
+              <input
+                type="date"
+                value={paidDate}
+                onChange={e => setPaidDate(e.target.value)}
+                className="border border-[#E2E8F0] rounded-lg px-3 py-1.5 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+          </div>
 
           {/* Liquidation type selector — only shown for 'anual' */}
           {type !== 'desvinculacion' && (

@@ -27,11 +27,17 @@ export default function TransaccionForm({
   categories,
   pucAccounts,
   trips,
+  defaultAccountId,
+  onClose,
+  onSuccess,
 }: {
   accounts: { id: string; bank_name: string }[]
   categories: TransactionCategory[]
   pucAccounts: PucAccount[]
   trips: Trip[]
+  defaultAccountId?: string
+  onClose?: () => void
+  onSuccess?: () => void
 }) {
   const router = useRouter()
   const [loading,      setLoading]      = useState(false)
@@ -68,6 +74,11 @@ export default function TransaccionForm({
     setSuggestion(null)
   }
 
+  const handleCancel = () => {
+    if (onClose) onClose()
+    else router.back()
+  }
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!categoryId) { setError('Selecciona una categoría'); return }
@@ -75,9 +86,9 @@ export default function TransaccionForm({
     setError('')
 
     const fd = new FormData(e.currentTarget)
-    fd.set('category_id',  categoryId)
-    fd.set('description',  description)
-    fd.set('supplier_nit', supplierNit)
+    fd.set('category_id',   categoryId)
+    fd.set('description',   description)
+    fd.set('supplier_nit',  supplierNit)
     fd.set('supplier_name', supplierName)
     if (tripId) {
       fd.set('reference_type', 'TRIP')
@@ -86,8 +97,12 @@ export default function TransaccionForm({
 
     const result = await crearTransaccionAction(fd)
     if (result.ok) {
-      router.push('/bancos')
-      router.refresh()
+      if (onSuccess) {
+        onSuccess()
+      } else {
+        router.push('/bancos')
+        router.refresh()
+      }
     } else {
       setError(result.error ?? 'Error al registrar')
       setLoading(false)
@@ -99,36 +114,67 @@ export default function TransaccionForm({
   const readonlyCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#64748B] bg-[#F8FAFC] outline-none'
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
 
+      {/* Account — hidden when pre-selected, selector when standalone */}
+      {defaultAccountId ? (
+        <input type="hidden" name="account_id" value={defaultAccountId} />
+      ) : (
+        <div>
+          <label className={labelCls}>Cuenta bancaria *</label>
+          <select name="account_id" required className={inputCls}>
+            <option value="">Seleccionar cuenta</option>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Tipo */}
       <div>
-        <label className={labelCls}>Cuenta bancaria *</label>
-        <select name="account_id" required className={inputCls}>
-          <option value="">Seleccionar cuenta</option>
-          {accounts.map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
+        <label className={labelCls}>Tipo *</label>
+        <select name="type" required className={inputCls}>
+          <option value="">Seleccionar</option>
+          <option value="INGRESO">Ingreso</option>
+          <option value="EGRESO">Egreso</option>
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className={labelCls}>Tipo *</label>
-          <select name="type" required className={inputCls}>
-            <option value="">Seleccionar</option>
-            <option value="INGRESO">Ingreso</option>
-            <option value="EGRESO">Egreso</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelCls}>Monto (COP) *</label>
-          <input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" className={inputCls} />
-        </div>
-      </div>
-
+      {/* Fecha */}
       <div>
         <label className={labelCls}>Fecha *</label>
         <input name="date" required type="date" className={inputCls} />
       </div>
 
+      {/* Descripción + sugerencia */}
+      <div>
+        <label className={labelCls}>Descripción *</label>
+        <textarea
+          required
+          rows={2}
+          value={description}
+          onChange={e => handleDescChange(e.target.value)}
+          placeholder="Descripción de la transacción..."
+          className={`${inputCls} resize-none`}
+        />
+        {suggestion && (
+          <div className="mt-1.5 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <Zap size={12} className="text-blue-500 shrink-0" />
+            <span className="text-xs text-blue-700 flex-1">
+              Sugerido: <span className="font-semibold">{suggestion.categoryName}</span>
+              <span className="ml-1 text-blue-400">· {suggestion.categoryType === 'CASA' ? 'Casa' : 'Negocio'}</span>
+            </span>
+            <button type="button" onClick={acceptSuggestion}
+              className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded font-medium hover:bg-blue-700 shrink-0">
+              Usar
+            </button>
+            <button type="button" onClick={() => setSuggestion(null)}>
+              <X size={12} className="text-blue-400 hover:text-blue-600" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Categoría */}
       <div>
         <label className={labelCls}>Categoría *</label>
         <CategorySelector
@@ -140,6 +186,7 @@ export default function TransaccionForm({
         />
       </div>
 
+      {/* Proveedor */}
       <div>
         <label className={labelCls}>Proveedor (opcional)</label>
         <SupplierSelector
@@ -149,6 +196,13 @@ export default function TransaccionForm({
         />
       </div>
 
+      {/* Monto */}
+      <div>
+        <label className={labelCls}>Monto (COP) *</label>
+        <input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" className={inputCls} />
+      </div>
+
+      {/* Viaje asociado */}
       {trips.length > 0 && (
         <div>
           <label className={labelCls}>Viaje asociado (opcional)</label>
@@ -173,38 +227,10 @@ export default function TransaccionForm({
         </div>
       )}
 
-      <div>
-        <label className={labelCls}>Descripción *</label>
-        <textarea
-          required
-          rows={3}
-          value={description}
-          onChange={e => handleDescChange(e.target.value)}
-          placeholder="Descripción de la transacción..."
-          className={`${inputCls} resize-none`}
-        />
-        {suggestion && (
-          <div className="mt-1.5 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-            <Zap size={12} className="text-blue-500 shrink-0" />
-            <span className="text-xs text-blue-700 flex-1">
-              Sugerido: <span className="font-semibold">{suggestion.categoryName}</span>
-              <span className="ml-1 text-blue-400">· {suggestion.categoryType === 'CASA' ? 'Casa' : 'Negocio'}</span>
-            </span>
-            <button type="button" onClick={acceptSuggestion}
-              className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded font-medium hover:bg-blue-700 shrink-0">
-              Aceptar
-            </button>
-            <button type="button" onClick={() => setSuggestion(null)}>
-              <X size={12} className="text-blue-400 hover:text-blue-600" />
-            </button>
-          </div>
-        )}
-      </div>
-
       {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
 
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={() => router.back()}
+      <div className="flex gap-3 pt-1">
+        <button type="button" onClick={handleCancel}
           className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors">
           Cancelar
         </button>

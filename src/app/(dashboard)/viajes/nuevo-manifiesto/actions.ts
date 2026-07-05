@@ -41,7 +41,8 @@ function parseNum(raw: string | null): number | null {
 
 function parseManifestDate(raw: string | null): string | null {
   if (!raw) return null
-  return raw.replace(/\//g, '-')
+  const normalized = raw.replace(/\//g, '-')            // '2026/06/20' → '2026-06-20'
+  return new Date(normalized + 'T12:00:00').toISOString().split('T')[0]
 }
 
 function extractFields(text: string): ManifiestoExtraido {
@@ -62,12 +63,9 @@ function extractFields(text: string): ManifiestoExtraido {
     extract(text, /DESTINO DEL VIAJE\s+[\d\s]+No\s+de\s+LICENCIA\s+([A-ZÁÉÍÓÚÜÑ]{3,}(?:\s+[A-ZÁÉÍÓÚÜÑ]{3,})?)/i) ??
     extract(text, /No\s+de\s+LICENCIA\s+([A-ZÁÉÍÓÚÜÑ]{4,}\s+[A-ZÁÉÍÓÚÜÑ]{4,})/i)
 
-  // Product: appears immediately after "Varios NNNNNN" (INVIAS permit) in PDF text.
-  // Try 2-word products first using a whitelist of known Spanish cargo adjectives,
-  // then fall back to 1 word to avoid capturing the shipper company name.
-  const load_content =
-    extract(text, /Varios\s+\d+\s+([A-ZÁÉÍÓÚÜÑ]+\s+(?:AMARILLO|BLANCO|NEGRO|VERDE|ROJO|INTEGRAL|ENTERO|PARTIDO|TRILLADO|MOLIDO|TOSTADO|CRUDO|FRESCO|SECO|LÍQUIDO|LIQUIDO))\b/i) ??
-    extract(text, /Varios\s+\d+\s+([A-ZÁÉÍÓÚÜÑ]+)/i)
+  // Product: 6-digit packing code followed by product name, then shipper company name
+  const loadContentMatch = text.match(/\d{6}\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,30}?)\s+(?:LACTALIS|COLOMBIANA|ANDINA|SA\s|LTDA|S\.A|SAS)/i)
+  const load_content = loadContentMatch?.[1]?.trim() ?? null
 
   // Financial values appear in sequence after "LUGAR DE PAGO FECHA":
   // [total] [retFuente] [retICA] [neto] [anticipo]
@@ -139,10 +137,9 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
   }
 
   // 2. Extract fields
-  console.log('===== TEXTO PDF (primeros 800 chars) =====')
-  console.log(text.slice(0, 800))
-  console.log('===== TEXTO PDF (últimos 600 chars) =====')
-  console.log(text.slice(-600))
+  console.log('=== TEXTO COMPLETO DEL PDF ===')
+  console.log(text)
+  console.log('=== FIN TEXTO ===')
   const extracted = extractFields(text)
   console.log('===== CAMPOS EXTRAÍDOS =====', JSON.stringify(extracted))
 
@@ -177,14 +174,14 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
   let client_id:  string | null = null
 
   if (extracted.plate) {
-    const { data, error } = await supabase.from('vehicles').select('id').eq('plate', extracted.plate).maybeSingle()
+    const { data, error } = await supabase.from('vehicles').select('id').ilike('plate', extracted.plate.replace('-', '')).maybeSingle()
     console.log(`[VEHICULO] placa="${extracted.plate}" → ${data?.id ?? 'NO ENCONTRADO'} err=${error?.message ?? 'ok'}`)
     vehicle_id = data?.id ?? null
   } else {
     console.log('[VEHICULO] placa no extraída del PDF')
   }
   if (extracted.driver_doc) {
-    const { data, error } = await supabase.from('drivers').select('id').eq('document_number', extracted.driver_doc).maybeSingle()
+    const { data, error } = await supabase.from('drivers').select('id').eq('document', extracted.driver_doc).maybeSingle()
     console.log(`[CONDUCTOR] doc="${extracted.driver_doc}" → ${data?.id ?? 'NO ENCONTRADO'} err=${error?.message ?? 'ok'}`)
     driver_id = data?.id ?? null
   } else {
@@ -274,11 +271,11 @@ export async function reemplazarManifiestoAction(
   let driver_id:  string | null | undefined = undefined
 
   if (extracted.plate) {
-    const { data } = await supabase.from('vehicles').select('id').eq('plate', extracted.plate).maybeSingle()
+    const { data } = await supabase.from('vehicles').select('id').ilike('plate', extracted.plate.replace('-', '')).maybeSingle()
     vehicle_id = data?.id ?? null
   }
   if (extracted.driver_doc) {
-    const { data } = await supabase.from('drivers').select('id').eq('document_number', extracted.driver_doc).maybeSingle()
+    const { data } = await supabase.from('drivers').select('id').eq('document', extracted.driver_doc).maybeSingle()
     driver_id = data?.id ?? null
   }
 

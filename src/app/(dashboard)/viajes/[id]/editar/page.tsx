@@ -6,7 +6,7 @@ async function getData(id: string) {
   const [{ data: trip }, { data: clients }, { data: vehicles }, { data: drivers }] = await Promise.all([
     supabase
       .from('trips')
-      .select('id, manifest_number, client_id, vehicle_id, driver_id, origin, destination, load_date, freight_value, advance_amount, weight_kg, price_per_ton, load_content, notes')
+      .select('id, manifest_auth, manifest_number, client_id, vehicle_id, driver_id, origin, destination, load_date, freight_value, advance_amount, weight_kg, price_per_ton, load_content, notes')
       .eq('id', id)
       .single(),
     supabase.from('clients').select('id, name, nit').order('name'),
