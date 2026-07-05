@@ -192,10 +192,13 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
     notes: [noteParts.join(' - ')],
   }
 
+  const payload = { invoice: body }
+  console.log('DATAICO PAYLOAD:', JSON.stringify(payload, null, 2))
+
   const res = await fetch(`${BASE}/invoices`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ invoice: body }),
+    body: JSON.stringify(payload),
     cache: 'no-store',
   })
   if (!res.ok) {
