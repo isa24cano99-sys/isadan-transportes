@@ -97,15 +97,22 @@ export async function generarFacturaAction(tripId: string): Promise<
     // continue without Dataico customer sync
   }
 
-  // 4. Create invoice in Dataico
+  // 4. Calculate next consecutive from existing invoices
+  const { count: invoiceCount } = await supabase
+    .from('invoices')
+    .select('*', { count: 'exact', head: true })
+  const nextConsecutive = (invoiceCount ?? 0) + 1
+
+  // 5. Create invoice in Dataico
   let invoice
   try {
     const vehicle = Array.isArray(trip.vehicles) ? trip.vehicles[0] : trip.vehicles
     invoice = await createDataicoInvoice({
-      customerName:  client.name,
-      customerNit:   nitBase,
-      customerEmail: client.email ?? undefined,
-      date:          new Date().toISOString().split('T')[0],
+      customerName:    client.name,
+      customerNit:     nitBase,
+      customerEmail:   client.email ?? undefined,
+      nextConsecutive,
+      date:            new Date().toISOString().split('T')[0],
       freightValue:  Number(trip.freight_value),
       plate:         vehicle?.plate ?? '',
       origin:        trip.origin,

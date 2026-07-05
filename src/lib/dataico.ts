@@ -141,6 +141,7 @@ export type CreateInvoiceParams = {
   customerName: string
   customerNit: string
   customerEmail?: string
+  nextConsecutive: number
   date: string
   freightValue: number
   plate: string
@@ -168,13 +169,12 @@ export async function createDataicoInvoice(params: CreateInvoiceParams): Promise
     dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
     send_dian: false,
     number_template: {
-      prefix:            process.env.DATAICO_PREFIX ?? 'FEIT',
-      resolution_number: process.env.DATAICO_RESOLUTION_NUMBER ?? '',
-      resolution_date:   process.env.DATAICO_RESOLUTION_DATE   ?? '',
-      technical_key:     '',
-      from:              Number(process.env.DATAICO_FROM ?? 1),
-      to:                Number(process.env.DATAICO_TO   ?? 1000),
-      next_consecutive:  11,
+      prefix:            process.env.DATAICO_PREFIX,
+      resolution_number: process.env.DATAICO_RESOLUTION_NUMBER,
+      resolution_date:   process.env.DATAICO_RESOLUTION_DATE,
+      from:              Number(process.env.DATAICO_FROM),
+      to:                Number(process.env.DATAICO_TO),
+      next_consecutive:  params.nextConsecutive,
     },
     customer: {
       name: params.customerName,
