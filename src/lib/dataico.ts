@@ -1,10 +1,12 @@
 const BASE = 'https://api.dataico.com/direct/dataico_api/v2'
 
 function authHeaders() {
+  console.log('DATAICO_ACCOUNT_ID:', process.env.DATAICO_ACCOUNT_ID)
+  console.log('DATAICO_AUTH_TOKEN:', process.env.DATAICO_AUTH_TOKEN?.substring(0, 10))
   return {
-    'Auth-token':   process.env.DATAICO_AUTH_TOKEN!,
-    'account-id':   process.env.DATAICO_ACCOUNT_ID!,
-    'Content-Type': 'application/json',
+    'Auth-token':          process.env.DATAICO_AUTH_TOKEN!,
+    'dataico_account_id':  process.env.DATAICO_ACCOUNT_ID!,
+    'Content-Type':        'application/json',
   }
 }
 
