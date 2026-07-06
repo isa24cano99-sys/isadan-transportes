@@ -259,7 +259,6 @@ export async function sincronizarPucCodesAction(): Promise<{
 
   const changed:   Array<{ categoryName: string; oldCode: string; newCode: string }> = []
   const unmatched: Array<{ categoryName: string; oldCode: string }> = []
-  const updates:   Promise<any>[] = []
 
   for (const cat of (cats ?? [])) {
     if (!cat.puc_code) continue
@@ -272,26 +271,20 @@ export async function sincronizarPucCodesAction(): Promise<{
       const prefix = cat.puc_code.slice(0, len)
       const candidates = pucList.filter(p => p.codigo.startsWith(prefix))
       if (candidates.length > 0) {
-        // Pick the shortest code (most general level that matches)
         match = candidates.sort((a, b) => a.codigo.length - b.codigo.length)[0].codigo
         break
       }
     }
 
     if (match) {
+      await supabase.from('transaction_categories').update({ puc_code: match }).eq('id', cat.id)
       changed.push({ categoryName: cat.name, oldCode: cat.puc_code, newCode: match })
-      updates.push(
-        supabase.from('transaction_categories').update({ puc_code: match }).eq('id', cat.id)
-      )
     } else {
       unmatched.push({ categoryName: cat.name, oldCode: cat.puc_code })
     }
   }
 
-  if (updates.length > 0) {
-    await Promise.all(updates)
-    revalidatePath('/bancos', 'layout')
-  }
+  if (changed.length > 0) revalidatePath('/bancos', 'layout')
 
   return { ok: true, changed, unmatched }
 }
