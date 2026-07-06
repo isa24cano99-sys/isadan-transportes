@@ -97,13 +97,21 @@ export async function generarFacturaAction(tripId: string): Promise<
     // continue without Dataico customer sync
   }
 
-  // 4. Calculate next consecutive from existing invoices
-  const { count: invoiceCount } = await supabase
+  // 5. Calculate next consecutive from Supabase invoices table (fallback: 12, since FEIT-11 already exists)
+  const { data: lastInvoiceRow } = await supabase
     .from('invoices')
-    .select('*', { count: 'exact', head: true })
-  const nextConsecutive = (invoiceCount ?? 0) + 1
+    .select('invoice_number')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-  // 5. Create invoice in Dataico
+  const lastNum = lastInvoiceRow?.invoice_number
+    ? parseInt((lastInvoiceRow.invoice_number.match(/(\d+)$/) ?? [])[1] ?? '0', 10)
+    : 0
+  const nextConsecutive = lastNum > 0 ? lastNum + 1 : 12
+  console.log('NEXT CONSECUTIVE (from Supabase):', nextConsecutive, '— last invoice_number:', lastInvoiceRow?.invoice_number)
+
+  // 6. Create invoice in Dataico
   let invoice
   try {
     const vehicle = Array.isArray(trip.vehicles) ? trip.vehicles[0] : trip.vehicles
@@ -126,8 +134,11 @@ export async function generarFacturaAction(tripId: string): Promise<
     return { ok: false, error: `Error Dataico: ${e.message}` }
   }
 
-  // 5. Format invoice number: "FEIT10" → "FEIT-10"
-  const invoiceNumber = (invoice.number ?? '').replace(/^([A-Z]+)(\d+)$/, '$1-$2')
+  const dataico_response = invoice as any
+  console.log('DATAICO FULL RESPONSE:', JSON.stringify(dataico_response, null, 2))
+
+  // Format invoice number: "FEIT10" → "FEIT-10"
+  const invoiceNumber = (dataico_response?.invoice?.number ?? dataico_response?.number ?? '').replace(/^([A-Z]+)(\d+)$/, '$1-$2')
 
   // 6. Save to invoices table (non-blocking if table doesn't exist)
   await supabase.from('invoices').insert({

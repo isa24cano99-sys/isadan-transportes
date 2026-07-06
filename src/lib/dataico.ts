@@ -1,13 +1,17 @@
 const BASE = 'https://api.dataico.com/direct/dataico_api/v2'
 
 function authHeaders() {
-  console.log('DATAICO_ACCOUNT_ID:', process.env.DATAICO_ACCOUNT_ID)
-  console.log('DATAICO_AUTH_TOKEN:', process.env.DATAICO_AUTH_TOKEN?.substring(0, 10))
   return {
-    'Auth-token':          process.env.DATAICO_AUTH_TOKEN!,
-    'dataico_account_id':  process.env.DATAICO_ACCOUNT_ID!,
-    'Content-Type':        'application/json',
+    'Auth-token':         process.env.DATAICO_AUTH_TOKEN!,
+    'dataico_account_id': process.env.DATAICO_ACCOUNT_ID!,
+    'Content-Type':       'application/json',
   }
+}
+
+/** Convert YYYY-MM-DD → DD/MM/YYYY as required by Dataico */
+function toDataicoDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-')
+  return `${d}/${m}/${y}`
 }
 
 export type DataicoCustomer = {
@@ -36,24 +40,26 @@ export async function getDataicoCustomers(): Promise<DataicoCustomer[]> {
 }
 
 export type DataicoInvoiceItem = {
-  sku:         string
-  description: string
-  price:       number
-  quantity:    number
-  discount?:   number
+  sku:            string
+  description:    string
+  price:          number
+  quantity:       number
+  measuring_unit: string
+  taxes?:         unknown[]
+  retentions?:    unknown[]
 }
 
 export type DataicoInvoice = {
-  uuid:              string
-  number:            string
-  cufe:              string
-  issue_date:        string
-  validation_date:   string
-  dian_status:       string
-  invoice_type_code: string
-  payment_means:     string
+  uuid:               string
+  number:             string
+  cufe:               string
+  issue_date:         string
+  validation_date:    string
+  dian_status:        string
+  invoice_type_code:  string
+  payment_means:      string
   payment_means_type: string
-  notes:             string[]
+  notes:              string[]
   customer: {
     company_name:              string
     party_identification:      string
@@ -62,14 +68,14 @@ export type DataicoInvoice = {
     tax_level_code:            string
     email?:                    string
   }
-  items:    DataicoInvoiceItem[]
-  pdf_url:  string
-  xml_url:  string
-  qrcode:   string
+  items:   DataicoInvoiceItem[]
+  pdf_url: string
+  xml_url: string
+  qrcode:  string
 }
 
 /**
- * Fetch one invoice by its number (prefix concatenated with consecutive, no hyphen).
+ * Fetch one invoice by its number (prefix + consecutive, no separator).
  * E.g. prefix "FEIT" + consecutive "10" → number "FEIT10"
  */
 export async function getDataicoInvoice(number: string): Promise<DataicoInvoice | null> {
@@ -116,11 +122,11 @@ export async function createDataicoCustomer(params: {
   email?: string
 }): Promise<string> {
   const body = {
-    company_name: params.name,
-    party_identification: params.nit,
+    company_name:              params.name,
+    party_identification:      params.nit,
     party_identification_type: 'NIT',
-    party_type: 'PERSONA_JURIDICA',
-    tax_level_code: 'SIMPLIFICADO',
+    party_type:                'PERSONA_JURIDICA',
+    tax_level_code:            'SIMPLIFICADO',
     ...(params.email ? { email: params.email } : {}),
   }
   const res = await fetch(`${BASE}/customers`, {
@@ -138,18 +144,18 @@ export async function createDataicoCustomer(params: {
 }
 
 export type CreateInvoiceParams = {
-  customerName: string
-  customerNit: string
-  customerEmail?: string
+  customerName:    string
+  customerNit:     string
+  customerEmail?:  string
   nextConsecutive: number
-  date: string
-  freightValue: number
-  plate: string
-  origin: string
-  destination: string
-  loadContent?: string
-  weightKg?: number
-  pricePerTon?: number
+  date:            string   // YYYY-MM-DD
+  freightValue:    number
+  plate:           string
+  origin:          string
+  destination:     string
+  loadContent?:    string
+  weightKg?:       number
+  pricePerTon?:    number
   manifestNumber?: string
 }
 
@@ -157,88 +163,83 @@ export type CreateInvoiceParams = {
 export async function createDataicoInvoice(params: CreateInvoiceParams): Promise<DataicoInvoice> {
   const noteParts = [
     params.plate,
-    `${params.origin} ${params.destination}`,
+    `${params.origin} → ${params.destination}`,
     params.loadContent ?? 'Carga general',
-    params.weightKg   != null ? `Peso ${params.weightKg}`       : null,
-    params.pricePerTon != null ? `Flete ${params.pricePerTon}`  : null,
-    String(params.freightValue),
-    params.manifestNumber ? `Manifiesto ${params.manifestNumber}` : null,
+    params.weightKg    != null ? `Peso ${params.weightKg} kg`      : null,
+    params.pricePerTon != null ? `Flete ${params.pricePerTon}/ton` : null,
+    params.manifestNumber ? `Manifiesto ${params.manifestNumber}`  : null,
   ].filter(Boolean)
 
-  const body = {
-    dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
-    send_dian: false,
-    invoice_type: 'FV',
-    customer: {
-      name: params.customerName,
-      identification_number: params.customerNit,
-      company: true,
-      ...(params.customerEmail ? { email: params.customerEmail } : {}),
+  const issueDate = toDataicoDate(params.date)
+
+  console.log('NEXT CONSECUTIVE:', params.nextConsecutive)
+
+  const payload = {
+    actions: {
+      send_dian:  false,
+      send_email: false,
     },
-    date: params.date,
-    due_date: params.date,
-    payment_means: '1',
-    payment_means_type: '42',
-    items: [{
-      sku: '01',
-      description: 'Servicio de transporte',
-      price: params.freightValue,
-      quantity: 1,
-      tax_iva: 0,
-      tax_ica: 0,
-      tax_consumption: 0,
-    }],
-    notes: [noteParts.join(' - ')],
+    invoice: {
+      env:                process.env.DATAICO_ENV ?? 'PRODUCCION',
+      number:             params.nextConsecutive,
+      dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
+      issue_date:         issueDate,
+      payment_date:       issueDate,
+      invoice_type_code:  'FACTURA_VENTA',
+      payment_means:      'DEBIT_AHORRO',
+      payment_means_type: 'CREDITO',
+      order_reference:    '',
+      numbering: {
+        resolution_number: process.env.DATAICO_RESOLUTION_NUMBER,
+        prefix:            process.env.DATAICO_PREFIX,
+        flexible:          true,
+      },
+      customer: {
+        party_identification_type: 'NIT',
+        party_identification:      params.customerNit,
+        party_type:                'PERSONA_JURIDICA',
+        tax_level_code:            'COMUN',
+        regimen:                   'ORDINARIO',
+        company_name:              params.customerName,
+        first_name:                '',
+        family_name:               '',
+        department:                '05',
+        city:                      '001',
+        address_line:              'Colombia',
+        country_code:              'CO',
+        email:                     params.customerEmail ?? '',
+        phone:                     '0',
+      },
+      items: [
+        {
+          sku:            '01',
+          quantity:       1,
+          description:    'Servicio de transporte',
+          measuring_unit: '94',
+          price:          params.freightValue,
+          taxes:          [],
+          retentions:     [],
+        },
+      ],
+      notes: [noteParts.join(' - ')],
+    },
   }
 
-  // DEBUG: listar numeraciones disponibles en la cuenta
-  try {
-    const ntRes = await fetch(`${BASE}/number_templates`, {
-      headers: authHeaders(),
-      cache: 'no-store',
-    })
-    const ntText = await ntRes.text()
-    console.log('NUMBER_TEMPLATES STATUS:', ntRes.status)
-    console.log('NUMBER_TEMPLATES RESPONSE:', ntText)
-  } catch (e) {
-    console.log('NUMBER_TEMPLATES ERROR:', e)
-  }
-
-  console.log('ENV VARS:', {
-    prefix:     process.env.DATAICO_PREFIX,
-    resolution: process.env.DATAICO_RESOLUTION_NUMBER,
-    date:       process.env.DATAICO_RESOLUTION_DATE,
-    from:       process.env.DATAICO_FROM,
-    to:         process.env.DATAICO_TO,
-  })
-
-  const payload = { invoice: body }
   console.log('DATAICO PAYLOAD:', JSON.stringify(payload, null, 2))
-
-  const invoiceHeaders = {
-    'Content-Type':       'application/json',
-    'Auth-token':         process.env.DATAICO_AUTH_TOKEN ?? '',
-    'dataico_account_id': process.env.DATAICO_ACCOUNT_ID ?? '',
-  }
-  console.log('HEADERS ENVIADOS:', {
-    'Content-Type':       'application/json',
-    'Auth-token':         process.env.DATAICO_AUTH_TOKEN?.substring(0, 10),
-    'dataico_account_id': process.env.DATAICO_ACCOUNT_ID,
-  })
 
   const res = await fetch(`${BASE}/invoices`, {
     method: 'POST',
-    headers: invoiceHeaders,
+    headers: authHeaders(),
     body: JSON.stringify(payload),
     cache: 'no-store',
   })
+
   console.log('DATAICO STATUS:', res.status)
   const responseText = await res.text()
   console.log('DATAICO RESPONSE:', responseText)
 
-  if (!res.ok) {
-    throw new Error(`Dataico createInvoice ${res.status}: ${responseText}`)
-  }
-  const json = JSON.parse(responseText)
-  return json.invoice as DataicoInvoice
+  if (!res.ok) throw new Error(`Dataico createInvoice ${res.status}: ${responseText}`)
+  const data = JSON.parse(responseText)
+  console.log('DATAICO RAW RESPONSE:', JSON.stringify(data, null, 2))
+  return data as DataicoInvoice
 }
