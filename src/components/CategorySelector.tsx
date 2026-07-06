@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Search, Plus, X, ChevronDown } from 'lucide-react'
 import { crearCategoriaAction, type TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
 import type { PucAccount } from './PucSelector'
@@ -51,6 +51,16 @@ export default function CategorySelector({
 
   const selected = categories.find(c => c.id === value) ?? null
 
+  // Map puc codigo → nombre for display
+  const pucNameMap = useMemo(
+    () => new Map(pucAccounts.map(p => [p.codigo, p.nombre])),
+    [pucAccounts],
+  )
+
+  // Use the PUC account nombre when available, fallback to category name
+  const getCatLabel = (c: TransactionCategory) =>
+    (c.puc_code ? pucNameMap.get(c.puc_code) : undefined) ?? c.name
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -63,7 +73,12 @@ export default function CategorySelector({
 
   const q = search.trim().toLowerCase()
   const active = categories.filter(c => c.active)
-  const byText = q ? active.filter(c => c.name.toLowerCase().includes(q)) : active
+  const byText = q
+    ? active.filter(c => {
+        const label = getCatLabel(c)
+        return label.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+      })
+    : active
   const filtered = typeFilter ? byText.filter(c => c.type === typeFilter) : byText
 
   const negocioItems = filtered.filter(c => c.type === 'NEGOCIO')
@@ -98,7 +113,7 @@ export default function CategorySelector({
     setSaving(false)
   }
 
-  const displayValue = open ? search : (selected?.name ?? '')
+  const displayValue = open ? search : (selected ? getCatLabel(selected) : '')
 
   const renderItem = (c: TransactionCategory, isCasa = false) => (
     <button key={c.id} type="button" onClick={() => handleSelect(c.id)}
@@ -111,7 +126,7 @@ export default function CategorySelector({
             ? 'hover:bg-purple-50 text-[#0F172A]'
             : 'hover:bg-[#F1F5F9] text-[#0F172A]'
       }`}>
-      {c.name}
+      {getCatLabel(c)}
     </button>
   )
 

@@ -230,6 +230,72 @@ export async function migrarCategoriasAction(): Promise<{ ok: boolean; updated: 
   return { ok: true, updated }
 }
 
+/**
+ * Sync puc_code values in transaction_categories to codes that actually exist
+ * in puc_accounts. For each category whose code has no match, tries progressively
+ * shorter prefixes until one puc_account is found.
+ */
+export async function sincronizarPucCodesAction(): Promise<{
+  ok: boolean
+  changed: Array<{ categoryName: string; oldCode: string; newCode: string }>
+  unmatched: Array<{ categoryName: string; oldCode: string }>
+  error?: string
+}> {
+  const [{ data: cats, error: catErr }, { data: pucs }] = await Promise.all([
+    supabase
+      .from('transaction_categories')
+      .select('id, name, puc_code')
+      .not('puc_code', 'is', null),
+    supabase
+      .from('puc_accounts')
+      .select('id, codigo, nombre')
+      .eq('active', true),
+  ])
+
+  if (catErr) return { ok: false, changed: [], unmatched: [], error: catErr.message }
+
+  const validCodes = new Set((pucs ?? []).map(p => p.codigo))
+  const pucList    = pucs ?? []
+
+  const changed:   Array<{ categoryName: string; oldCode: string; newCode: string }> = []
+  const unmatched: Array<{ categoryName: string; oldCode: string }> = []
+  const updates:   Promise<any>[] = []
+
+  for (const cat of (cats ?? [])) {
+    if (!cat.puc_code) continue
+    if (validCodes.has(cat.puc_code)) continue // already valid
+
+    // Try progressively shorter prefix matches (prefer most-specific match)
+    let match: string | null = null
+    const maxLen = Math.min(cat.puc_code.length, 10)
+    for (let len = maxLen; len >= 4; len--) {
+      const prefix = cat.puc_code.slice(0, len)
+      const candidates = pucList.filter(p => p.codigo.startsWith(prefix))
+      if (candidates.length > 0) {
+        // Pick the shortest code (most general level that matches)
+        match = candidates.sort((a, b) => a.codigo.length - b.codigo.length)[0].codigo
+        break
+      }
+    }
+
+    if (match) {
+      changed.push({ categoryName: cat.name, oldCode: cat.puc_code, newCode: match })
+      updates.push(
+        supabase.from('transaction_categories').update({ puc_code: match }).eq('id', cat.id)
+      )
+    } else {
+      unmatched.push({ categoryName: cat.name, oldCode: cat.puc_code })
+    }
+  }
+
+  if (updates.length > 0) {
+    await Promise.all(updates)
+    revalidatePath('/bancos', 'layout')
+  }
+
+  return { ok: true, changed, unmatched }
+}
+
 export async function checkUnmigrated(): Promise<number> {
   const { count } = await supabase
     .from('bank_transactions')
