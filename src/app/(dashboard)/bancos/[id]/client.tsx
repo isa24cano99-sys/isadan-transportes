@@ -7,7 +7,7 @@ import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
   X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap,
 } from 'lucide-react'
-import { actualizarTransaccionAction, eliminarTransaccionAction } from '../transaccion/actions'
+import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
 
 function SourceBadge({ source }: { source: SugerirResult['source'] }) {
@@ -111,6 +111,9 @@ export default function BankDetailClient({
   const [recatMsg,       setRecatMsg]       = useState<string | null>(null)
   const [showNewTxn,     setShowNewTxn]     = useState(false)
   const [showFilters,    setShowFilters]    = useState(false)
+  const [selectedIds,    setSelectedIds]    = useState<Set<string>>(new Set())
+  const [bulkCategoryId, setBulkCategoryId] = useState('')
+  const [bulkAssigning,  setBulkAssigning]  = useState(false)
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -202,6 +205,34 @@ export default function BankDetailClient({
 
   const clearFilters = () => {
     setDateFrom(''); setDateTo(''); setCategoryFilter(''); setTipoFilter('TODOS'); setSearchDesc('')
+  }
+
+  const toggleRow = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selectedIds.size === filtered.length && filtered.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(t => t.id)))
+    }
+  }
+
+  const handleBulkAssign = async () => {
+    if (!bulkCategoryId || selectedIds.size === 0) return
+    setBulkAssigning(true)
+    const res = await asignarCategoriaMasivaAction([...selectedIds], bulkCategoryId)
+    if (res.ok) {
+      setSelectedIds(new Set()); setBulkCategoryId('')
+      window.location.reload()
+    } else {
+      setBulkAssigning(false)
+    }
   }
 
   const tipoBtn = (v: TipoFilter, label: string) => (
@@ -376,6 +407,15 @@ export default function BankDetailClient({
         <table className="w-full">
           <thead>
             <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+              <th className="px-3 py-2 w-8">
+                <input
+                  type="checkbox"
+                  checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                  ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < filtered.length }}
+                  onChange={toggleAll}
+                  className="w-3.5 h-3.5 rounded accent-[#2563EB] cursor-pointer"
+                />
+              </th>
               <th className={thCls} onClick={() => handleSort('date')}>Fecha <SortArrow col="date" /></th>
               <th className={thCls} onClick={() => handleSort('type')}>Tipo <SortArrow col="type" /></th>
               <th className={thCls} onClick={() => handleSort('category')}>Categoría <SortArrow col="category" /></th>
@@ -389,15 +429,24 @@ export default function BankDetailClient({
           <tbody className="divide-y divide-[#E2E8F0]">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-10 text-xs text-[#64748B]">
+                <td colSpan={9} className="text-center py-10 text-xs text-[#64748B]">
                   <ReceiptText size={28} className="mx-auto mb-2 text-[#CBD5E1]" />
                   No hay transacciones{hasFilters ? ' con estos filtros' : ''}
                 </td>
               </tr>
             ) : filtered.map(t => {
               const isExtracto = t.source === 'EXTRACTO_BANCOLOMBIA'
+              const isSelected = selectedIds.has(t.id)
               return (
-                <tr key={t.id} className="hover:bg-[#F8FAFC] transition-colors">
+                <tr key={t.id} className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-[#F8FAFC]'}`}>
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleRow(t.id)}
+                      className="w-3.5 h-3.5 rounded accent-[#2563EB] cursor-pointer"
+                    />
+                  </td>
                   <td className="px-3 py-1.5 text-xs text-[#64748B] whitespace-nowrap">{formatDate(t.date)}</td>
                   <td className="px-3 py-1.5">
                     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
@@ -450,11 +499,19 @@ export default function BankDetailClient({
             No hay transacciones{hasFilters ? ' con estos filtros' : ''}
           </div>
         ) : filtered.map(t => (
-          <div key={t.id} className="bg-white border border-[#E2E8F0] rounded-xl p-3">
+          <div key={t.id} className={`border border-[#E2E8F0] rounded-xl p-3 transition-colors ${selectedIds.has(t.id) ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
             <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-[#0F172A] font-medium truncate">{t.description}</p>
-                <p className="text-[10px] text-[#94A3B8] mt-0.5">{formatDate(t.date)}</p>
+              <div className="flex items-start gap-2 flex-1 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(t.id)}
+                  onChange={() => toggleRow(t.id)}
+                  className="mt-0.5 w-3.5 h-3.5 rounded accent-[#2563EB] cursor-pointer flex-shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="text-xs text-[#0F172A] font-medium truncate">{t.description}</p>
+                  <p className="text-[10px] text-[#94A3B8] mt-0.5">{formatDate(t.date)}</p>
+                </div>
               </div>
               <span className={`text-sm font-bold flex-shrink-0 ${t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>
                 {t.type === 'EGRESO' ? '−' : '+'}{formatCOP(Number(t.amount))}
@@ -527,6 +584,33 @@ export default function BankDetailClient({
               />
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Bulk action floating bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-[#0F172A] text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 w-[calc(100vw-2rem)] sm:w-auto sm:min-w-[500px] sm:max-w-[90vw]">
+          <span className="text-xs font-semibold whitespace-nowrap shrink-0">
+            {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+          </span>
+          <div className="flex-1 min-w-0">
+            <CategorySelector
+              value={bulkCategoryId}
+              onChange={setBulkCategoryId}
+              categories={categories}
+              pucAccounts={pucAccounts}
+            />
+          </div>
+          <button
+            onClick={handleBulkAssign}
+            disabled={!bulkCategoryId || bulkAssigning}
+            className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+          >
+            {bulkAssigning ? 'Asignando...' : 'Asignar'}
+          </button>
+          <button onClick={() => { setSelectedIds(new Set()); setBulkCategoryId('') }} className="shrink-0">
+            <X size={16} className="text-[#94A3B8] hover:text-white transition-colors" />
+          </button>
         </div>
       )}
 

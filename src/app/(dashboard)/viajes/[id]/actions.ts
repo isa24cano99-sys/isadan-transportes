@@ -111,6 +111,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     : 0
   const nextConsecutive = lastNum > 0 ? lastNum + 1 : 12
   console.log('NEXT CONSECUTIVE (from Supabase):', nextConsecutive, '— last invoice_number:', lastInvoiceRow?.invoice_number)
+  console.log('NEXT CONSECUTIVE CALCULADO:', nextConsecutive)
 
   // 6. Create invoice in Dataico
   let invoice
@@ -140,9 +141,13 @@ export async function generarFacturaAction(tripId: string): Promise<
 
   // Format invoice number: "FEIT10" → "FEIT-10"
   const invoiceNumber = (dataico_response?.invoice?.number ?? dataico_response?.number ?? '').replace(/^([A-Z]+)(\d+)$/, '$1-$2')
+  console.log('FACTURA CREADA EN DATAICO:', invoiceNumber)
+  console.log('  invoice.uuid (Dataico):', invoice.uuid)
+  console.log('  invoice_number (formateado):', invoiceNumber)
 
-  // 6. Save to invoices table (non-blocking if table doesn't exist)
-  await supabase.from('invoices').insert({
+  // 6. Save to invoices table
+  console.log('GUARDANDO EN SUPABASE...')
+  const { error: supabaseInsertError } = await supabase.from('invoices').insert({
     trip_id:        tripId,
     invoice_number: invoiceNumber,
     cufe:           invoice.cufe,
@@ -156,8 +161,16 @@ export async function generarFacturaAction(tripId: string): Promise<
     pdf_url:        invoice.pdf_url,
     xml_url:        invoice.xml_url,
   })
+  console.log('RESULTADO SUPABASE:', supabaseInsertError ? supabaseInsertError : 'OK')
+  if (supabaseInsertError) {
+    console.error('ERROR AL GUARDAR FACTURA EN SUPABASE:', supabaseInsertError.message, supabaseInsertError.details)
+    return { ok: false, error: `Factura creada en Dataico (${invoiceNumber}) pero no se pudo guardar en base de datos: ${supabaseInsertError.message}` }
+  }
 
-  // 7. Update trip status and store Dataico UUID
+  // 7. Update trip status
+  // NOTA: dataico_invoice_id guarda el UUID de Dataico (no el número de factura) porque
+  // se usa como referencia al crear Notas Crédito. El número formateado está en invoices.invoice_number.
+  console.log('ACTUALIZANDO VIAJE: status=FACTURADO, dataico_invoice_id=', invoice.uuid, '(UUID Dataico, no el número)')
   await supabase
     .from('trips')
     .update({ status: 'FACTURADO', dataico_invoice_id: invoice.uuid })

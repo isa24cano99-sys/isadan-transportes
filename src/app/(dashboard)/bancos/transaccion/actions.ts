@@ -79,3 +79,52 @@ export async function eliminarTransaccionAction(id: string): Promise<{ ok: boole
   revalidatePath('/bancos', 'layout')
   return { ok: true }
 }
+
+export async function asignarCategoriaMasivaAction(
+  ids: string[],
+  categoryId: string,
+): Promise<{ ok: boolean; error?: string; updated: number }> {
+  if (!ids.length || !categoryId) return { ok: false, error: 'Datos incompletos', updated: 0 }
+
+  const { data: txns } = await supabase
+    .from('bank_transactions')
+    .select('id, description')
+    .in('id', ids)
+
+  const { error } = await supabase
+    .from('bank_transactions')
+    .update({ category_id: categoryId })
+    .in('id', ids)
+
+  if (error) return { ok: false, error: error.message, updated: 0 }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patternUpdates: any[] = []
+  for (const tx of (txns ?? [])) {
+    if (!tx.description) continue
+    const pattern = extraerPatron(tx.description)
+    if (pattern.length <= 2) continue
+    const { data: existing } = await supabase
+      .from('description_patterns')
+      .select('id, match_count')
+      .eq('pattern', pattern)
+      .maybeSingle()
+    if (existing) {
+      patternUpdates.push(
+        supabase.from('description_patterns').update({
+          match_count: existing.match_count + 1,
+          category_id: categoryId,
+          updated_at:  new Date().toISOString(),
+        }).eq('id', existing.id),
+      )
+    } else {
+      patternUpdates.push(
+        supabase.from('description_patterns').insert({ pattern, category_id: categoryId }),
+      )
+    }
+  }
+  await Promise.all(patternUpdates)
+
+  revalidatePath('/bancos', 'layout')
+  return { ok: true, updated: ids.length }
+}
