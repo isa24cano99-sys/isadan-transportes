@@ -99,14 +99,29 @@ export async function generarFacturaAction(tripId: string): Promise<
     // continue without Dataico customer sync
   }
 
-  // 5. Calculate next consecutive by querying Dataico directly
-  const FALLBACK_CONSECUTIVE = 13 // FEIT-12 ya existe en Dataico
-  const latestNumber = await getLatestDataicoInvoiceNumber('FEIT')
-  const lastConsecutive = latestNumber
-    ? parseInt((latestNumber.match(/(\d+)$/) ?? [])[1] ?? '0', 10)
-    : 0
-  const nextConsecutive = lastConsecutive > 0 ? lastConsecutive + 1 : FALLBACK_CONSECUTIVE
-  console.log('ULTIMO NUMERO EN DATAICO:', latestNumber ?? '(ninguno — usando fallback)')
+  // 5. Calculate next consecutive — Supabase first (more reliable), Dataico as fallback
+  const { data: supabaseRows } = await supabase
+    .from('invoices')
+    .select('invoice_number')
+    .ilike('invoice_number', 'FEIT%')
+
+  const supabaseMax = (supabaseRows ?? [])
+    .map(r => parseInt((r.invoice_number?.match(/(\d+)$/) ?? [])[1] ?? '0', 10))
+    .reduce((max, n) => (n > max ? n : max), 0)
+
+  let nextConsecutive: number
+  if (supabaseMax > 0) {
+    nextConsecutive = supabaseMax + 1
+    console.log('ULTIMO EN SUPABASE:', supabaseMax, '— invoice_numbers:', (supabaseRows ?? []).map(r => r.invoice_number).join(', '))
+  } else {
+    // Supabase vacío — consultar Dataico
+    const latestNumber = await getLatestDataicoInvoiceNumber('FEIT')
+    const dataicoLast = latestNumber
+      ? parseInt((latestNumber.match(/(\d+)$/) ?? [])[1] ?? '0', 10)
+      : 0
+    nextConsecutive = dataicoLast > 0 ? dataicoLast + 1 : 13
+    console.log('ULTIMO EN SUPABASE: (vacío) — ULTIMO EN DATAICO:', latestNumber ?? '(ninguno)')
+  }
   console.log('SIGUIENTE CONSECUTIVO:', nextConsecutive)
 
   // 6. Create invoice in Dataico
