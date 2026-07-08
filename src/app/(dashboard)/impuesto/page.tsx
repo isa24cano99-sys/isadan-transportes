@@ -25,13 +25,17 @@ export default async function ImpuestoPage({
   const sp   = await searchParams
   const year = parseInt(sp.año ?? '') || new Date().getFullYear()
 
-  const [tripsRes, taxRes] = await Promise.all([
+  const [invoicesRes, ssRes, taxRes] = await Promise.all([
     supabase
-      .from('trips')
-      .select('freight_value, load_date')
-      .in('status', ['FACTURADO', 'PAGADO'])
-      .gte('load_date', `${year}-01-01`)
-      .lte('load_date', `${year}-12-31`),
+      .from('invoices')
+      .select('issue_date, total_amount')
+      .eq('invoice_type', 'EMITIDA')
+      .gte('issue_date', `${year}-01-01`)
+      .lte('issue_date', `${year}-12-31`),
+    supabase
+      .from('payroll_social_security')
+      .select('month, pension')
+      .eq('year', year),
     supabase
       .from('tax_payments')
       .select('*')
@@ -39,16 +43,27 @@ export default async function ImpuestoPage({
       .order('bimestre'),
   ])
 
-  const trips       = tripsRes.data   ?? []
-  const taxPayments = (taxRes.data    ?? []) as TaxPayment[]
+  const invoices    = invoicesRes.data ?? []
+  const ssRows      = ssRes.data       ?? []
+  const taxPayments = (taxRes.data     ?? []) as TaxPayment[]
 
-  // Group income by bimestre index 0-5
+  // Income from invoices (EMITIDA) grouped by bimestre (0-5)
   const incomeByBimestre: number[] = [0, 0, 0, 0, 0, 0]
-  for (const t of trips) {
-    if (!t.load_date) continue
-    const month  = new Date((t.load_date as string) + 'T00:00:00').getMonth() + 1 // 1-12
-    const bimIdx = Math.ceil(month / 2) - 1                                        // 0-5
-    incomeByBimestre[bimIdx] += Number(t.freight_value ?? 0)
+  for (const inv of invoices) {
+    if (!inv.issue_date) continue
+    const month  = new Date((inv.issue_date as string) + 'T00:00:00').getMonth() + 1
+    const bimIdx = Math.ceil(month / 2) - 1
+    incomeByBimestre[bimIdx] += Number(inv.total_amount ?? 0)
+  }
+
+  // Pension empresa from payroll_social_security grouped by bimestre
+  const pensionByBimestre: number[] = [0, 0, 0, 0, 0, 0]
+  const hasSsData: boolean[]        = [false, false, false, false, false, false]
+  for (const row of ssRows) {
+    if (!row.month) continue
+    const bimIdx = Math.ceil(row.month / 2) - 1
+    pensionByBimestre[bimIdx] += Number(row.pension ?? 0)
+    hasSsData[bimIdx] = true
   }
 
   const currentYear    = new Date().getFullYear()
@@ -60,6 +75,8 @@ export default async function ImpuestoPage({
         year={year}
         availableYears={availableYears}
         incomeByBimestre={incomeByBimestre}
+        pensionByBimestre={pensionByBimestre}
+        hasSsData={hasSsData}
         taxPayments={taxPayments}
       />
     </div>

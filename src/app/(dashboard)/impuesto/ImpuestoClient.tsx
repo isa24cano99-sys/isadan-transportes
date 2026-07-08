@@ -8,15 +8,8 @@ import type { TaxPayment } from './page'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const RST_TIERS = [
-  { max: 69_522_000,  rate: 0.031, pct: '3.1%', range: '$0 – $69.522.000' },
-  { max: 139_044_000, rate: 0.034, pct: '3.4%', range: '$69.522.001 – $139.044.000' },
-  { max: 208_566_000, rate: 0.038, pct: '3.8%', range: '$139.044.001 – $208.566.000' },
-  { max: 278_088_000, rate: 0.043, pct: '4.3%', range: '$208.566.001 – $278.088.000' },
-  { max: Infinity,    rate: 0.049, pct: '4.9%', range: 'Más de $278.088.000' },
-]
-
-const ICA_RATE = 0.00115
+const RST_RATE = 0.031   // 3.1% — Sector Transporte, tarifa fija aplicada
+const ICA_RATE = 0.0115  // 11.5‰ — municipio de Bello (1.15%)
 
 const BIM_META = [
   { num: 1, title: 'Bimestre 1', months: 'Enero / Febrero',           dueMonth: 5,  dueDay: 26 },
@@ -28,20 +21,6 @@ const BIM_META = [
 ] as const
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-function getRstRate(accumulated: number): number {
-  for (const t of RST_TIERS) {
-    if (accumulated <= t.max) return t.rate
-  }
-  return 0.049
-}
-
-function getTierIndex(accumulated: number): number {
-  for (let i = 0; i < RST_TIERS.length; i++) {
-    if (accumulated <= RST_TIERS[i].max) return i
-  }
-  return RST_TIERS.length - 1
-}
 
 function getDueDate(year: number, meta: (typeof BIM_META)[number]): string {
   const y = 'nextYear' in meta && meta.nextYear ? year + 1 : year
@@ -65,10 +44,6 @@ function fmtDate(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('es-CO', {
     day: 'numeric', month: 'long', year: 'numeric',
   })
-}
-
-function fmtPct(rate: number): string {
-  return `${(rate * 100).toFixed(1)}%`
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -100,16 +75,21 @@ export default function ImpuestoClient({
   year,
   availableYears,
   incomeByBimestre,
+  pensionByBimestre,
+  hasSsData,
   taxPayments,
 }: {
   year: number
   availableYears: number[]
   incomeByBimestre: number[]
+  pensionByBimestre: number[]
+  hasSsData: boolean[]
   taxPayments: TaxPayment[]
 }) {
   const router = useRouter()
 
-  const [pensions, setPensions] = useState<Record<number, string>>(() => {
+  // Manual pension input — only used when no SS planilla exists for a bimestre
+  const [manualPensions, setManualPensions] = useState<Record<number, string>>(() => {
     const init: Record<number, string> = {}
     for (const meta of BIM_META) {
       const saved = taxPayments.find(p => p.bimestre === meta.num)
@@ -123,28 +103,27 @@ export default function ImpuestoClient({
 
   // Per-bimestre computed data
   const bimData = useMemo(() => {
-    let accumulated = 0
     return BIM_META.map((meta, idx) => {
-      const income   = incomeByBimestre[idx] ?? 0
-      accumulated   += income
-      const rate     = getRstRate(accumulated)
-      const rstGross = Math.round(income * rate)
+      const income   = incomeByBimestre[idx]   ?? 0
+      const ssExists = hasSsData[idx]           ?? false
+      const pension  = ssExists
+        ? Math.max(0, pensionByBimestre[idx] ?? 0)
+        : Math.max(0, parseFloat(manualPensions[meta.num] ?? '0') || 0)
+      const rstGross = Math.round(income * RST_RATE)
       const ica      = Math.round(income * ICA_RATE)
-      const pension  = Math.max(0, parseFloat(pensions[meta.num] ?? '0') || 0)
       const rstNet   = Math.max(0, rstGross - pension - ica)
       const total    = ica + rstNet
       const dueDate  = getDueDate(year, meta)
       const daysLeft = getDaysLeft(dueDate)
       const payment  = taxPayments.find(p => p.bimestre === meta.num) ?? null
-      return { ...meta, income, accumulated, rate, rstGross, ica, pension, rstNet, total, dueDate, daysLeft, payment }
+      return { ...meta, income, ssExists, pension, rstGross, ica, rstNet, total, dueDate, daysLeft, payment }
     })
-  }, [incomeByBimestre, pensions, taxPayments, year])
+  }, [incomeByBimestre, pensionByBimestre, hasSsData, manualPensions, taxPayments, year])
 
-  const totalIncome    = bimData.reduce((s, b) => s + b.income, 0)
-  const totalRst       = bimData.reduce((s, b) => s + b.rstGross, 0)
-  const totalIca       = bimData.reduce((s, b) => s + b.ica, 0)
-  const currentTierIdx = getTierIndex(totalIncome)
-  const currentRate    = RST_TIERS[currentTierIdx].rate
+  const totalIncome = bimData.reduce((s, b) => s + b.income, 0)
+  const totalRst    = bimData.reduce((s, b) => s + b.rstGross, 0)
+  const totalIca    = bimData.reduce((s, b) => s + b.ica, 0)
+  const totalPagar  = bimData.reduce((s, b) => s + b.total, 0)
 
   const handleMarcarPagado = async (bim: (typeof bimData)[number]) => {
     setLoadingBim(bim.num)
@@ -191,60 +170,25 @@ export default function ImpuestoClient({
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">Ingresos acumulados</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">Ingresos facturados</p>
           <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalIncome)}</p>
-          <p className="text-xs text-[#94A3B8] mt-0.5">Año {year}</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Facturas EMITIDAS {year}</p>
         </div>
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">Tarifa RST aplicable</p>
-          <p className="text-lg font-bold text-[#2563EB]">{fmtPct(currentRate)}</p>
-          <p className="text-xs text-[#94A3B8] mt-0.5">Tramo {currentTierIdx + 1} de 5</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">Tarifa RST</p>
+          <p className="text-lg font-bold text-[#2563EB]">3.1%</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Sector Transporte</p>
         </div>
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">RST estimado año</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">RST bruto año</p>
           <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalRst)}</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Antes de descuentos</p>
         </div>
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">ICA estimado año</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">ICA año</p>
           <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalIca)}</p>
           <p className="text-xs text-[#94A3B8] mt-0.5">11.5‰ — ICA Bello</p>
         </div>
-      </div>
-
-      {/* RST rate table */}
-      <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#E2E8F0] bg-[#F8FAFC]">
-          <h2 className="text-sm font-semibold text-[#0F172A]">Tabla de tarifas RST — Sector Transporte 2026</h2>
-          <p className="text-xs text-[#64748B] mt-0.5">Tarifa determinada por ingresos acumulados del año</p>
-        </div>
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-              <th className="text-left px-4 py-2 text-xs font-semibold text-[#64748B]">Ingresos acumulados anuales</th>
-              <th className="text-right px-4 py-2 text-xs font-semibold text-[#64748B]">Tarifa RST</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E2E8F0]">
-            {RST_TIERS.map((tier, i) => {
-              const isActive = i === currentTierIdx
-              return (
-                <tr key={i} className={isActive ? 'bg-blue-50' : 'hover:bg-[#F8FAFC]'}>
-                  <td className={`px-4 py-3 text-sm ${isActive ? 'font-semibold text-[#2563EB]' : 'text-[#64748B]'}`}>
-                    {tier.range}
-                    {isActive && (
-                      <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">
-                        TRAMO ACTUAL
-                      </span>
-                    )}
-                  </td>
-                  <td className={`px-4 py-3 text-sm font-bold text-right ${isActive ? 'text-[#2563EB]' : 'text-[#0F172A]'}`}>
-                    {tier.pct}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
       </div>
 
       {/* Bimestre cards */}
@@ -293,31 +237,46 @@ export default function ImpuestoClient({
               {/* Breakdown */}
               <div className="bg-[#F8FAFC] rounded-xl p-4 space-y-2">
                 <Row label="Ingresos gravados bimestre" value={bim.income} />
-                <Row label={`↳ Acumulados hasta este bimestre`} value={bim.accumulated} sub />
 
                 <Divider />
 
-                <Row label={`RST bruto (${fmtPct(bim.rate)} sobre ingresos)`} value={bim.rstGross} />
+                <Row label="RST bruto (3.1% × ingresos)" value={bim.rstGross} />
 
+                {/* Pension row — locked if SS planilla exists, editable if not */}
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-[#64748B] flex-1">(-) Aporte pensión empresa</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="10000"
-                    value={pensions[bim.num] ?? '0'}
-                    onChange={e => setPensions(p => ({ ...p, [bim.num]: e.target.value }))}
-                    disabled={isPaid}
-                    className={`w-36 text-right border border-[#E2E8F0] rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-                      isPaid
-                        ? 'bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed'
-                        : 'bg-white text-[#0F172A]'
-                    }`}
-                  />
+                  <span className="text-sm text-[#64748B] flex-1">
+                    (-) Aporte pensión empresa
+                    {bim.ssExists && (
+                      <span className="ml-1.5 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold">
+                        Planilla SS
+                      </span>
+                    )}
+                  </span>
+                  {bim.ssExists || isPaid ? (
+                    <span className="text-sm text-[#0F172A] tabular-nums w-36 text-right">
+                      {bim.pension === 0 ? '—' : formatCOP(bim.pension)}
+                    </span>
+                  ) : (
+                    <input
+                      type="number"
+                      min="0"
+                      step="10000"
+                      value={manualPensions[bim.num] ?? '0'}
+                      onChange={e => setManualPensions(p => ({ ...p, [bim.num]: e.target.value }))}
+                      placeholder="Ingrese manualmente"
+                      className="w-36 text-right border border-[#E2E8F0] rounded-lg px-2 py-1 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                  )}
                 </div>
 
+                {!bim.ssExists && !isPaid && (
+                  <p className="text-xs text-amber-600 pl-3">
+                    Sin planilla SS registrada — ingrese el valor de pensión manualmente
+                  </p>
+                )}
+
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-[#64748B]">(-) ICA Bello (11.5‰)</span>
+                  <span className="text-sm text-[#64748B]">(-) ICA Bello (11.5‰ × ingresos)</span>
                   <span className="text-sm text-[#0F172A] tabular-nums">
                     {bim.ica === 0 ? '—' : formatCOP(bim.ica)}
                   </span>
@@ -325,10 +284,10 @@ export default function ImpuestoClient({
 
                 <Divider />
 
-                <Row label="RST neto" value={bim.rstNet} bold />
+                <Row label="RST neto (MAX(0, RST bruto − pensión − ICA))" value={bim.rstNet} bold />
 
                 <div className="flex items-center justify-between gap-2 pt-1 border-t-2 border-[#E2E8F0]">
-                  <span className="text-sm font-bold text-[#0F172A]">TOTAL A PAGAR</span>
+                  <span className="text-sm font-bold text-[#0F172A]">TOTAL A PAGAR (ICA + RST neto)</span>
                   <span className="text-base font-bold text-[#2563EB] tabular-nums">
                     {bim.total === 0 ? '$0' : formatCOP(bim.total)}
                   </span>
@@ -357,12 +316,20 @@ export default function ImpuestoClient({
         })}
       </div>
 
+      {/* Annual total */}
+      {totalPagar > 0 && (
+        <div className="bg-[#0F172A] rounded-xl p-4 flex items-center justify-between">
+          <p className="text-white font-semibold text-sm">Total estimado a pagar año {year}</p>
+          <p className="text-white font-bold text-lg tabular-nums">{formatCOP(totalPagar)}</p>
+        </div>
+      )}
+
       {/* Disclaimer */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
         <p className="text-sm text-yellow-800 leading-relaxed">
           <span className="font-bold">IMPORTANTE:</span>{' '}
-          Valores estimados. Las tarifas RST se aplican según ingresos acumulados del año.
-          El aporte a pensión debe confirmarse con nómina electrónica.
+          Ingresos tomados de facturas electrónicas EMITIDAS. Pensión tomada de planilla de seguridad social registrada.
+          Fórmula: RST bruto = ingresos × 3.1% — ICA = ingresos × 1.15% — RST neto = MAX(0, RST bruto − pensión − ICA).
           Consulte su asesor contable —{' '}
           <span className="font-semibold">ISADAN Transportes SAS NIT 902030120-6</span>
         </p>

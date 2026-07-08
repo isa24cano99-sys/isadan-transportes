@@ -1,15 +1,22 @@
 'use client'
 
 import { useState } from 'react'
-import { sincronizarProveedoresAction, actualizarProveedorAction, eliminarProveedorAction, type Supplier } from './actions'
-import { RefreshCw, CheckCircle, Truck, Search, Mail, Phone, Pencil, Trash2, X } from 'lucide-react'
+import { sincronizarProveedoresAction, actualizarProveedorAction, actualizarKeywordsAction, eliminarProveedorAction, type Supplier } from './actions'
+import { RefreshCw, CheckCircle, Truck, Search, Mail, Phone, Pencil, Trash2, X, Tag } from 'lucide-react'
 
 const PARTY_LABELS: Record<string, string> = {
   PERSONA_JURIDICA: 'Jurídica',
   PERSONA_NATURAL:  'Natural',
 }
 
-type EditForm = { name: string; category: string; account_code: string }
+type EditForm = {
+  name: string
+  category: string
+  account_code: string
+  keywords: string[]
+  keywordInput: string
+  cuenta_puc: string
+}
 
 export default function ProveedoresClient({ initial }: { initial: Supplier[] }) {
   const [suppliers,    setSuppliers]    = useState<Supplier[]>(initial)
@@ -51,25 +58,54 @@ export default function ProveedoresClient({ initial }: { initial: Supplier[] }) 
 
   const openEdit = (s: Supplier) => {
     setEditTarget(s)
-    setEditForm({ name: s.name, category: s.category ?? '', account_code: s.account_code ?? '' })
+    setEditForm({
+      name:         s.name,
+      category:     s.category     ?? '',
+      account_code: s.account_code ?? '',
+      keywords:     s.keywords     ?? [],
+      keywordInput: '',
+      cuenta_puc:   s.cuenta_puc   ?? '',
+    })
+  }
+
+  const addKeyword = () => {
+    if (!editForm) return
+    const kw = editForm.keywordInput.trim().toLowerCase()
+    if (!kw || editForm.keywords.includes(kw)) {
+      setEditForm(p => p && ({ ...p, keywordInput: '' }))
+      return
+    }
+    setEditForm(p => p && ({ ...p, keywords: [...p.keywords, kw], keywordInput: '' }))
   }
 
   const handleSave = async () => {
     if (!editTarget || !editForm) return
     setSaving(true)
-    const res = await actualizarProveedorAction(editTarget.id, {
-      name:         editForm.name.trim(),
-      category:     editForm.category.trim() || null,
-      account_code: editForm.account_code.trim() || null,
-    })
-    if (res.ok) {
-      setSuppliers(prev => prev.map(s => s.id === editTarget.id
-        ? { ...s, name: editForm.name.trim(), category: editForm.category || null, account_code: editForm.account_code || null }
-        : s
-      ))
-      setEditTarget(null)
-      setEditForm(null)
-    }
+    await Promise.all([
+      actualizarProveedorAction(editTarget.id, {
+        name:         editForm.name.trim(),
+        category:     editForm.category.trim() || null,
+        account_code: editForm.account_code.trim() || null,
+      }),
+      actualizarKeywordsAction(
+        editTarget.id,
+        editForm.keywords,
+        editForm.cuenta_puc.trim() || null,
+      ),
+    ])
+    setSuppliers(prev => prev.map(s => s.id === editTarget.id
+      ? {
+          ...s,
+          name:         editForm.name.trim(),
+          category:     editForm.category || null,
+          account_code: editForm.account_code || null,
+          keywords:     editForm.keywords,
+          cuenta_puc:   editForm.cuenta_puc || null,
+        }
+      : s
+    ))
+    setEditTarget(null)
+    setEditForm(null)
     setSaving(false)
   }
 
@@ -173,9 +209,16 @@ export default function ProveedoresClient({ initial }: { initial: Supplier[] }) 
               <tr key={s.id} className="hover:bg-[#F8FAFC] transition-colors">
                 <td className="px-3 py-2">
                   <p className="text-xs font-medium text-[#0F172A]">{s.name}</p>
-                  {s.dataico_id && (
-                    <p className="text-[10px] text-[#2563EB] mt-0.5">● Dataico</p>
-                  )}
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    {s.dataico_id && (
+                      <p className="text-[10px] text-[#2563EB]">● Dataico</p>
+                    )}
+                    {(s.keywords ?? []).length > 0 && (
+                      <span className="text-[10px] text-blue-600 flex items-center gap-0.5">
+                        <Tag size={9} />{(s.keywords ?? []).length} kw
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{s.nit || '—'}</td>
                 <td className="px-3 py-2">
@@ -247,6 +290,53 @@ export default function ProveedoresClient({ initial }: { initial: Supplier[] }) 
                 <input value={editForm.account_code} onChange={e => setEditForm(p => p && ({ ...p, account_code: e.target.value }))}
                   placeholder="220505" className={inpCls} />
               </div>
+
+              {/* Keywords */}
+              <div>
+                <label className={lblCls}>
+                  <span className="flex items-center gap-1.5">
+                    <Tag size={11} />
+                    Palabras clave (auto-categorización)
+                  </span>
+                </label>
+                {editForm.keywords.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {editForm.keywords.map((kw, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200">
+                        {kw}
+                        <button
+                          type="button"
+                          onClick={() => setEditForm(p => p && ({ ...p, keywords: p.keywords.filter((_, j) => j !== i) }))}
+                          className="text-blue-400 hover:text-blue-700 ml-0.5">
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  value={editForm.keywordInput}
+                  onChange={e => setEditForm(p => p && ({ ...p, keywordInput: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addKeyword() } }}
+                  onBlur={addKeyword}
+                  placeholder="Escribir keyword y presionar Enter…"
+                  className={inpCls}
+                />
+                <p className="text-[10px] text-[#94A3B8] mt-1">
+                  Ej: "terpel", "estacion texaco" — si aparecen en la descripción de una transacción, se sugerirá la categoría vinculada
+                </p>
+              </div>
+
+              {/* Cuenta PUC para categorización */}
+              <div>
+                <label className={lblCls}>Cuenta PUC (categoría por defecto)</label>
+                <input value={editForm.cuenta_puc} onChange={e => setEditForm(p => p && ({ ...p, cuenta_puc: e.target.value }))}
+                  placeholder="61450510" className={inpCls} />
+                <p className="text-[10px] text-[#94A3B8] mt-1">
+                  Código PUC de la categoría que se asignará al encontrar las palabras clave
+                </p>
+              </div>
+
               <div className="flex gap-3 pt-1">
                 <button onClick={() => setEditTarget(null)}
                   className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC]">

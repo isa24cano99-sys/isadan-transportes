@@ -2,7 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
-import { normalizarDescripcion, categorizarPorReglas } from '@/lib/transaction-categorizer'
+import { normalizarDescripcion, categorizarPorReglas, buscarPorProveedor } from '@/lib/transaction-categorizer'
 
 export type TransactionCategory = {
   id: string
@@ -71,7 +71,7 @@ export type SugerirResult = {
   categoryId:   string
   categoryName: string
   categoryType: 'NEGOCIO' | 'CASA'
-  source:       'RULES' | 'PATTERNS'
+  source:       'RULES' | 'PROVEEDOR' | 'PATTERNS'
   supplierNit?: string | null
   supplierName?: string | null
 }
@@ -93,7 +93,19 @@ export async function sugerirCategoriaAction(
     if (cat) return { categoryId: cat.id, categoryName: cat.name, categoryType: cat.type as 'NEGOCIO' | 'CASA', source: 'RULES' }
   }
 
-  // 2. Patrones aprendidos
+  // 2. Catálogo de proveedores con keywords
+  const provMatch = await buscarPorProveedor(descripcion, supabase)
+  if (provMatch) {
+    return {
+      categoryId:   provMatch.category.id,
+      categoryName: provMatch.category.name,
+      categoryType: provMatch.category.type as 'NEGOCIO' | 'CASA',
+      source:       'PROVEEDOR',
+      supplierName: provMatch.supplier_name,
+    }
+  }
+
+  // 3. Patrones aprendidos
   const { data: patterns } = await supabase
     .from('description_patterns')
     .select('pattern, category_id, supplier_nit, supplier_name, transaction_categories(id, name, type)')

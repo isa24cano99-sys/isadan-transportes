@@ -1,5 +1,12 @@
 'use server'
 
+/*
+  SQL — run once in Supabase SQL Editor to enable keyword-based categorisation:
+
+  ALTER TABLE supplier_catalog ADD COLUMN IF NOT EXISTS keywords text[] DEFAULT '{}';
+  ALTER TABLE supplier_catalog ADD COLUMN IF NOT EXISTS cuenta_puc text;
+*/
+
 import { supabase } from '@/lib/supabase'
 import { getDataicoCustomers } from '@/lib/dataico'
 import { revalidatePath } from 'next/cache'
@@ -15,6 +22,8 @@ export type Supplier = {
   phone: string | null
   active: boolean
   updated_at: string
+  keywords?: string[]
+  cuenta_puc?: string | null
 }
 
 export async function sincronizarProveedoresAction() {
@@ -101,6 +110,38 @@ export async function eliminarProveedorAction(id: string): Promise<{ ok: boolean
   const { error } = await supabase.from('suppliers').delete().eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/proveedores')
+  return { ok: true }
+}
+
+/**
+ * Upsert keywords and cuenta_puc into supplier_catalog for the given supplier.
+ * The cuenta_puc value must match a puc_code in transaction_categories for
+ * auto-categorisation to work.
+ */
+export async function actualizarKeywordsAction(
+  supplierId: string,
+  keywords: string[],
+  cuenta_puc: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data: sup, error: supErr } = await supabase
+    .from('suppliers')
+    .select('nit, name')
+    .eq('id', supplierId)
+    .single()
+
+  if (supErr || !sup) return { ok: false, error: 'Proveedor no encontrado' }
+  if (!sup.nit) return { ok: false, error: 'El proveedor no tiene NIT registrado' }
+
+  const cleanKws = keywords.map(k => k.trim().toLowerCase()).filter(Boolean)
+
+  const { error } = await supabase
+    .from('supplier_catalog')
+    .upsert(
+      { nit: sup.nit, nombre: sup.name, keywords: cleanKws, cuenta_puc: cuenta_puc || null },
+      { onConflict: 'nit' },
+    )
+
+  if (error) return { ok: false, error: error.message }
   return { ok: true }
 }
 

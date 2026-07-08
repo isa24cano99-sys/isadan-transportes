@@ -60,3 +60,60 @@ export function categorizarPorReglas(descripcion: string): string | null {
   }
   return null
 }
+
+export type ProveedorMatch = {
+  category: { id: string; name: string; type: string }
+  supplier_name: string
+  match_type: 'PROVEEDOR'
+}
+
+/**
+ * Looks up supplier_catalog entries that have keywords set and matches them
+ * against the normalised description. Returns the first match with its
+ * linked transaction_category (via cuenta_puc), or null if nothing matched.
+ *
+ * @param supabase — the Supabase client (passed in so this file stays importable
+ *                   in both server and client contexts without bundling the client)
+ */
+export async function buscarPorProveedor(
+  descripcion: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<ProveedorMatch | null> {
+  const normed = normalizarDescripcion(descripcion)
+
+  const { data: catalog } = await supabase
+    .from('supplier_catalog')
+    .select('nombre, keywords, cuenta_puc')
+    .not('keywords', 'is', null)
+    .not('cuenta_puc', 'is', null)
+
+  if (!catalog?.length) return null
+
+  let matched: { nombre: string; cuenta_puc: string } | null = null
+  for (const entry of catalog) {
+    const kws = (entry.keywords as string[]) ?? []
+    if (kws.length === 0) continue
+    if (kws.some(kw => normed.includes(normalizarDescripcion(kw)))) {
+      matched = { nombre: entry.nombre as string, cuenta_puc: entry.cuenta_puc as string }
+      break
+    }
+  }
+
+  if (!matched) return null
+
+  const { data: cat } = await supabase
+    .from('transaction_categories')
+    .select('id, name, type')
+    .eq('puc_code', matched.cuenta_puc)
+    .eq('active', true)
+    .maybeSingle()
+
+  if (!cat) return null
+
+  return {
+    category:      { id: cat.id, name: cat.name, type: cat.type },
+    supplier_name: matched.nombre,
+    match_type:    'PROVEEDOR',
+  }
+}

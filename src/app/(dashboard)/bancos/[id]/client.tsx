@@ -1,14 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
-  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter,
+  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap,
 } from 'lucide-react'
 import { actualizarTransaccionAction, eliminarTransaccionAction } from '../transaccion/actions'
-import { recategorizarAction } from '../category-actions'
+import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
+
+function SourceBadge({ source }: { source: SugerirResult['source'] }) {
+  if (source === 'RULES')
+    return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">Regla</span>
+  if (source === 'PROVEEDOR')
+    return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Proveedor</span>
+  return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">Historial</span>
+}
 import TransaccionForm from '../transaccion/form'
 import CategorySelector from '@/components/CategorySelector'
 import SupplierSelector from '@/components/SupplierSelector'
@@ -95,6 +103,8 @@ export default function BankDetailClient({
   const [editForm,       setEditForm]       = useState<EditForm | null>(null)
   const [saving,         setSaving]         = useState(false)
   const [editError,      setEditError]      = useState('')
+  const [editSuggestion, setEditSuggestion] = useState<SugerirResult | null>(null)
+  const editDescDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [deleteTxn,      setDeleteTxn]      = useState<Transaction | null>(null)
   const [deleting,       setDeleting]       = useState(false)
   const [recategorizing, setRecategorizing] = useState(false)
@@ -160,9 +170,15 @@ export default function BankDetailClient({
       supplier_nit: t.supplier_nit ?? '', supplier_name: t.supplier_name ?? '',
     })
     setEditError('')
+    setEditSuggestion(null)
+    if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
   }
 
-  const closeEdit = () => { setEditTxn(null); setEditForm(null) }
+  const closeEdit = () => {
+    setEditTxn(null); setEditForm(null)
+    setEditSuggestion(null)
+    if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
+  }
 
   const handleDeleteConfirm = async () => {
     if (!deleteTxn) return
@@ -544,9 +560,14 @@ export default function BankDetailClient({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría</label>
-                <CategorySelector value={editForm.category_id}
+                <CategorySelector
+                  key={editTxn?.id}
+                  value={editForm.category_id}
                   onChange={v => setEditForm(p => p && ({ ...p, category_id: v }))}
-                  categories={categories} pucAccounts={pucAccounts} />
+                  categories={categories}
+                  pucAccounts={pucAccounts}
+                  typeFilter={editSuggestion?.categoryType}
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Proveedor (opcional)</label>
@@ -556,8 +577,37 @@ export default function BankDetailClient({
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción</label>
                 <textarea rows={3} value={editForm.description}
-                  onChange={e => setEditForm(p => p && ({ ...p, description: e.target.value }))}
+                  onChange={e => {
+                    const val = e.target.value
+                    setEditForm(p => p && ({ ...p, description: val }))
+                    if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
+                    if (val.length < 4) { setEditSuggestion(null); return }
+                    editDescDebounce.current = setTimeout(async () => {
+                      const s = await sugerirCategoriaAction(val)
+                      setEditSuggestion(s)
+                    }, 400)
+                  }}
                   className={`${inpCls} resize-none`} />
+                {editSuggestion && (
+                  <div className="mt-1.5 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                    <Zap size={12} className="text-blue-500 shrink-0" />
+                    <span className="text-xs text-blue-700 flex-1">
+                      Sugerido: <span className="font-semibold">{editSuggestion.categoryName}</span>
+                      {' '}<SourceBadge source={editSuggestion.source} />
+                      {editSuggestion.supplierName && (
+                        <span className="ml-1 text-blue-400 text-[10px]">· {editSuggestion.supplierName}</span>
+                      )}
+                    </span>
+                    <button type="button"
+                      onClick={() => { setEditForm(p => p && ({ ...p, category_id: editSuggestion.categoryId })); setEditSuggestion(null) }}
+                      className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded font-medium hover:bg-blue-700 shrink-0">
+                      Usar
+                    </button>
+                    <button type="button" onClick={() => setEditSuggestion(null)}>
+                      <X size={12} className="text-blue-400 hover:text-blue-600" />
+                    </button>
+                  </div>
+                )}
               </div>
               {editError && <p className="text-sm text-red-500">{editError}</p>}
               <div className="flex gap-3 pt-1">

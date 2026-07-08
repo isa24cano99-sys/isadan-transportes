@@ -11,6 +11,14 @@ import {
   type TransactionCategory,
   type SugerirResult,
 } from '@/app/(dashboard)/bancos/category-actions'
+
+function SourceBadge({ source }: { source: SugerirResult['source'] }) {
+  if (source === 'RULES')
+    return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">Regla</span>
+  if (source === 'PROVEEDOR')
+    return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Proveedor</span>
+  return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">Historial</span>
+}
 import type { PucAccount } from '@/components/PucSelector'
 
 type Trip = {
@@ -161,7 +169,10 @@ export default function TransaccionForm({
             <Zap size={12} className="text-blue-500 shrink-0" />
             <span className="text-xs text-blue-700 flex-1">
               Sugerido: <span className="font-semibold">{suggestion.categoryName}</span>
-              <span className="ml-1 text-blue-400">· {suggestion.categoryType === 'CASA' ? 'Casa' : 'Negocio'}</span>
+              {' '}<SourceBadge source={suggestion.source} />
+              {suggestion.supplierName && (
+                <span className="ml-1 text-blue-400 text-[10px]">· {suggestion.supplierName}</span>
+              )}
             </span>
             <button type="button" onClick={acceptSuggestion}
               className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded font-medium hover:bg-blue-700 shrink-0">
