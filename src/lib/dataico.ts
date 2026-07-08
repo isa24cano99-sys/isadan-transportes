@@ -143,6 +143,58 @@ export async function createDataicoCustomer(params: {
   return (json.customer?.id ?? json.id ?? '') as string
 }
 
+export type CreateCreditNoteParams = {
+  invoiceUuid:  string   // dataico_invoice_id of the original invoice
+  reasonCode:   1 | 2 | 3 | 4
+  description:  string
+  amount:       number
+}
+
+export type DataicoCreditNote = {
+  uuid:   string
+  number: string
+  [k: string]: unknown
+}
+
+/** POST /credit_notes — create a nota crédito for a previously issued invoice. */
+export async function createDataicoCreditNote(
+  params: CreateCreditNoteParams,
+): Promise<DataicoCreditNote> {
+  const payload = {
+    credit_note: {
+      dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
+      invoice_uuid:       params.invoiceUuid,
+      send_dian:          false,
+      reason_code:        params.reasonCode,
+      items: [
+        {
+          sku:            '01',
+          description:    params.description,
+          quantity:       1,
+          price:          params.amount,
+          measuring_unit: '94',
+          taxes:          [],
+          retentions:     [],
+        },
+      ],
+    },
+  }
+
+  const res = await fetch(`${BASE}/credit_notes`, {
+    method:  'POST',
+    headers: authHeaders(),
+    body:    JSON.stringify(payload),
+    cache:   'no-store',
+  })
+
+  const text = await res.text()
+  if (!res.ok) throw new Error(`Dataico createCreditNote ${res.status}: ${text}`)
+
+  const data = JSON.parse(text)
+  const cn   = data.credit_note ?? data
+  return { uuid: cn.uuid ?? cn.id ?? '', number: cn.number ?? '', ...cn } as DataicoCreditNote
+}
+
 export type CreateInvoiceParams = {
   customerName:    string
   customerNit:     string

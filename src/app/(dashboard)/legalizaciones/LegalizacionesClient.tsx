@@ -6,6 +6,7 @@ import { formatCOP, formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import { FileText, Search, Pencil, Trash2 } from 'lucide-react'
 import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction } from './actions'
+import { ExportComprobanteButton } from './ExportComprobanteButton'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   BORRADOR:  { label: 'Borrador',  className: 'bg-gray-100 text-gray-600' },
@@ -34,9 +35,9 @@ type Legalizacion = {
 export function LegalizacionesClient({ legalizaciones: initial }: { legalizaciones: Legalizacion[] }) {
   const router = useRouter()
   const [legalizaciones, setLegalizaciones] = useState(initial)
-  const [plateFilter, setPlateFilter] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [plateFilter,  setPlateFilter]  = useState('')
+  const [monthFilter,  setMonthFilter]  = useState('')
+  const [yearFilter,   setYearFilter]   = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Legalizacion | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [changingStatus, setChangingStatus] = useState<string | null>(null)
@@ -56,13 +57,19 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
         const p = leg.trips?.vehicles?.plate ?? ''
         if (!p.toLowerCase().includes(plateFilter.toLowerCase())) return false
       }
-      if (dateFrom && leg.date && leg.date < dateFrom) return false
-      if (dateTo   && leg.date && leg.date > dateTo)   return false
+      if (monthFilter && leg.date) {
+        const legMonth = parseInt(leg.date.slice(5, 7), 10)
+        if (legMonth !== parseInt(monthFilter, 10)) return false
+      }
+      if (yearFilter && leg.date) {
+        const legYear = parseInt(leg.date.slice(0, 4), 10)
+        if (legYear !== parseInt(yearFilter, 10)) return false
+      }
       return true
     })
-  }, [legalizaciones, plateFilter, dateFrom, dateTo])
+  }, [legalizaciones, plateFilter, monthFilter, yearFilter])
 
-  const hasFilters = plateFilter || dateFrom || dateTo
+  const hasFilters = plateFilter || monthFilter || yearFilter
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -89,13 +96,22 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
             className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
           />
         </div>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]" />
-        <span className="text-xs text-[#94A3B8] hidden sm:inline">—</span>
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]" />
+        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
+          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
+          <option value="">Todos los meses</option>
+          {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => (
+            <option key={i+1} value={String(i+1)}>{m}</option>
+          ))}
+        </select>
+        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}
+          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
+          <option value="">Todos los años</option>
+          {[2025, 2026, 2027].map(y => (
+            <option key={y} value={String(y)}>{y}</option>
+          ))}
+        </select>
         {hasFilters && (
-          <button onClick={() => { setPlateFilter(''); setDateFrom(''); setDateTo('') }}
+          <button onClick={() => { setPlateFilter(''); setMonthFilter(''); setYearFilter('') }}
             className="px-3 py-2 text-xs text-[#64748B] hover:text-[#0F172A] transition-colors">
             Limpiar
           </button>
@@ -178,11 +194,16 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Link href={`/legalizaciones/${leg.id}`}
+                        className="text-xs text-[#64748B] hover:text-[#0F172A] transition-colors font-medium px-1">
+                        Ver
+                      </Link>
                       <Link href={`/legalizaciones/${leg.id}/editar`}
                         className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline font-medium">
                         <Pencil size={11} /> Editar
                       </Link>
+                      <ExportComprobanteButton legId={leg.id} compact />
                       <button onClick={() => setDeleteTarget(leg)}
                         className="text-[#94A3B8] hover:text-red-500 transition-colors p-1">
                         <Trash2 size={13} />
@@ -249,8 +270,11 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                       {changingStatus === leg.id ? '...' : '→ Aprobar'}
                     </button>
                   )}
+                  <Link href={`/legalizaciones/${leg.id}`}
+                    className="text-xs text-[#64748B] font-medium min-h-[36px] flex items-center px-1">Ver</Link>
                   <Link href={`/legalizaciones/${leg.id}/editar`}
                     className="text-xs text-[#2563EB] font-medium min-h-[36px] flex items-center px-1">Editar</Link>
+                  <ExportComprobanteButton legId={leg.id} compact />
                   <button onClick={() => setDeleteTarget(leg)}
                     className="text-[#94A3B8] hover:text-red-500 min-h-[36px] px-1">
                     <Trash2 size={13} />

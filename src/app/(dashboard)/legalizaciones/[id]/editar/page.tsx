@@ -2,10 +2,28 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
-import NuevaLegalizacionForm, { LegalizacionInitialData } from '../../nueva/form'
+import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit } from '../../nueva/form'
+
+// Maps the old static expense_type keys to human-readable names (for legacy expenses)
+const LEGACY_TYPE_NAMES: Record<string, string> = {
+  acpm_contado:     'ACPM',
+  cargue:           'Cargue',
+  descargue:        'Descargue',
+  peajes:           'Peajes',
+  comision_empresa: 'Comisión empresa',
+  llantas:          'Llantas',
+  engrase:          'Engrase',
+  lavada:           'Lavada',
+  parqueos:         'Parqueos',
+  carrozada:        'Carrozada',
+  descarrozada:     'Descarrozada',
+  cambio_aceite:    'Cambio aceite',
+  varada:           'Varada',
+  otros:            'Otras compras',
+}
 
 async function getData(id: string) {
-  const [{ data: leg }, { data: expenses }, { data: trips }] = await Promise.all([
+  const [{ data: leg }, { data: expenses }, { data: trips }, { data: cats }] = await Promise.all([
     supabase
       .from('legalizations')
       .select('id, trip_id, date, advance_amount, total_expenses, status, driver_id, trips(freight_value)')
@@ -19,40 +37,59 @@ async function getData(id: string) {
       .from('trips')
       .select('id, trip_number, origin, destination, load_date, freight_value, advance_amount, driver_id, manifest_number, weight_kg, price_per_ton, clients(name), vehicles(plate), drivers(full_name)')
       .order('created_at', { ascending: false }),
+    supabase
+      .from('transaction_categories')
+      .select('id, name, puc_code, type, active')
+      .eq('active', true)
+      .eq('type', 'NEGOCIO')
+      .order('name'),
   ])
-  return { leg, expenses: expenses ?? [], trips: trips ?? [] }
+  return { leg, expenses: expenses ?? [], trips: trips ?? [], categories: cats ?? [] }
 }
 
 export default async function EditarLegalizacionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { leg, expenses, trips } = await getData(id)
+  const { leg, expenses, trips, categories } = await getData(id)
   if (!leg) notFound()
 
-  const expensesMap: Record<string, string> = {}
-  let otrosDesc = ''
+  // Build dynExpenses from stored legalization_expenses
   let percentage = 0
+  const dynExpenses: DynExpenseInit[] = []
+
   for (const e of expenses) {
     if (e.expense_type === 'porcentaje') {
-      // description stores the raw % value saved at creation time
       percentage = e.description ? Number(e.description) : 0
       continue
     }
-    expensesMap[e.expense_type] = String(e.amount)
-    if (e.expense_type === 'otros' && e.description) otrosDesc = e.description
+
+    // Look up by puc_code first (new format), then by legacy name mapping
+    const legacyName = LEGACY_TYPE_NAMES[e.expense_type]
+    const cat = (categories as any[]).find(
+      (c: any) =>
+        c.puc_code === e.expense_type ||
+        (legacyName && c.name.toLowerCase() === legacyName.toLowerCase()) ||
+        c.name.toLowerCase() === e.expense_type.toLowerCase(),
+    )
+
+    dynExpenses.push({
+      pucCode:      cat?.puc_code ?? e.expense_type,
+      categoryName: cat?.name     ?? (legacyName ?? e.expense_type),
+      description:  e.description ?? '',
+      amount:       e.amount       ?? 0,
+    })
   }
 
-  const tripData = trips.find((t: any) => t.id === leg.trip_id)
+  const tripData = (trips as any[]).find((t: any) => t.id === leg.trip_id)
   const freight  = (tripData as any)?.freight_value ?? 0
 
   const initialData: LegalizacionInitialData = {
-    id:         leg.id,
-    trip_id:    leg.trip_id,
-    trip_date:  leg.date ?? '',
+    id:          leg.id,
+    trip_id:     leg.trip_id,
+    trip_date:   leg.date ?? '',
     freight,
-    advance:    leg.advance_amount ?? 0,
+    advance:     leg.advance_amount ?? 0,
     percentage,
-    expenses:   expensesMap,
-    otrosDesc,
+    dynExpenses,
   }
 
   return (
@@ -69,7 +106,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
         <h1 className="text-xl font-semibold text-[#0F172A]">Editar legalización</h1>
         <p className="text-sm text-[#64748B] mt-0.5">Modifica los datos de la legalización</p>
       </div>
-      <NuevaLegalizacionForm trips={trips as any} initialData={initialData} />
+      <NuevaLegalizacionForm trips={trips as any} initialData={initialData} categories={categories as any} />
     </div>
   )
 }

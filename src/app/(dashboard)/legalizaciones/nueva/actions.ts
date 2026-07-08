@@ -3,11 +3,7 @@
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
-const EXPENSE_TYPES = [
-  'acpm_contado', 'cargue', 'descargue', 'peajes', 'comision_empresa',
-  'llantas', 'engrase', 'lavada', 'parqueos', 'carrozada', 'descarrozada',
-  'cambio_aceite', 'varada', 'otros',
-]
+type DynExpenseRow = { pucCode: string; categoryName: string; description: string; amount: number }
 
 function buildLegalizationPayload(formData: FormData) {
   const trip_id    = formData.get('trip_id') as string
@@ -17,17 +13,19 @@ function buildLegalizationPayload(formData: FormData) {
   const advance    = Number(formData.get('advance') ?? 0)
   const percentage = Number(formData.get('percentage') ?? 0)
 
+  const weight_kg    = formData.get('weight_kg')     ? Number(formData.get('weight_kg'))     : null
+  const price_per_ton = formData.get('price_per_ton') ? Number(formData.get('price_per_ton')) : null
+
   const expenses: { expense_type: string; amount: number; description: string | null }[] = []
   let gastos_viaje = 0
-  for (const type of EXPENSE_TYPES) {
-    const amount = Number(formData.get(`exp_${type}`) ?? 0)
-    if (amount > 0) {
-      expenses.push({
-        expense_type: type,
-        amount,
-        description: type === 'otros' ? (formData.get('exp_otros_desc') as string || null) : null,
-      })
-      gastos_viaje += amount
+
+  const dynRaw = formData.get('dynamic_expenses') as string | null
+  const dynRows: DynExpenseRow[] = dynRaw ? JSON.parse(dynRaw) : []
+  for (const row of dynRows) {
+    if (row.amount > 0) {
+      const expType = row.pucCode || row.categoryName.toLowerCase().replace(/\s+/g, '_').slice(0, 60) || 'otros'
+      expenses.push({ expense_type: expType, amount: row.amount, description: row.description || null })
+      gastos_viaje += row.amount
     }
   }
 
@@ -39,15 +37,15 @@ function buildLegalizationPayload(formData: FormData) {
     expenses.push({
       expense_type: 'porcentaje',
       amount:       porcentaje_calculado,
-      description:  String(percentage),   // store raw % in description for reload
+      description:  String(percentage),  // store raw % for reload
     })
   }
 
-  return { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses }
+  return { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses, weight_kg, price_per_ton }
 }
 
 export async function crearLegalizacionAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 
@@ -68,12 +66,19 @@ export async function crearLegalizacionAction(formData: FormData): Promise<{ ok:
     if (expError) return { ok: false, error: 'Legalización creada pero error al guardar gastos' }
   }
 
+  const tripUpdates: Record<string, number> = {}
+  if (weight_kg    != null && !isNaN(weight_kg))    tripUpdates.weight_kg    = weight_kg
+  if (price_per_ton != null && !isNaN(price_per_ton)) tripUpdates.price_per_ton = price_per_ton
+  if (Object.keys(tripUpdates).length > 0) {
+    await supabase.from('trips').update(tripUpdates).eq('id', trip_id)
+  }
+
   revalidatePath('/legalizaciones')
   return { ok: true }
 }
 
 export async function actualizarLegalizacionAction(id: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 
@@ -84,7 +89,6 @@ export async function actualizarLegalizacionAction(id: string, formData: FormDat
 
   if (legError) return { ok: false, error: 'Error al actualizar la legalización' }
 
-  // Reemplazar gastos: borrar los anteriores e insertar los nuevos
   await supabase.from('legalization_expenses').delete().eq('legalization_id', id)
 
   if (expenses.length > 0) {
@@ -93,6 +97,37 @@ export async function actualizarLegalizacionAction(id: string, formData: FormDat
     if (expError) return { ok: false, error: 'Error al guardar los gastos actualizados' }
   }
 
+  const tripUpdates: Record<string, number> = {}
+  if (weight_kg    != null && !isNaN(weight_kg))    tripUpdates.weight_kg    = weight_kg
+  if (price_per_ton != null && !isNaN(price_per_ton)) tripUpdates.price_per_ton = price_per_ton
+  if (Object.keys(tripUpdates).length > 0) {
+    await supabase.from('trips').update(tripUpdates).eq('id', trip_id)
+  }
+
   revalidatePath('/legalizaciones')
   return { ok: true }
+}
+
+export async function crearCuentaYCategoriaAction(params: {
+  nombre: string
+  codigo: string
+}): Promise<{ ok: boolean; category?: { id: string; name: string; puc_code: string }; error?: string }> {
+  const { error: pucErr } = await supabase
+    .from('puc_accounts')
+    .insert({ codigo: params.codigo, nombre: params.nombre, tipo: 'COSTO_OPERACIONAL', active: true })
+
+  if (pucErr && !pucErr.message.includes('duplicate') && !pucErr.code?.includes('23505')) {
+    return { ok: false, error: pucErr.message }
+  }
+
+  const { data: cat, error: catErr } = await supabase
+    .from('transaction_categories')
+    .insert({ name: params.nombre, type: 'NEGOCIO', puc_code: params.codigo, puc_tipo: 'COSTO_OPERACIONAL', active: true })
+    .select('id, name, puc_code')
+    .single()
+
+  if (catErr) return { ok: false, error: catErr.message }
+
+  revalidatePath('/legalizaciones')
+  return { ok: true, category: cat as { id: string; name: string; puc_code: string } }
 }

@@ -7,6 +7,7 @@ import {
   findDataicoCustomer,
   createDataicoCustomer,
   createDataicoInvoice,
+  createDataicoCreditNote,
 } from '@/lib/dataico'
 
 export type TripDetail = {
@@ -253,6 +254,55 @@ export async function eliminarViajeAction(tripId: string): Promise<{ ok: boolean
 
   revalidatePath('/viajes')
   return { ok: true }
+}
+
+const REASON_CODES: Record<string, 1 | 2 | 3 | 4> = {
+  'Devolución':       1,
+  'Descuento':        2,
+  'Anulación':        3,
+  'Rebaja de precio': 4,
+}
+
+export async function crearNotaCreditoAction(params: {
+  tripId:      string
+  invoiceUuid: string
+  motivo:      string
+  descripcion: string
+  amount:      number
+}): Promise<
+  | { ok: false; error: string }
+  | { ok: true; creditNoteUuid: string; creditNoteNumber: string }
+> {
+  const reasonCode = REASON_CODES[params.motivo]
+  if (!reasonCode) return { ok: false, error: 'Motivo inválido' }
+
+  let cn
+  try {
+    cn = await createDataicoCreditNote({
+      invoiceUuid:  params.invoiceUuid,
+      reasonCode,
+      description:  params.descripcion || `Nota crédito — ${params.motivo}`,
+      amount:       params.amount,
+    })
+  } catch (e: any) {
+    return { ok: false, error: `Error Dataico: ${e.message}` }
+  }
+
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      credit_note_id:     cn.uuid,
+      credit_note_number: cn.number,
+    })
+    .eq('trip_id', params.tripId)
+
+  if (error) {
+    // Dataico call succeeded — return success even if DB write failed
+    console.error('[crearNotaCredito] DB update error:', error.message)
+  }
+
+  revalidatePath(`/viajes/${params.tripId}`)
+  return { ok: true, creditNoteUuid: cn.uuid, creditNoteNumber: cn.number }
 }
 
 export async function asignarVehiculoAction(tripId: string, vehicleId: string): Promise<

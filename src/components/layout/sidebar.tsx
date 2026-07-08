@@ -4,22 +4,33 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const links = [
-  { href: '/',              label: 'Dashboard' },
-  { href: '/viajes',        label: 'Viajes' },
-  { href: '/legalizaciones', label: 'Legalizaciones' },
-  { href: '/bancos',        label: 'Bancos' },
-  { href: '/facturas',      label: 'Facturación DIAN' },
-  { href: '/proveedores',   label: 'Proveedores' },
-  { href: '/prestamos',     label: 'Préstamos' },
-  { href: '/prestaciones',  label: 'Prestaciones' },
-  { href: '/nomina',        label: 'Nómina' },
-  { href: '/vehiculos',     label: 'Vehículos' },
-  { href: '/conductores',   label: 'Conductores' },
-  { href: '/clientes',      label: 'Clientes' },
-  { href: '/documentos',    label: 'Documentos' },
-  { href: '/reportes',      label: 'Estado resultados' },
-  { href: '/impuesto',      label: 'Impuesto SIMPLE' },
+  { href: '/',                    label: 'Dashboard' },
+  { href: '/viajes',              label: 'Viajes' },
+  { href: '/legalizaciones',      label: 'Legalizaciones' },
+  { href: '/bancos',              label: 'Bancos' },
+  { href: '/bancos/conciliacion', label: 'Conciliación' },
+  { href: '/facturas',            label: 'Facturación DIAN' },
+  { href: '/proveedores',         label: 'Proveedores' },
+  { href: '/prestamos',           label: 'Préstamos' },
+  { href: '/prestaciones',        label: 'Prestaciones' },
+  { href: '/nomina',              label: 'Nómina' },
+  { href: '/vehiculos',           label: 'Vehículos' },
+  { href: '/conductores',         label: 'Conductores' },
+  { href: '/clientes',            label: 'Clientes' },
+  { href: '/documentos',          label: 'Documentos' },
+  { href: '/cartera',             label: 'Cartera' },
+  { href: '/reportes',            label: 'Estado resultados' },
+  { href: '/impuesto',            label: 'Impuesto SIMPLE' },
 ]
+
+const allHrefs = links.map(l => l.href)
+
+function isActive(href: string, pathname: string): boolean {
+  if (href === '/') return pathname === '/'
+  if (!pathname.startsWith(href)) return false
+  // Yield to a more-specific sibling link when it also matches
+  return !allHrefs.some(h => h !== href && h.startsWith(href + '/') && pathname.startsWith(h))
+}
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -36,7 +47,7 @@ export default function Sidebar() {
             key={href}
             href={href}
             className={`flex items-center px-2 py-2 rounded-lg text-sm mb-0.5 transition-colors
-              ${(href === '/' ? pathname === href : pathname.startsWith(href))
+              ${isActive(href, pathname)
                 ? 'bg-blue-600/25 text-blue-400 font-medium'
                 : 'text-white/60 hover:text-white hover:bg-white/10'
               }`}

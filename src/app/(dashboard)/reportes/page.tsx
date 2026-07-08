@@ -1,228 +1,208 @@
 import { supabase } from '@/lib/supabase'
-import { ReportesClient } from './ReportesClient'
+import EstadoResultadosClient from './EstadoResultadosClient'
 
-export type MonthData = {
+export const dynamic = 'force-dynamic'
+
+// ── Category sets ─────────────────────────────────────────────────────────────
+const PERSONAL_COST_CATS   = ['52050610','52059510','52056810','52057010','52057210','52056910','52053010','52053610','52053910','52052710','52058410','52058495']
+const GENERAL_COST_CATS    = ['52201005','52304010','52352010','52353010','52353510','52401005','52950510','52956010','51103010']
+const FINANCIAL_EXP_CATS   = ['53050505','53050510','53152010']
+const TAX_CATS             = ['51150510']
+const PERSONAL_OWNER_CATS  = ['52959510','52959511','52959505','52959507','52959520','52959530','52959535']
+const ANTICIPO_CATS        = ['28050510']
+const ANTICIPO_NO_LEG_CATS = ['13301510']
+const FINANCIAL_INC_CATS   = ['42100510']
+
+export type RawInvoice = {
   month: number
-  label: string
-  ingresos: number
-  costos: number
-  gastos_financieros: number
-  utilidad_bruta: number
-  utilidad_neta: number
+  clientName: string
+  clientNit: string | null
+  invoiceNumber: string | null
+  amount: number
 }
 
-export type EntityData = {
-  id: string
-  label: string
-  ingresos: number
-  costos: number
-  viajes: number
-  utilidad: number
-  margen: number
+export type RawTx = {
+  month: number
+  pucCode: string
+  description: string | null
+  amount: number
 }
 
-export type TipoFilter = 'NEGOCIO' | 'CASA' | 'TODO'
+export type RawLegExp = {
+  month: number
+  plate: string | null
+  expenseType: string
+  amount: number
+  description: string | null
+}
 
-const MESES = [
-  'Enero','Febrero','Marzo','Abril','Mayo','Junio',
-  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre',
-]
+export type RawToll = {
+  month: number
+  plate: string | null
+  amount: number
+}
+
+export type PYLData = {
+  year: number
+  availableYears: number[]
+  invoices: RawInvoice[]
+  anticipos: RawTx[]
+  legExps: RawLegExp[]
+  tolls: RawToll[]
+  personalCosts: RawTx[]
+  generalCosts: RawTx[]
+  financialExps: RawTx[]
+  financialIncs: RawTx[]
+  taxes: RawTx[]
+  personalOwner: RawTx[]
+  anticiposNoLeg: RawTx[]
+}
+
+function toMonth(dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null
+  try {
+    const clean = (dateStr as string).substring(0, 10)
+    return new Date(clean + 'T00:00:00').getMonth() + 1
+  } catch {
+    return null
+  }
+}
 
 export default async function ReportesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ año?: string; mes?: string; tipo?: string }>
+  searchParams: Promise<{ año?: string }>
 }) {
-  const sp          = await searchParams
-  const year        = parseInt(sp.año  ?? '') || new Date().getFullYear()
-  const filterMonth = parseInt(sp.mes  ?? '') || null   // 1-12 or null
-  const tipo        = (sp.tipo ?? 'TODO') as TipoFilter
+  const sp   = await searchParams
+  const year = parseInt(sp.año ?? '') || new Date().getFullYear()
+  const from = `${year}-01-01`
+  const to   = `${year}-12-31`
 
-  let from: string, to: string
-  if (filterMonth) {
-    const lastDay = new Date(year, filterMonth, 0).getDate()
-    const mm = String(filterMonth).padStart(2, '0')
-    from = `${year}-${mm}-01`
-    to   = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`
-  } else {
-    from = `${year}-01-01`
-    to   = `${year}-12-31`
-  }
-
-  const [tripsRes, legRes, installRes, bankTxRes, pucRes] = await Promise.all([
+  const [invoicesRes, bankTxRes, legExpRes, tollsRes] = await Promise.all([
+    // 1. Invoices EMITIDA
     supabase
-      .from('trips')
-      .select(`
-        id, freight_value, delivery_date, status,
-        vehicle_id, driver_id, client_id,
-        vehicles(plate), drivers(full_name), clients(name)
-      `)
-      .eq('status', 'PAGADO')
-      .gte('delivery_date', from)
-      .lte('delivery_date', to),
+      .from('invoices')
+      .select('invoice_number, total_amount, issue_date, client_name, client_nit, trips(freight_value, clients(name, nit))')
+      .eq('invoice_type', 'EMITIDA')
+      .gte('issue_date', from)
+      .lte('issue_date', to),
 
+    // 2. All bank transactions for the year (we filter server-side)
     supabase
-      .from('legalizations')
+      .from('bank_transactions')
+      .select('type, amount, date, description, category, transaction_categories(puc_code, name)')
+      .gte('date', from)
+      .lte('date', to),
+
+    // 3. Legalization expenses with vehicle chain
+    supabase
+      .from('legalization_expenses')
       .select(`
-        id, date, total_expenses,
-        trips(vehicle_id, driver_id, client_id,
-          vehicles(plate), drivers(full_name), clients(name)
+        expense_type, amount, description, date,
+        legalizations(
+          trips(
+            vehicles(plate)
+          )
         )
       `)
       .gte('date', from)
       .lte('date', to),
 
+    // 4. Toll transactions (Flypass)
     supabase
-      .from('loan_installments')
-      .select('id, payment_amount, paid_date')
-      .eq('status', 'PAGADA')
-      .not('paid_date', 'is', null)
-      .gte('paid_date', from)
-      .lte('paid_date', to),
-
-    supabase
-      .from('bank_transactions')
-      .select('id, type, amount, date, category_id, transaction_categories(type, puc_code)')
-      .gte('date', from)
-      .lte('date', to),
-
-    supabase
-      .from('puc_accounts')
-      .select('codigo, nombre, tipo')
-      .eq('active', true),
+      .from('toll_transactions')
+      .select('plate, total, pass_date')
+      .gte('pass_date', from + 'T00:00:00')
+      .lte('pass_date', to + 'T23:59:59'),
   ])
 
-  const trips         = tripsRes.data   ?? []
-  const legalizations = legRes.data     ?? []
-  const installments  = installRes.data ?? []
-  const bankTxns      = bankTxRes.data  ?? []
-  const pucAccounts   = pucRes.data     ?? []
+  // ── Pre-process invoices ───────────────────────────────────────────────────
+  const invoices: RawInvoice[] = (invoicesRes.data ?? [])
+    .map((inv: any) => {
+      const month = toMonth(inv.issue_date)
+      if (!month) return null
+      const amount =
+        Number(inv.total_amount ?? 0) ||
+        Number(inv.trips?.freight_value ?? 0)
+      const clientName = inv.client_name ?? inv.trips?.clients?.name ?? '—'
+      const clientNit  = inv.client_nit  ?? inv.trips?.clients?.nit  ?? null
+      return { month, clientName, clientNit, invoiceNumber: inv.invoice_number ?? null, amount }
+    })
+    .filter(Boolean) as RawInvoice[]
 
-  // Build lookup map: codigo → { nombre, tipo }
-  const pucMap = new Map<string, { nombre: string; tipo: string }>()
-  for (const p of pucAccounts) pucMap.set(p.codigo, { nombre: p.nombre, tipo: p.tipo })
-
-  // ── Estado de resultados por mes ──────────────────────────────────────────
-  const months: MonthData[] = Array.from({ length: 12 }, (_, i) => ({
-    month: i + 1, label: MESES[i],
-    ingresos: 0, costos: 0, gastos_financieros: 0,
-    utilidad_bruta: 0, utilidad_neta: 0,
-  }))
-
-  if (tipo !== 'CASA') {
-    for (const t of trips) {
-      const m = new Date((t.delivery_date as string) + 'T00:00:00').getMonth()
-      months[m].ingresos += Number(t.freight_value ?? 0)
-    }
-    for (const l of legalizations) {
-      const m = new Date((l.date as string) + 'T00:00:00').getMonth()
-      months[m].costos += Number((l as any).total_expenses ?? 0)
-    }
-    for (const inst of installments) {
-      const m = new Date((inst.paid_date as string) + 'T00:00:00').getMonth()
-      months[m].gastos_financieros += Number(inst.payment_amount ?? 0)
-    }
+  // ── Pre-process bank transactions ─────────────────────────────────────────
+  function pickPuc(tx: any): string | null {
+    return (tx.category as string | null) ??
+           (tx.transaction_categories as any)?.puc_code ??
+           null
   }
 
-  for (const tx of bankTxns) {
-    const cat     = (tx as any).transaction_categories
-    const txFilter = (cat?.type ?? 'NEGOCIO') as 'NEGOCIO' | 'CASA'
-    if (tipo === 'NEGOCIO' && txFilter !== 'NEGOCIO') continue
-    if (tipo === 'CASA'    && txFilter !== 'CASA')    continue
-
-    const pucTipo = cat?.puc_code ? pucMap.get(cat.puc_code)?.tipo : null
-    const m = new Date((tx.date as string) + 'T00:00:00').getMonth()
-    if (tx.type === 'INGRESO') {
-      months[m].ingresos += Number(tx.amount ?? 0)
-    } else if (pucTipo === 'GASTO_FINANCIERO') {
-      months[m].gastos_financieros += Number(tx.amount ?? 0)
-    } else {
-      months[m].costos += Number(tx.amount ?? 0)
-    }
+  function extractBankTx(cats: string[], txType?: 'INGRESO' | 'EGRESO'): RawTx[] {
+    return (bankTxRes.data ?? [])
+      .filter((t: any) => {
+        const puc = pickPuc(t)
+        if (!puc || !cats.includes(puc)) return false
+        if (txType && t.type !== txType) return false
+        return true
+      })
+      .map((t: any) => {
+        const month = toMonth(t.date as string)
+        if (!month) return null
+        return {
+          month,
+          pucCode:     pickPuc(t)!,
+          description: t.description ?? null,
+          amount:      Number(t.amount ?? 0),
+        }
+      })
+      .filter(Boolean) as RawTx[]
   }
 
-  for (const m of months) {
-    m.utilidad_bruta = m.ingresos - m.costos
-    m.utilidad_neta  = m.utilidad_bruta - m.gastos_financieros
-  }
+  const anticipos      = extractBankTx(ANTICIPO_CATS, 'INGRESO')
+  const personalCosts  = extractBankTx(PERSONAL_COST_CATS, 'EGRESO')
+  const generalCosts   = extractBankTx(GENERAL_COST_CATS, 'EGRESO')
+  const financialExps  = extractBankTx(FINANCIAL_EXP_CATS, 'EGRESO')
+  const financialIncs  = extractBankTx(FINANCIAL_INC_CATS, 'INGRESO')
+  const taxes          = extractBankTx(TAX_CATS, 'EGRESO')
+  const personalOwner  = extractBankTx(PERSONAL_OWNER_CATS, 'EGRESO')
+  const anticiposNoLeg = extractBankTx(ANTICIPO_NO_LEG_CATS)
 
-  // ── Rentabilidad por entidad (only for NEGOCIO/TODO) ─────────────────────
-  type Stat = { label: string; ingresos: number; costos: number; viajes: number }
+  // ── Pre-process legalization expenses ─────────────────────────────────────
+  const legExps: RawLegExp[] = (legExpRes.data ?? [])
+    .map((e: any) => {
+      const month = toMonth(e.date)
+      if (!month || !e.amount) return null
+      const leg     = e.legalizations
+      const trip    = leg?.trips
+      const vehicle = trip?.vehicles
+      return {
+        month,
+        plate:       (vehicle?.plate as string | null) ?? null,
+        expenseType: e.expense_type as string ?? 'otros',
+        amount:      Number(e.amount),
+        description: e.description ?? null,
+      }
+    })
+    .filter(Boolean) as RawLegExp[]
 
-  function buildStats(
-    tripKey:   (t: any) => string | null,
-    tripLabel: (t: any) => string,
-    legKey:    (l: any) => string | null,
-    legLabel:  (l: any) => string,
-  ): EntityData[] {
-    const map = new Map<string, Stat>()
-
-    for (const t of trips) {
-      const id = tripKey(t)
-      if (!id) continue
-      if (!map.has(id)) map.set(id, { label: tripLabel(t), ingresos: 0, costos: 0, viajes: 0 })
-      const s = map.get(id)!
-      s.ingresos += Number(t.freight_value ?? 0)
-      s.viajes++
-    }
-    for (const l of legalizations) {
-      const trip = (l as any).trips
-      if (!trip) continue
-      const id = legKey(l)
-      if (!id) continue
-      if (!map.has(id)) map.set(id, { label: legLabel(l), ingresos: 0, costos: 0, viajes: 0 })
-      map.get(id)!.costos += Number((l as any).total_expenses ?? 0)
-    }
-
-    return Array.from(map.entries())
-      .map(([id, s]) => ({
-        id,
-        label:    s.label,
-        ingresos: s.ingresos,
-        costos:   s.costos,
-        viajes:   s.viajes,
-        utilidad: s.ingresos - s.costos,
-        margen:   s.ingresos > 0 ? Math.round(((s.ingresos - s.costos) / s.ingresos) * 100) : 0,
-      }))
-      .sort((a, b) => b.ingresos - a.ingresos)
-  }
-
-  const byVehicle = tipo !== 'CASA' ? buildStats(
-    t => t.vehicle_id,
-    t => (t.vehicles as any)?.plate ?? 'Sin placa',
-    l => (l as any).trips?.vehicle_id ?? null,
-    l => (l as any).trips?.vehicles?.plate ?? 'Sin placa',
-  ) : []
-
-  const byDriver = tipo !== 'CASA' ? buildStats(
-    t => t.driver_id,
-    t => (t.drivers as any)?.full_name ?? 'Sin conductor',
-    l => (l as any).trips?.driver_id ?? null,
-    l => (l as any).trips?.drivers?.full_name ?? 'Sin conductor',
-  ) : []
-
-  const byClient = tipo !== 'CASA' ? buildStats(
-    t => t.client_id,
-    t => (t.clients as any)?.name ?? 'Sin cliente',
-    l => (l as any).trips?.client_id ?? null,
-    l => (l as any).trips?.clients?.name ?? 'Sin cliente',
-  ) : []
+  // ── Pre-process tolls ─────────────────────────────────────────────────────
+  const tolls: RawToll[] = (tollsRes.data ?? [])
+    .map((t: any) => {
+      const month = toMonth(t.pass_date as string)
+      if (!month) return null
+      return { month, plate: (t.plate as string | null) ?? null, amount: Number(t.total ?? 0) }
+    })
+    .filter(Boolean) as RawToll[]
 
   const currentYear    = new Date().getFullYear()
   const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i)
 
-  return (
-    <div className="p-6">
-      <ReportesClient
-        year={year}
-        filterMonth={filterMonth}
-        tipo={tipo}
-        availableYears={availableYears}
-        months={months}
-        byVehicle={byVehicle}
-        byDriver={byDriver}
-        byClient={byClient}
-      />
-    </div>
-  )
+  const pylData: PYLData = {
+    year, availableYears,
+    invoices, anticipos, legExps, tolls,
+    personalCosts, generalCosts, financialExps, financialIncs,
+    taxes, personalOwner, anticiposNoLeg,
+  }
+
+  return <EstadoResultadosClient {...pylData} />
 }

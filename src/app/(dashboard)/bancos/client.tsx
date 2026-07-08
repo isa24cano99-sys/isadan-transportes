@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { Plus, ArrowDownCircle, ArrowUpCircle, Landmark, Pencil, Trash2, X, Upload } from 'lucide-react'
+import { Plus, ArrowDownCircle, ArrowUpCircle, Landmark, Pencil, Trash2, X, GitMerge } from 'lucide-react'
 import { actualizarCuentaAction, eliminarCuentaAction } from './actions'
 
 interface AccountWithBalance {
@@ -89,9 +89,9 @@ export default function BancosClient({ accounts: initial }: { accounts: AccountW
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/bancos/importar"
+          <Link href="/bancos/conciliacion"
             className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#0F172A] text-sm font-medium px-3 py-2.5 rounded-lg transition-colors min-h-[44px]">
-            <Upload size={15} /> <span className="hidden sm:inline">Importar extracto</span><span className="sm:hidden">Importar</span>
+            <GitMerge size={15} /> <span className="hidden sm:inline">Conciliar extracto</span><span className="sm:hidden">Conciliar</span>
           </Link>
           <Link href="/bancos/transaccion"
             className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#0F172A] text-sm font-medium px-3 py-2.5 rounded-lg transition-colors min-h-[44px]">

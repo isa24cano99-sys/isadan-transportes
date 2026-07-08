@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
-import { AlertTriangle, Clock, FileText } from 'lucide-react'
+import { AlertTriangle, Clock, FileText, Receipt } from 'lucide-react'
 
 function getDaysLeft(expirationDate: string | null): number | undefined {
   if (!expirationDate) return undefined
@@ -61,8 +61,24 @@ async function getExpiringDocs() {
   }).filter((d: any) => d.daysLeft !== undefined && d.daysLeft < 60)
 }
 
+async function getPendingBilling() {
+  const { data } = await supabase
+    .from('trips')
+    .select('id, freight_value')
+    .eq('status', 'FINALIZADO')
+    .is('dataico_invoice_id', null)
+  const trips = data ?? []
+  return {
+    count: trips.length,
+    total: trips.reduce((s, t) => s + Number(t.freight_value ?? 0), 0),
+  }
+}
+
 export default async function DashboardPage() {
-  const expiringDocs = await getExpiringDocs()
+  const [expiringDocs, pendingBilling] = await Promise.all([
+    getExpiringDocs(),
+    getPendingBilling(),
+  ])
 
   const redDocs    = expiringDocs.filter((d: any) => d.daysLeft < 30)
   const yellowDocs = expiringDocs.filter((d: any) => d.daysLeft >= 30)
@@ -73,6 +89,41 @@ export default async function DashboardPage() {
         <h1 className="text-xl font-semibold text-[#0F172A]">Dashboard</h1>
         <p className="text-sm text-[#64748B] mt-0.5">Bienvenido a ISADAN Transportes</p>
       </div>
+
+      {/* Pending billing KPI */}
+      <Link href="/viajes?tab=por_facturar"
+        className={`flex items-center gap-4 rounded-2xl border p-4 md:p-5 transition-colors hover:shadow-sm ${
+          pendingBilling.count > 0
+            ? 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100/60'
+            : 'bg-green-50 border-green-200 hover:bg-green-100/60'
+        }`}
+      >
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+          pendingBilling.count > 0 ? 'bg-yellow-100' : 'bg-green-100'
+        }`}>
+          <Receipt size={18} className={pendingBilling.count > 0 ? 'text-yellow-700' : 'text-green-700'} />
+        </div>
+        <div className="flex-1 min-w-0">
+          {pendingBilling.count > 0 ? (
+            <>
+              <p className="text-sm font-semibold text-yellow-900">
+                {pendingBilling.count} viaje{pendingBilling.count !== 1 ? 's' : ''} pendiente{pendingBilling.count !== 1 ? 's' : ''} de facturar
+              </p>
+              <p className="text-xs text-yellow-700 mt-0.5">
+                {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(pendingBilling.total)} en fletes sin factura
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-green-900">Facturación al día</p>
+              <p className="text-xs text-green-700 mt-0.5">Todos los viajes finalizados tienen factura</p>
+            </>
+          )}
+        </div>
+        <span className={`text-xs font-medium flex-shrink-0 ${
+          pendingBilling.count > 0 ? 'text-yellow-700' : 'text-green-700'
+        }`}>Ver →</span>
+      </Link>
 
       {expiringDocs.length > 0 && (
         <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 md:p-5">

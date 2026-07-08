@@ -1,26 +1,20 @@
 import { supabase } from '@/lib/supabase'
-import { formatCOP, formatDate } from '@/lib/utils'
+import { formatCOP } from '@/lib/utils'
 import Link from 'next/link'
-import { Plus, TruckIcon, Pencil, Eye } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import ManifiestoUpload from '../ManifiestoUpload'
-
-const statusConfig: Record<string, { label: string; className: string }> = {
-  PLANEADO:   { label: 'Planeado',   className: 'bg-gray-100 text-gray-600' },
-  EN_CURSO:   { label: 'En curso',   className: 'bg-blue-100 text-blue-700' },
-  FINALIZADO: { label: 'Finalizado', className: 'bg-green-100 text-green-700' },
-  FACTURADO:  { label: 'Facturado',  className: 'bg-yellow-100 text-yellow-700' },
-  PAGADO:     { label: 'Pagado',     className: 'bg-emerald-100 text-emerald-700' },
-}
+import ViajesClient from './ViajesClient'
 
 async function getTrips() {
   const { data, error } = await supabase
     .from('trips')
     .select(`
       id, trip_number, manifest_auth, manifest_number, origin, destination, load_date,
-      freight_value, advance_amount, status, notes,
+      freight_value, advance_amount, status, notes, dataico_invoice_id,
       clients(id, name),
       vehicles(id, plate, brand),
-      drivers(id, full_name)
+      drivers(id, full_name),
+      invoices(invoice_number, issue_date)
     `)
     .order('created_at', { ascending: false })
 
@@ -78,125 +72,7 @@ export default async function ViajesPage() {
         ))}
       </div>
 
-      {/* Desktop table */}
-      <div className="hidden md:block bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider"># Viaje</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Manifiesto</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Ruta</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Cliente</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Vehículo</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Conductor</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Fecha</th>
-              <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Flete</th>
-              <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Estado</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E2E8F0]">
-            {trips.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="text-center py-12">
-                  <TruckIcon size={32} className="text-[#CBD5E1] mx-auto mb-3" />
-                  <p className="text-xs text-[#64748B]">No hay viajes registrados</p>
-                  <Link href="/viajes/nuevo" className="text-sm text-[#2563EB] font-medium mt-1 inline-block">
-                    Registrar primer viaje →
-                  </Link>
-                </td>
-              </tr>
-            ) : trips.map((trip: any) => {
-              const st = statusConfig[trip.status] ?? { label: trip.status, className: 'bg-gray-100 text-gray-600' }
-              return (
-                <tr key={trip.id} className="hover:bg-[#F8FAFC] transition-colors">
-                  <td className="px-3 py-2">
-                    <span className="text-xs font-mono font-bold text-[#2563EB]">{trip.trip_number}</span>
-                  </td>
-                  <td className="px-3 py-2 hidden lg:table-cell">
-                    {trip.manifest_auth ? (
-                      <span className="text-xs font-mono text-[#0F172A]">{trip.manifest_auth}</span>
-                    ) : (
-                      <span className="text-xs text-[#CBD5E1]">—</span>
-                    )}
-                    {trip.manifest_number && (
-                      <p className="text-[10px] text-[#94A3B8] mt-0.5">MF: {trip.manifest_number}</p>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <p className="text-xs text-[#0F172A]">{trip.origin}</p>
-                    <p className="text-xs text-[#64748B]">→ {trip.destination}</p>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.clients?.name}</td>
-                  <td className="px-3 py-2 text-xs text-[#0F172A]">{trip.vehicles?.plate}</td>
-                  <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.drivers?.full_name}</td>
-                  <td className="px-3 py-2 text-xs text-[#64748B] hidden lg:table-cell">{formatDate(trip.load_date)}</td>
-                  <td className="px-3 py-2 text-xs font-semibold text-[#0F172A] text-right">{formatCOP(trip.freight_value)}</td>
-                  <td className="px-3 py-2">
-                    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${st.className}`}>{st.label}</span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-3">
-                      <Link href={`/viajes/${trip.id}`}
-                        className="inline-flex items-center gap-1 text-xs text-[#64748B] hover:text-[#0F172A] font-medium">
-                        <Eye size={11} /> Ver
-                      </Link>
-                      <Link href={`/viajes/${trip.id}/editar`}
-                        className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline font-medium">
-                        <Pencil size={11} /> Editar
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile cards */}
-      <div className="md:hidden space-y-2">
-        {trips.length === 0 ? (
-          <div className="text-center py-12">
-            <TruckIcon size={32} className="text-[#CBD5E1] mx-auto mb-3" />
-            <p className="text-xs text-[#64748B]">No hay viajes registrados</p>
-            <Link href="/viajes/nuevo" className="text-sm text-[#2563EB] font-medium mt-1 inline-block">
-              Registrar primer viaje →
-            </Link>
-          </div>
-        ) : trips.map((trip: any) => {
-          const st = statusConfig[trip.status] ?? { label: trip.status, className: 'bg-gray-100 text-gray-600' }
-          return (
-            <div key={trip.id} className="bg-white border border-[#E2E8F0] rounded-xl p-3">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-mono font-bold text-[#2563EB]">{trip.trip_number}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${st.className}`}>{st.label}</span>
-                </div>
-                <Link href={`/viajes/${trip.id}`}
-                  className="text-xs text-[#2563EB] font-semibold flex-shrink-0 min-h-[36px] flex items-center">
-                  Ver →
-                </Link>
-              </div>
-              <p className="text-sm font-medium text-[#0F172A]">{trip.origin} → {trip.destination}</p>
-              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                {trip.vehicles?.plate && (
-                  <span className="text-xs text-[#64748B] font-mono">{trip.vehicles.plate}</span>
-                )}
-                {trip.drivers?.full_name && (
-                  <span className="text-xs text-[#64748B]">{trip.drivers.full_name}</span>
-                )}
-              </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-sm font-bold text-[#0F172A]">{formatCOP(trip.freight_value)}</span>
-                {trip.clients?.name && (
-                  <span className="text-xs text-[#94A3B8] truncate max-w-[140px]">{trip.clients.name}</span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      <ViajesClient trips={trips as any} />
     </div>
   )
 }
