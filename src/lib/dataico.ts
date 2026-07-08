@@ -75,6 +75,24 @@ export type DataicoInvoice = {
 }
 
 /**
+ * Fetch the most recent Dataico invoice for a given prefix to determine
+ * the next consecutive number. Returns the raw `number` string of the
+ * latest invoice (e.g. "FEIT12"), or null if none found or the request fails.
+ */
+export async function getLatestDataicoInvoiceNumber(prefix: string): Promise<string | null> {
+  try {
+    const url = `${BASE}/invoices?prefix=${encodeURIComponent(prefix)}&per_page=1&page=1`
+    const res = await fetch(url, { headers: authHeaders(), cache: 'no-store' })
+    if (!res.ok) return null
+    const json = await res.json()
+    const list: { number?: string }[] = Array.isArray(json.invoices) ? json.invoices : []
+    return list[0]?.number ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Fetch one invoice by its number (prefix + consecutive, no separator).
  * E.g. prefix "FEIT" + consecutive "10" → number "FEIT10"
  */
