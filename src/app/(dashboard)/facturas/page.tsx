@@ -1,6 +1,49 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { Upload, FileText, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react'
+import FacturasDataicoClient, { type FacturaRow, type ViajeSinFactura } from './FacturasDataicoClient'
+
+export const dynamic = 'force-dynamic'
+
+async function getFacturacionData(): Promise<{ facturas: FacturaRow[]; viajesSinFactura: ViajeSinFactura[] }> {
+  // Facturas emitidas — select('*') para tolerar columnas que aún no existan (dian_status, etc.)
+  const [invRes, tripsRes] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select('*')
+      .eq('invoice_type', 'EMITIDA'),
+    supabase
+      .from('trips')
+      .select('id, trip_number, origin, destination, load_date, freight_value, clients(name)')
+      .eq('status', 'FINALIZADO')
+      .is('dataico_invoice_id', null)
+      .order('load_date', { ascending: false }),
+  ])
+
+  const facturas: FacturaRow[] = ((invRes.data ?? []) as any[])
+    .map(r => ({
+      id:             r.id,
+      invoice_number: r.invoice_number ?? null,
+      issue_date:     r.issue_date ?? null,
+      client_name:    r.client_name ?? null,
+      total_amount:   r.total_amount ?? null,
+      dian_status:    r.dian_status ?? null,
+      pdf_url:        r.pdf_url ?? null,
+    }))
+    .sort((a, b) => (b.issue_date ?? '').localeCompare(a.issue_date ?? ''))
+
+  const viajesSinFactura: ViajeSinFactura[] = ((tripsRes.data ?? []) as any[]).map(t => ({
+    id:            t.id,
+    trip_number:   t.trip_number ?? null,
+    origin:        t.origin ?? null,
+    destination:   t.destination ?? null,
+    load_date:     t.load_date ?? null,
+    freight_value: t.freight_value ?? null,
+    client_name:   t.clients?.name ?? null,
+  }))
+
+  return { facturas, viajesSinFactura }
+}
 
 async function getStats() {
   const [
@@ -25,7 +68,10 @@ async function getStats() {
 }
 
 export default async function FacturasPage() {
-  const stats = await getStats()
+  const [stats, { facturas, viajesSinFactura }] = await Promise.all([
+    getStats(),
+    getFacturacionData(),
+  ])
 
   const cards = [
     {
@@ -124,6 +170,11 @@ export default async function FacturasPage() {
             }`} />
           </Link>
         ))}
+      </div>
+
+      {/* Facturación electrónica (Dataico) */}
+      <div className="mt-10 pt-8 border-t border-[#E2E8F0]">
+        <FacturasDataicoClient facturas={facturas} viajesSinFactura={viajesSinFactura} />
       </div>
     </div>
   )

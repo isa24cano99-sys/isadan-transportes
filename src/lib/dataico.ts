@@ -14,6 +14,16 @@ function toDataicoDate(isoDate: string): string {
   return `${d}/${m}/${y}`
 }
 
+/** Convert a Dataico date ('DD/MM/YYYY HH:mm:ss' or 'DD/MM/YYYY') → 'YYYY-MM-DD' for Supabase. */
+export function parseDateicoDate(dateStr: string): string {
+  if (!dateStr) return new Date().toISOString().split('T')[0]
+  const parts = dateStr.split(' ')[0].split('/')
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1]}-${parts[0]}`
+  }
+  return new Date().toISOString().split('T')[0]
+}
+
 export type DataicoCustomer = {
   id:                        string
   company_name:              string
@@ -90,6 +100,30 @@ export async function getLatestDataicoInvoiceNumber(prefix: string): Promise<str
   } catch {
     return null
   }
+}
+
+/**
+ * Fetch every invoice from Dataico (GET /invoices), paginating until exhausted.
+ * Returns the raw invoice objects — callers map defensively since the list
+ * endpoint may expose fewer/different fields than a single-invoice fetch.
+ */
+export async function getDataicoInvoices(maxPages = 50): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = []
+  const perPage = 100
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `${BASE}/invoices?per_page=${perPage}&page=${page}`
+    const res = await fetch(url, { headers: authHeaders(), cache: 'no-store' })
+    if (!res.ok) {
+      // Fail hard on the very first page; otherwise return what we have so far.
+      if (page === 1) throw new Error(`Dataico ${res.status}: ${await res.text()}`)
+      break
+    }
+    const json = await res.json()
+    const list: Record<string, unknown>[] = Array.isArray(json.invoices) ? json.invoices : []
+    all.push(...list)
+    if (list.length < perPage) break
+  }
+  return all
 }
 
 /**
