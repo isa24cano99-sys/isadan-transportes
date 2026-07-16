@@ -11,6 +11,16 @@ import {
   getLatestDataicoInvoiceNumber,
 } from '@/lib/dataico'
 
+// Convertir fecha de Dataico 'DD/MM/YYYY HH:mm:ss' a 'YYYY-MM-DD' (formato que acepta Supabase)
+function parseDateicoDate(dateStr: string): string {
+  if (!dateStr) return new Date().toISOString().split('T')[0]
+  const parts = dateStr.split(' ')[0].split('/')
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1]}-${parts[0]}`
+  }
+  return new Date().toISOString().split('T')[0]
+}
+
 export type TripDetail = {
   id: string
   trip_number: string
@@ -162,7 +172,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     trip_id:        tripId,
     invoice_number: invoiceNumber,
     cufe:           invoice.cufe,
-    issue_date:     invoice.issue_date,
+    issue_date:     parseDateicoDate(invoice.issue_date),
     client_name:    client.name,
     client_nit:     client.nit,
     total_amount:   trip.freight_value,
