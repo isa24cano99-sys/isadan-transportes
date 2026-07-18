@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { crearLegalizacionAction, actualizarLegalizacionAction, crearCuentaYCategoriaAction } from './actions'
 import { formatCOP } from '@/lib/utils'
+import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
 import { X, Plus, Trash2 } from 'lucide-react'
 
 type TransactionCategory = {
@@ -48,21 +49,6 @@ export interface LegalizacionInitialData {
   fixedExpenses: Record<string, number>
   dynExpenses: DynExpenseInit[]
 }
-
-/** Campos de gasto fijos (siempre visibles). `key` = expense_type persistido; `puc` para el comprobante. */
-export const FIXED_FIELDS: { key: string; label: string; puc: string }[] = [
-  { key: 'acpm_contado', label: 'ACPM / Combustible',          puc: '61450510' },
-  { key: 'cargue',       label: 'Cargue',                      puc: '61450530' },
-  { key: 'descargue',    label: 'Descargue',                   puc: '61450535' },
-  { key: 'peajes',       label: 'Peajes',                      puc: '61450575' },
-  { key: 'lavada',       label: 'Lavada',                      puc: '61450550' },
-  { key: 'parqueos',     label: 'Parqueos',                    puc: '61450560' },
-  { key: 'engrase',      label: 'Engrase',                     puc: '61450545' },
-  { key: 'llantas',      label: 'Llantas',                     puc: '61450555' },
-  { key: 'carrozada',    label: 'Carrozada / Parchada carpa',  puc: '61450570' },
-  { key: 'cambio_aceite',label: 'Cambio aceite / Repuestos',   puc: '61450545' },
-  { key: 'varada',       label: 'Varada / Otros servicios',    puc: '61450565' },
-]
 
 interface Props {
   trips: Trip[]

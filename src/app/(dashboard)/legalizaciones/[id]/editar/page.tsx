@@ -2,7 +2,8 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
-import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit, FIXED_FIELDS } from '../../nueva/form'
+import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit } from '../../nueva/form'
+import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
 
 const FIXED_KEYS = new Set(FIXED_FIELDS.map(f => f.key))
 // Mapa PUC → clave fija (para datos legacy guardados por código PUC). El primer match gana.
