@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import CarteraDetailClient from './CarteraDetailClient'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
+import { type ClientPayment } from '../actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,11 +28,20 @@ export default async function CarteraDetailPage({
   const { nit: rawNit } = await params
   const nit = decodeURIComponent(rawNit)
 
-  const { data: entries, error } = await supabase
-    .from('accounts_receivable_entries')
-    .select('id, client_name, client_nit, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status, paid_date, notes')
-    .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
-    .order('invoice_date', { ascending: true })
+  const [{ data: entries, error }, { data: paymentsData }] = await Promise.all([
+    supabase
+      .from('accounts_receivable_entries')
+      .select('id, client_name, client_nit, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status, paid_date, notes')
+      .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
+      .order('invoice_date', { ascending: true }),
+    supabase
+      .from('client_payments')
+      .select('id, amount, payment_date, description, covered_invoices, saldo_a_favor, created_at')
+      .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
+      .order('payment_date', { ascending: false }),
+  ])
+
+  const payments = (paymentsData ?? []) as ClientPayment[]
 
   if (error?.code === '42P01') {
     return (
@@ -100,7 +110,12 @@ export default async function CarteraDetailPage({
         </div>
       </div>
 
-      <CarteraDetailClient entries={carteraEntries} />
+      <CarteraDetailClient
+        entries={carteraEntries}
+        payments={payments}
+        clientName={clientName}
+        clientNit={clientNit}
+      />
     </div>
   )
 }

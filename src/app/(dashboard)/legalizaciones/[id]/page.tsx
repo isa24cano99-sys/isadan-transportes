@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { fetchLegalizacionDetailAction } from '../export-comprobante'
 import { ExportComprobanteButton } from '../ExportComprobanteButton'
+import { legalizacionBalance } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,7 +61,9 @@ export default async function LegalizacionDetailPage({
   const d      = result.data
   const badge  = STATUS_BADGE[d.status] ?? { label: d.status, cls: 'bg-gray-100 text-gray-600' }
   const totalDebits = d.expenses.reduce((s, e) => s + e.amount, 0)
-  const diff        = totalDebits - d.advanceAmount
+  // balance = anticipo − gastos (misma convención que la lista principal)
+  const balance   = d.advanceAmount - totalDebits
+  const balInfo   = legalizacionBalance(balance)
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -115,9 +118,9 @@ export default async function LegalizacionDetailPage({
               { label: 'Anticipo',      value: d.advanceAmount,  cls: 'text-[#0F172A]' },
               { label: 'Total gastos',  value: d.totalExpenses,  cls: 'text-[#0F172A]' },
               {
-                label:  diff > 0 ? 'Conductor debe' : diff < 0 ? 'Empresa debe' : 'Saldo',
-                value:  Math.abs(d.balance),
-                cls:    diff > 0 ? 'text-red-600 font-semibold' : diff < 0 ? 'text-green-700 font-semibold' : 'text-[#64748B]',
+                label:  balInfo.label,
+                value:  Math.abs(balance),
+                cls:    `${balInfo.colorClass} font-semibold`,
               },
             ].map(({ label, value, cls }) => (
               <div key={label} className="text-right">

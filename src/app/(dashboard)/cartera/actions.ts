@@ -21,6 +21,21 @@ create table if not exists accounts_receivable_entries (
 );
 alter table accounts_receivable_entries disable row level security;
 grant all on accounts_receivable_entries to service_role;
+
+-- Historial de pagos (un pago puede cubrir varias facturas):
+create table if not exists client_payments (
+  id uuid primary key default uuid_generate_v4(),
+  client_nit text, client_name text,
+  amount numeric(14,2) not null,
+  payment_date date not null,
+  description text,
+  covered_invoices text[] default '{}',   -- números FEIT cubiertos
+  saldo_a_favor numeric(14,2) default 0,
+  bank_transaction_id uuid,
+  created_at timestamptz default now()
+);
+alter table client_payments disable row level security;
+grant all on client_payments to service_role;
 */
 
 import { supabase } from '@/lib/supabase'
@@ -222,4 +237,112 @@ export async function eliminarEntradaAction(
 
   revalidatePath('/cartera')
   return { ok: true }
+}
+
+export type ClientPayment = {
+  id: string
+  amount: number
+  payment_date: string
+  description: string | null
+  covered_invoices: string[]
+  saldo_a_favor: number
+  created_at: string
+}
+
+/**
+ * Registra un pago del cliente que cubre varias facturas de una sola transferencia.
+ * Aplica el monto en cascada (oldest-first) a las entries seleccionadas, marca cada
+ * una PAGADA/ABONADA, registra el INGRESO en bank_transactions (categoría 28050510)
+ * y guarda el pago en client_payments (con el saldo a favor si el pago sobra).
+ */
+export async function registrarPagoMultipleAction(params: {
+  clientNit:   string | null
+  clientName:  string
+  amount:      number
+  paymentDate: string
+  description: string
+  entryIds:    string[]
+}): Promise<{ ok: boolean; error?: string; pagadas?: number; abonadas?: number; saldoAFavor?: number }> {
+  const { clientNit, clientName, amount, paymentDate, description, entryIds } = params
+
+  if (!amount || amount <= 0)  return { ok: false, error: 'Ingresa un monto de pago válido.' }
+  if (!paymentDate)            return { ok: false, error: 'Selecciona la fecha del pago.' }
+  if (!entryIds?.length)       return { ok: false, error: 'Selecciona al menos una factura.' }
+
+  // 1. Entries seleccionadas
+  const { data: entries, error: entErr } = await supabase
+    .from('accounts_receivable_entries')
+    .select('id, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status')
+    .in('id', entryIds)
+  if (entErr) { console.error('[registrarPago] entries:', entErr.message); return { ok: false, error: entErr.message } }
+  if (!entries?.length) return { ok: false, error: 'No se encontraron las facturas seleccionadas.' }
+
+  // 2. Aplicar el pago (plata del cliente) en cascada, oldest-first
+  const sorted = [...entries].sort((a: any, b: any) => (a.invoice_date ?? '').localeCompare(b.invoice_date ?? ''))
+  let remaining = amount
+  let pagadas = 0, abonadas = 0
+  for (const e of sorted as any[]) {
+    if (remaining <= 0) break
+    const bal = Number(e.balance ?? 0)
+    if (bal <= 0) continue
+    const applied    = Math.min(remaining, bal)
+    const newAdvance = Number(e.advance_amount ?? 0) + applied
+    const fullyPaid  = newAdvance >= Number(e.invoice_amount ?? 0)
+    const upd: Record<string, unknown> = {
+      advance_amount: newAdvance,
+      status:         fullyPaid ? 'PAGADA' : 'ABONADA',
+    }
+    if (fullyPaid) upd.paid_date = paymentDate
+    const { error: updErr } = await supabase.from('accounts_receivable_entries').update(upd).eq('id', e.id)
+    if (updErr) { console.error('[registrarPago] update entry:', updErr.message); return { ok: false, error: updErr.message } }
+    remaining -= applied
+    if (fullyPaid) pagadas++; else abonadas++
+  }
+  const saldoAFavor = Math.max(0, remaining)
+
+  // 3. Cuenta destino + categoría 28050510 (Anticipo de cliente)
+  const { data: accounts } = await supabase.from('bank_accounts').select('id, bank_name').order('bank_name')
+  const account =
+    (accounts ?? []).find(a => /bancolombia/i.test(a.bank_name ?? '') && /ahorro/i.test(a.bank_name ?? '')) ??
+    (accounts ?? []).find(a => /ahorro/i.test(a.bank_name ?? '')) ??
+    (accounts ?? [])[0]
+  const { data: cat } = await supabase
+    .from('transaction_categories').select('id').eq('puc_code', '28050510').maybeSingle()
+
+  // 4. Ingreso en bancos (no fatal: si falla, las facturas ya se actualizaron)
+  let bankTxId: string | null = null
+  if (account) {
+    const { data: bankRow, error: bankErr } = await supabase.from('bank_transactions').insert({
+      account_id:  account.id,
+      type:        'INGRESO',
+      amount,
+      date:        paymentDate,
+      description: description || `Pago cartera ${clientName}`,
+      category:    '28050510',
+      category_id: cat?.id ?? null,
+      source:      'PAGO_CARTERA',
+    }).select('id').single()
+    if (bankErr) console.error('[registrarPago] bank_transactions:', bankErr.message)
+    else bankTxId = bankRow?.id ?? null
+  } else {
+    console.error('[registrarPago] no hay cuenta bancaria para registrar el ingreso')
+  }
+
+  // 5. Historial de pagos
+  const coveredInvoices = (sorted as any[]).map(e => e.invoice_number).filter(Boolean)
+  const { error: payErr } = await supabase.from('client_payments').insert({
+    client_nit:          clientNit,
+    client_name:         clientName,
+    amount,
+    payment_date:        paymentDate,
+    description:         description || null,
+    covered_invoices:    coveredInvoices,
+    saldo_a_favor:       saldoAFavor,
+    bank_transaction_id: bankTxId,
+  })
+  if (payErr) { console.error('[registrarPago] client_payments:', payErr.message); return { ok: false, error: payErr.message } }
+
+  revalidatePath('/cartera')
+  if (clientNit) revalidatePath(`/cartera/${encodeURIComponent(clientNit)}`)
+  return { ok: true, pagadas, abonadas, saldoAFavor }
 }

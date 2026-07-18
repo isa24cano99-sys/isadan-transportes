@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
-import { formatCOP, formatDate } from '@/lib/utils'
+import { formatCOP, formatDate, legalizacionBalance } from '@/lib/utils'
 import Link from 'next/link'
 import { FileText, Search, Pencil, Trash2 } from 'lucide-react'
 import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction } from './actions'
@@ -15,6 +14,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 }
 
 type Status = 'BORRADOR' | 'PENDIENTE' | 'APROBADA'
+const STATUSES: Status[] = ['BORRADOR', 'PENDIENTE', 'APROBADA']
 
 type Legalizacion = {
   id: string
@@ -35,7 +35,6 @@ type Legalizacion = {
 }
 
 export function LegalizacionesClient({ legalizaciones: initial }: { legalizaciones: Legalizacion[] }) {
-  const router = useRouter()
   const [legalizaciones, setLegalizaciones] = useState(initial)
   const [plateFilter,    setPlateFilter]    = useState('')
   const [manifestFilter, setManifestFilter] = useState('')
@@ -173,6 +172,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
               </tr>
             ) : filtered.map(leg => {
               const st = statusConfig[leg.status] ?? { label: leg.status, className: 'bg-gray-100 text-gray-600' }
+              const bal = legalizacionBalance(leg.balance ?? 0)
               const trip = leg.trips
               const vehiclePlate = trip?.vehicles?.plate ?? '—'
               const driverName   = leg.drivers?.full_name ?? '—'
@@ -188,28 +188,22 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                   <td className="px-3 py-2 text-xs text-[#0F172A] text-right hidden lg:table-cell">{formatCOP(leg.advance_amount ?? 0)}</td>
                   <td className="px-3 py-2 text-xs text-[#0F172A] text-right">{formatCOP(leg.total_expenses ?? 0)}</td>
                   <td className="px-3 py-2 text-right">
-                    <span className={`text-xs font-bold ${(leg.balance ?? 0) > 0 ? 'text-red-600' : (leg.balance ?? 0) < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                    <span className={`text-xs font-bold ${bal.colorClass}`}>
                       {formatCOP(Math.abs(leg.balance ?? 0))}
                     </span>
-                    <p className={`text-[10px] mt-0.5 ${(leg.balance ?? 0) > 0 ? 'text-red-600' : (leg.balance ?? 0) < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
-                      {(leg.balance ?? 0) > 0 ? 'cond. debe' : (leg.balance ?? 0) < 0 ? 'emp. debe' : ''}
-                    </p>
+                    <p className={`text-[10px] mt-0.5 ${bal.colorClass}`}>{bal.shortLabel}</p>
                   </td>
                   <td className="px-3 py-2">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 items-start">
                       <span className={`inline-block text-[10px] font-semibold px-2 py-1 rounded-full w-fit ${st.className}`}>{st.label}</span>
-                      {leg.status === 'BORRADOR' && (
-                        <button onClick={() => handleCambiarEstado(leg.id, 'PENDIENTE')} disabled={changingStatus === leg.id}
-                          className="text-[10px] font-semibold text-yellow-700 hover:text-yellow-900 disabled:opacity-40 text-left leading-none">
-                          {changingStatus === leg.id ? '...' : '→ Pendiente'}
-                        </button>
-                      )}
-                      {leg.status === 'PENDIENTE' && (
-                        <button onClick={() => handleCambiarEstado(leg.id, 'APROBADA')} disabled={changingStatus === leg.id}
-                          className="text-[10px] font-semibold text-green-700 hover:text-green-900 disabled:opacity-40 text-left leading-none">
-                          {changingStatus === leg.id ? '...' : '→ Aprobar'}
-                        </button>
-                      )}
+                      <select
+                        value={leg.status}
+                        onChange={e => handleCambiarEstado(leg.id, e.target.value as Status)}
+                        disabled={changingStatus === leg.id}
+                        className="text-[10px] border border-[#E2E8F0] rounded px-1 py-0.5 bg-white text-[#64748B] focus:outline-none focus:ring-1 focus:ring-[#2563EB]/30 disabled:opacity-40"
+                      >
+                        {STATUSES.map(s => <option key={s} value={s}>{statusConfig[s]?.label ?? s}</option>)}
+                      </select>
                     </div>
                   </td>
                   <td className="px-3 py-2">
@@ -252,6 +246,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
           </div>
         ) : filtered.map(leg => {
           const st = statusConfig[leg.status] ?? { label: leg.status, className: 'bg-gray-100 text-gray-600' }
+          const bal = legalizacionBalance(leg.balance ?? 0)
           const trip = leg.trips
           return (
             <div key={leg.id} className="bg-white border border-[#E2E8F0] rounded-xl p-3">
@@ -269,26 +264,20 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <span className={`text-sm font-bold ${(leg.balance ?? 0) > 0 ? 'text-red-600' : (leg.balance ?? 0) < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                  <span className={`text-sm font-bold ${bal.colorClass}`}>
                     {formatCOP(Math.abs(leg.balance ?? 0))}
                   </span>
-                  <span className={`text-[10px] ml-1 ${(leg.balance ?? 0) > 0 ? 'text-red-600' : (leg.balance ?? 0) < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
-                    {(leg.balance ?? 0) > 0 ? 'cond. debe' : (leg.balance ?? 0) < 0 ? 'emp. debe' : ''}
-                  </span>
+                  <span className={`text-[10px] ml-1 ${bal.colorClass}`}>{bal.shortLabel}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {leg.status === 'BORRADOR' && (
-                    <button onClick={() => handleCambiarEstado(leg.id, 'PENDIENTE')} disabled={changingStatus === leg.id}
-                      className="text-[10px] font-semibold text-yellow-700 min-h-[36px] px-1">
-                      {changingStatus === leg.id ? '...' : '→ Pendiente'}
-                    </button>
-                  )}
-                  {leg.status === 'PENDIENTE' && (
-                    <button onClick={() => handleCambiarEstado(leg.id, 'APROBADA')} disabled={changingStatus === leg.id}
-                      className="text-[10px] font-semibold text-green-700 min-h-[36px] px-1">
-                      {changingStatus === leg.id ? '...' : '→ Aprobar'}
-                    </button>
-                  )}
+                  <select
+                    value={leg.status}
+                    onChange={e => handleCambiarEstado(leg.id, e.target.value as Status)}
+                    disabled={changingStatus === leg.id}
+                    className="text-[10px] border border-[#E2E8F0] rounded px-1 py-1 bg-white text-[#64748B] focus:outline-none focus:ring-1 focus:ring-[#2563EB]/30 disabled:opacity-40"
+                  >
+                    {STATUSES.map(s => <option key={s} value={s}>{statusConfig[s]?.label ?? s}</option>)}
+                  </select>
                   <Link href={`/legalizaciones/${leg.id}`}
                     className="text-xs text-[#64748B] font-medium min-h-[36px] flex items-center px-1">Ver</Link>
                   <Link href={`/legalizaciones/${leg.id}/editar`}

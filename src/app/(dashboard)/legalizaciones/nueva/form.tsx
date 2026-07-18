@@ -76,7 +76,10 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   const [tripDate,    setTripDate]    = useState(initialData?.trip_date ?? '')
   const [freight,     setFreight]     = useState(initialData ? String(initialData.freight) : '')
   const [advance,     setAdvance]     = useState(initialData ? String(initialData.advance) : '')
-  const [percentage,  setPercentage]  = useState(initialData ? String(initialData.percentage) : '10')
+  // Default 10%. En edición, muestra el valor guardado si existe (> 0); si no, 10.
+  const [percentage,  setPercentage]  = useState(
+    initialData && initialData.percentage > 0 ? String(initialData.percentage) : '10',
+  )
   const [weightKg,    setWeightKg]    = useState(initTrip?.weight_kg     != null ? String(initTrip.weight_kg)     : '')
   const [pricePerTon, setPricePerTon] = useState(initTrip?.price_per_ton != null ? String(initTrip.price_per_ton) : '')
 

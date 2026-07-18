@@ -4,27 +4,19 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  RefreshCw, AlertCircle, CheckCircle2, Clock, Minus,
-  TrendingUp, TrendingDown, DollarSign, Wallet,
+  RefreshCw, AlertCircle, Clock, Minus,
+  TrendingUp, DollarSign, Wallet,
 } from 'lucide-react'
 import { cruzarAnticiposAction } from './actions'
-import type { CarteraKPIs, ClienteSummary } from './page'
+import type { CarteraKPIs, ClienteSummary, EstadoCartera } from './page'
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const fmt = (v: number) => COP.format(v)
 
-const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+const ESTADO_BADGE: Record<EstadoCartera, { label: string; cls: string }> = {
+  AL_DIA:    { label: 'Al día',    cls: 'bg-green-100 text-green-800' },
   PENDIENTE: { label: 'Pendiente', cls: 'bg-yellow-100 text-yellow-800' },
-  ABONADA:   { label: 'Abonada',   cls: 'bg-blue-100 text-blue-800' },
-  PAGADA:    { label: 'Pagada',    cls: 'bg-green-100 text-green-800' },
-  MIXTO:     { label: 'Mixto',     cls: 'bg-purple-100 text-purple-800' },
-}
-
-function clientStatus(c: ClienteSummary): string {
-  if (c.pagadaCount === c.invoiceCount) return 'PAGADA'
-  if (c.pendienteCount === c.invoiceCount) return 'PENDIENTE'
-  if (c.abonadaCount > 0 || c.pagadaCount > 0) return 'MIXTO'
-  return 'PENDIENTE'
+  VENCIDO:   { label: 'Vencido',   cls: 'bg-red-100 text-red-800' },
 }
 
 export default function CarteraClient({
@@ -37,7 +29,7 @@ export default function CarteraClient({
   const router        = useRouter()
   const [crossing, setCrossing] = useState(false)
   const [crossMsg, setCrossMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [filter, setFilter]     = useState<'TODOS' | 'PENDIENTE' | 'ABONADA' | 'PAGADA'>('TODOS')
+  const [filter, setFilter]     = useState<'TODOS' | EstadoCartera>('TODOS')
 
   const handleCruzar = async () => {
     setCrossing(true)
@@ -56,7 +48,7 @@ export default function CarteraClient({
 
   const filtered = filter === 'TODOS'
     ? clients
-    : clients.filter(c => clientStatus(c) === filter)
+    : clients.filter(c => c.estado === filter)
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -155,7 +147,7 @@ export default function CarteraClient({
       {/* Filters */}
       {clients.length > 0 && (
         <div className="flex gap-1.5 flex-wrap">
-          {(['TODOS', 'PENDIENTE', 'ABONADA', 'PAGADA'] as const).map(f => (
+          {(['TODOS', 'AL_DIA', 'PENDIENTE', 'VENCIDO'] as const).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -165,7 +157,7 @@ export default function CarteraClient({
                   : 'bg-[#F1F5F9] text-[#374151] hover:bg-[#E2E8F0]'
               }`}
             >
-              {f === 'TODOS' ? 'Todos' : STATUS_BADGE[f].label}
+              {f === 'TODOS' ? 'Todos' : ESTADO_BADGE[f].label}
             </button>
           ))}
         </div>
@@ -181,7 +173,7 @@ export default function CarteraClient({
                   <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Cliente</th>
                   <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">NIT</th>
                   <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Total facturado</th>
-                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Anticipos</th>
+                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Total pagado</th>
                   <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Saldo pendiente</th>
                   <th className="text-center py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Facturas</th>
                   <th className="text-center py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Estado</th>
@@ -190,15 +182,14 @@ export default function CarteraClient({
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
                 {filtered.map(c => {
-                  const st     = clientStatus(c)
-                  const badge  = STATUS_BADGE[st]
+                  const badge  = ESTADO_BADGE[c.estado]
                   const nitKey = encodeURIComponent(c.clientNit ?? c.clientName)
                   return (
                     <tr key={nitKey} className="hover:bg-[#F8FAFC] transition-colors">
                       <td className="py-3 px-4 font-medium text-[#0F172A]">{c.clientName}</td>
                       <td className="py-3 px-4 text-[#64748B] font-mono text-xs">{c.clientNit ?? '—'}</td>
                       <td className="py-3 px-4 text-right tabular-nums text-[#0F172A]">{fmt(c.totalFacturado)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[#64748B]">{fmt(c.totalAnticipos)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[#64748B]">{fmt(c.totalPagado)}</td>
                       <td className={`py-3 px-4 text-right tabular-nums font-semibold ${
                         c.pendiente <= 0 ? 'text-green-600' : 'text-yellow-700'
                       }`}>
@@ -243,7 +234,7 @@ export default function CarteraClient({
             <Minus size={20} className="text-[#94A3B8]" />
           </div>
           <p className="text-sm font-medium text-[#0F172A]">
-            {filter !== 'TODOS' ? `No hay clientes con estado ${STATUS_BADGE[filter]?.label ?? filter}` : 'No hay entradas de cartera'}
+            {filter !== 'TODOS' ? `No hay clientes con estado ${ESTADO_BADGE[filter]?.label ?? filter}` : 'No hay entradas de cartera'}
           </p>
           <p className="text-xs text-[#64748B] mt-1">
             Haz clic en <strong>Cruzar anticipos</strong> para importar facturas emitidas.

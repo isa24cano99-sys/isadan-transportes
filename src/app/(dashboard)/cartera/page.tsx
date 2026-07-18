@@ -3,6 +3,8 @@ import CarteraClient from './CarteraClient'
 
 export const dynamic = 'force-dynamic'
 
+export type EstadoCartera = 'AL_DIA' | 'PENDIENTE' | 'VENCIDO'
+
 export type ClienteSummary = {
   clientNit:      string | null
   clientName:     string
@@ -15,7 +17,10 @@ export type ClienteSummary = {
   pendienteCount: number
   abonadaCount:   number
   pagadaCount:    number
+  estado:         EstadoCartera
 }
+
+const DIAS_VENCIMIENTO = 45
 
 export type CarteraKPIs = {
   totalFacturado:    number
@@ -29,7 +34,7 @@ export default async function CarteraPage() {
   // ── Entries ─────────────────────────────────────────────────────────────
   const { data: entries, error: entErr } = await supabase
     .from('accounts_receivable_entries')
-    .select('id, client_id, client_name, client_nit, invoice_amount, advance_amount, balance, status')
+    .select('id, client_id, client_name, client_nit, invoice_amount, invoice_date, advance_amount, balance, status')
 
   const tableExists = entErr?.code !== '42P01'
 
@@ -84,7 +89,13 @@ export default async function CarteraPage() {
     tableExists,
   }
 
+  // Fecha de corte para VENCIDO (factura pendiente más antigua que esto).
+  const cutoffDate = new Date()
+  cutoffDate.setDate(cutoffDate.getDate() - DIAS_VENCIMIENTO)
+  const cutoff = cutoffDate.toISOString().slice(0, 10)
+
   const clientMap = new Map<string, ClienteSummary>()
+  const hasVencida = new Map<string, boolean>()
   for (const e of rows) {
     const key = e.client_nit ?? e.client_name ?? 'SIN_CLIENTE'
     if (!clientMap.has(key)) {
@@ -100,21 +111,27 @@ export default async function CarteraPage() {
         pendienteCount: 0,
         abonadaCount:   0,
         pagadaCount:    0,
+        estado:         'AL_DIA',
       })
     }
     const c = clientMap.get(key)!
     c.totalFacturado += Number(e.invoice_amount ?? 0)
     c.totalAnticipos += Number(e.advance_amount ?? 0)
+    c.totalPagado    += Number(e.advance_amount ?? 0)  // plata recibida/aplicada
     c.invoiceCount++
-    if (e.status === 'PAGADA') {
-      c.pagadaCount++
-      c.totalPagado += Number(e.invoice_amount ?? 0)
-    } else if (e.status === 'ABONADA') {
-      c.abonadaCount++
-    } else {
-      c.pendienteCount++
+    if (e.status === 'PAGADA')      c.pagadaCount++
+    else if (e.status === 'ABONADA') c.abonadaCount++
+    else                             c.pendienteCount++
+
+    // ¿Factura pendiente vencida? (no pagada, con saldo, emitida antes del corte)
+    if (e.status !== 'PAGADA' && Number(e.balance ?? 0) > 0 && e.invoice_date && e.invoice_date < cutoff) {
+      hasVencida.set(key, true)
     }
-    c.pendiente = c.totalFacturado - c.totalAnticipos - c.totalPagado
+  }
+
+  for (const [key, c] of clientMap) {
+    c.pendiente = c.totalFacturado - c.totalPagado
+    c.estado = c.pendiente <= 0 ? 'AL_DIA' : (hasVencida.get(key) ? 'VENCIDO' : 'PENDIENTE')
   }
 
   const clients = Array.from(clientMap.values()).sort((a, b) => b.pendiente - a.pendiente)
