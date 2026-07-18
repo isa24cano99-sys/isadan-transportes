@@ -19,12 +19,24 @@ function extractTxnFields(formData: FormData) {
 }
 
 export async function crearTransaccionAction(formData: FormData) {
+  console.log('FormData recibido:', {
+    category_id: formData.get('category_id'),
+    category:    formData.get('category'),
+    description: formData.get('description'),
+    amount:      formData.get('amount'),
+  })
+
   const data = {
     account_id: formData.get('account_id') as string,
     ...extractTxnFields(formData),
   }
+  console.log('Datos a insertar en bank_transactions:', data)
+
   const { data: created, error } = await supabase.from('bank_transactions').insert(data).select().single()
-  if (error) return { ok: false, error: error.message }
+  if (error) {
+    console.error('Error insertando bank_transactions:', error.message, error.details)
+    return { ok: false, error: error.message }
+  }
   revalidatePath('/bancos')
   return { ok: true, data: created }
 }
