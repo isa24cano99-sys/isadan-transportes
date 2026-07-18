@@ -26,6 +26,35 @@ export type Supplier = {
   cuenta_puc?: string | null
 }
 
+/**
+ * Fila unificada por NIT que fusiona `suppliers` y `supplier_catalog`.
+ * - `supplier_id` presente → existe en suppliers (permite editar/eliminar proveedor).
+ * - `catalog_id` presente → existe en supplier_catalog (permite categorizar / mover a clientes).
+ * - `is_client` → la categoría del catálogo empieza por 'CLIENTE'.
+ * - `exists_in_clients` → el NIT ya existe en la tabla `clients`.
+ */
+export type MergedRow = {
+  key:               string
+  supplier_id:       string | null
+  catalog_id:        string | null
+  nit:               string | null
+  name:              string
+  categoria:         string | null   // supplier_catalog.categoria
+  is_client:         boolean
+  exists_in_clients: boolean
+  // Campos de suppliers (cuando supplier_id != null)
+  category:          string | null   // party_type
+  account_code:      string | null
+  email:             string | null
+  phone:             string | null
+  dataico_id:        string | null
+  updated_at:        string | null
+  cuenta_puc:        string | null
+}
+
+export const isClientCategoria = (c: string | null | undefined): boolean =>
+  !!c && c.toUpperCase().startsWith('CLIENTE')
+
 export async function sincronizarProveedoresAction() {
   // 1. Unique (nit_issuer, name_issuer) from DIAN imports
   const { data: dianRows, error: dianErr } = await supabase
@@ -152,4 +181,48 @@ export async function getProveedoresAction() {
     .order('name')
   if (error) return { ok: false as const, error: error.message, data: [] as Supplier[] }
   return { ok: true as const, data: (data ?? []) as Supplier[] }
+}
+
+/**
+ * Mueve un registro (cliente mal clasificado como proveedor) a la tabla `clients`.
+ * Busca por NIT: si ya existe no duplica; si no, lo crea con nombre y NIT.
+ * NO elimina del catálogo — eso se confirma aparte con `eliminarDeCatalogoAction`.
+ */
+export async function moverAClienteAction(
+  nit: string | null,
+  name: string,
+): Promise<{ ok: boolean; created: boolean; error?: string }> {
+  if (!nit) return { ok: false, created: false, error: 'El registro no tiene NIT.' }
+
+  const { data: existing, error: selErr } = await supabase
+    .from('clients').select('id').eq('nit', nit).maybeSingle()
+  if (selErr) {
+    console.error('[moverACliente] consulta clients:', selErr.message)
+    return { ok: false, created: false, error: selErr.message }
+  }
+  if (existing) return { ok: true, created: false } // ya existe como cliente
+
+  const { error: insErr } = await supabase
+    .from('clients').insert({ name, nit, active: true })
+  if (insErr) {
+    console.error('[moverACliente] insert clients:', insErr.message)
+    return { ok: false, created: false, error: insErr.message }
+  }
+
+  revalidatePath('/proveedores')
+  revalidatePath('/clientes')
+  return { ok: true, created: true }
+}
+
+/** Elimina una entrada de `supplier_catalog` por id (paso de confirmación tras mover a clientes). */
+export async function eliminarDeCatalogoAction(
+  catalogId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('supplier_catalog').delete().eq('id', catalogId)
+  if (error) {
+    console.error('[eliminarDeCatalogo]:', error.message)
+    return { ok: false, error: error.message }
+  }
+  revalidatePath('/proveedores')
+  return { ok: true }
 }

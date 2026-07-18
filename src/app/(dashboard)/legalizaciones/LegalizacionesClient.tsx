@@ -25,6 +25,8 @@ type Legalizacion = {
   status: Status
   trips: {
     trip_number: string
+    manifest_number: string | null
+    manifest_auth: string | null
     origin: string
     destination: string
     vehicles: { plate: string } | null
@@ -35,7 +37,8 @@ type Legalizacion = {
 export function LegalizacionesClient({ legalizaciones: initial }: { legalizaciones: Legalizacion[] }) {
   const router = useRouter()
   const [legalizaciones, setLegalizaciones] = useState(initial)
-  const [plateFilter,  setPlateFilter]  = useState('')
+  const [plateFilter,    setPlateFilter]    = useState('')
+  const [manifestFilter, setManifestFilter] = useState('')
   const [monthFilter,  setMonthFilter]  = useState('')
   const [yearFilter,   setYearFilter]   = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Legalizacion | null>(null)
@@ -57,6 +60,12 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
         const p = leg.trips?.vehicles?.plate ?? ''
         if (!p.toLowerCase().includes(plateFilter.toLowerCase())) return false
       }
+      if (manifestFilter) {
+        const q = manifestFilter.toLowerCase()
+        const num  = (leg.trips?.manifest_number ?? '').toLowerCase()
+        const auth = (leg.trips?.manifest_auth   ?? '').toLowerCase()
+        if (!num.includes(q) && !auth.includes(q)) return false
+      }
       if (monthFilter && leg.date) {
         const legMonth = parseInt(leg.date.slice(5, 7), 10)
         if (legMonth !== parseInt(monthFilter, 10)) return false
@@ -67,9 +76,9 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
       }
       return true
     })
-  }, [legalizaciones, plateFilter, monthFilter, yearFilter])
+  }, [legalizaciones, plateFilter, manifestFilter, monthFilter, yearFilter])
 
-  const hasFilters = plateFilter || monthFilter || yearFilter
+  const hasFilters = plateFilter || manifestFilter || monthFilter || yearFilter
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -96,6 +105,16 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
             className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
           />
         </div>
+        <div className="relative w-full sm:w-52">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+          <input
+            type="text"
+            placeholder="Buscar por manifiesto..."
+            value={manifestFilter}
+            onChange={e => setManifestFilter(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+          />
+        </div>
         <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
           className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
           <option value="">Todos los meses</option>
@@ -111,7 +130,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
           ))}
         </select>
         {hasFilters && (
-          <button onClick={() => { setPlateFilter(''); setMonthFilter(''); setYearFilter('') }}
+          <button onClick={() => { setPlateFilter(''); setManifestFilter(''); setMonthFilter(''); setYearFilter('') }}
             className="px-3 py-2 text-xs text-[#64748B] hover:text-[#0F172A] transition-colors">
             Limpiar
           </button>

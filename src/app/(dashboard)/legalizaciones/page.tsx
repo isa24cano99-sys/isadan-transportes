@@ -8,7 +8,7 @@ async function getLegalizaciones() {
     .from('legalizations')
     .select(`
       id, date, advance_amount, total_expenses, balance, status,
-      trips(trip_number, origin, destination, vehicles(plate)),
+      trips(trip_number, manifest_number, manifest_auth, origin, destination, vehicles(plate)),
       drivers(full_name)
     `)
     .order('created_at', { ascending: false })
