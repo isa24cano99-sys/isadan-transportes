@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { actualizarEstadoCuotaAction } from './actions'
 import { formatCOP, formatDate } from '@/lib/utils'
-import { TrendingDown, X } from 'lucide-react'
+import { X } from 'lucide-react'
 
 type Installment = {
   id: string
@@ -15,6 +15,7 @@ type Installment = {
   payment_amount: number
   remaining_balance: number
   status: string
+  abonoExtra?: number
 }
 
 export function InstallmentsTable({
@@ -67,6 +68,7 @@ export function InstallmentsTable({
               <th className="text-center px-4 py-3 text-xs font-semibold text-[#64748B]">#</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748B]">Vencimiento</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Cuota</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Abono extra</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Capital</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Interés</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-[#64748B]">Saldo</th>
@@ -75,32 +77,9 @@ export function InstallmentsTable({
           </thead>
           <tbody className="divide-y divide-[#E2E8F0]">
             {installments.map(inst => {
-              // Fila especial de abono a capital (installment_number < 1)
-              if (inst.installment_number < 1) {
-                return (
-                  <tr key={inst.id} className="bg-blue-50/70">
-                    <td className="px-4 py-3 text-center">
-                      <TrendingDown size={14} className="text-[#2563EB] mx-auto" />
-                    </td>
-                    <td className="px-4 py-3 text-[#0F172A] font-semibold">{formatDate(inst.due_date)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-[#2563EB]">
-                      {formatCOP(inst.payment_amount)}
-                    </td>
-                    <td colSpan={2} className="px-4 py-3 text-xs font-semibold text-[#2563EB]">
-                      Abono extraordinario a capital
-                    </td>
-                    <td className="px-4 py-3 text-right text-[#0F172A]">{formatCOP(inst.remaining_balance)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                        Abono
-                      </span>
-                    </td>
-                  </tr>
-                )
-              }
-
-              const isPagada = inst.status === 'PAGADA'
-              const isNext   = inst.id === nextPending?.id
+              const isPagada  = inst.status === 'PAGADA'
+              const isNext    = inst.id === nextPending?.id
+              const abono     = inst.abonoExtra ?? 0
 
               return (
                 <tr
@@ -115,6 +94,15 @@ export function InstallmentsTable({
                   <td className="px-4 py-3 text-[#64748B]">{formatDate(inst.due_date)}</td>
                   <td className="px-4 py-3 text-right font-medium text-[#0F172A]">
                     {formatCOP(inst.payment_amount)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {abono > 0 ? (
+                      <span className="inline-block bg-blue-50 text-[#2563EB] font-bold px-2 py-0.5 rounded">
+                        {formatCOP(abono)}
+                      </span>
+                    ) : (
+                      <span className="text-[#CBD5E1]">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right text-[#0F172A]">{formatCOP(inst.capital)}</td>
                   <td className="px-4 py-3 text-right text-[#64748B]">{formatCOP(inst.interest)}</td>

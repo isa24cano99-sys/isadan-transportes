@@ -31,18 +31,26 @@ export default async function PrestamoDetailPage({
   const prestamo = await getPrestamo(id)
   if (!prestamo) notFound()
 
-  // Ordenar por fecha (para que los abonos aparezcan en su lugar cronológico).
-  const installments = [...(prestamo.loan_installments ?? [])].sort(
-    (a: any, b: any) =>
-      (a.due_date ?? '').localeCompare(b.due_date ?? '') || a.installment_number - b.installment_number,
-  )
+  const all = [...(prestamo.loan_installments ?? [])] as any[]
 
-  // Los abonos a capital (installment_number < 1) no cuentan como cuotas.
-  const cuotas = installments.filter((i: any) => i.installment_number >= 1)
-  const paid  = cuotas.filter((i: any) => i.status === 'PAGADA').length
+  // Filas de abono a capital (installment_number < 1). No se muestran como fila aparte:
+  // su monto se refleja en la columna "Abono extra" de la cuota inmediatamente posterior.
+  const abonos = all.filter(i => i.installment_number < 1)
+  const cuotas = all
+    .filter(i => i.installment_number >= 1)
+    .sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? '') || a.installment_number - b.installment_number)
+
+  const abonoByCuota = new Map<string, number>()
+  for (const ab of abonos) {
+    const target = cuotas.find(c => (c.due_date ?? '') >= (ab.due_date ?? '')) ?? cuotas[cuotas.length - 1]
+    if (target) abonoByCuota.set(target.id, (abonoByCuota.get(target.id) ?? 0) + Number(ab.payment_amount ?? ab.capital ?? 0))
+  }
+  const installments = cuotas.map(c => ({ ...c, abonoExtra: abonoByCuota.get(c.id) ?? 0 }))
+
+  const paid  = cuotas.filter(i => i.status === 'PAGADA').length
   const total = cuotas.length
-  const saldo = installments
-    .filter((i: any) => i.status === 'PENDIENTE')
+  const saldo = cuotas
+    .filter(i => i.status === 'PENDIENTE')
     .reduce((s: number, i: any) => s + (i.capital ?? 0), 0)
 
   return (
