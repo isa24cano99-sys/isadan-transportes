@@ -52,9 +52,6 @@ export type MergedRow = {
   cuenta_puc:        string | null
 }
 
-export const isClientCategoria = (c: string | null | undefined): boolean =>
-  !!c && c.toUpperCase().startsWith('CLIENTE')
-
 export async function sincronizarProveedoresAction() {
   // 1. Unique (nit_issuer, name_issuer) from DIAN imports
   const { data: dianRows, error: dianErr } = await supabase

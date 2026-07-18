@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import ProveedoresClient from './ProveedoresClient'
-import { type MergedRow, isClientCategoria } from './actions'
+import { type MergedRow } from './actions'
+import { isClientCategoria } from '@/lib/proveedores-utils'
 
 export const dynamic = 'force-dynamic'
 
