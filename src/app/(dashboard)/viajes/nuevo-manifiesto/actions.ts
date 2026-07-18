@@ -32,44 +32,37 @@ function extract(text: string, regex: RegExp): string | null {
 }
 
 /**
- * Parsea un número reconociendo separadores colombianos (puntos de miles) y
- * anglosajones (comas de miles), con o sin decimales.
- * - Puntos Y comas → punto = miles, coma = decimal: '3.670,50' → 3670.50
- * - Solo puntos → si hay más de un punto, o el grupo tras el último tiene >2
- *   dígitos, son miles: '3.670.000' → 3670000; si no, decimal: '3.67' → 3.67
- * - Solo comas → misma lógica invertida: '3,670,000' → 3670000; '3,67' → 3.67
- * - Sin separadores → número simple
+ * Parsea un número con separadores mixtos (puntos/comas de miles y/o decimal).
+ * Regla: se mira el ÚLTIMO separador; si el grupo que le sigue tiene 1–2 dígitos
+ * es el separador DECIMAL, y todos los demás separadores son de miles (se quitan).
+ * Si el último grupo tiene 3 dígitos, TODOS los separadores son de miles.
+ *   '5.814.000.00' → 5814000   (el .00 final es decimal)
+ *   '5.814.000'    → 5814000   '4.800.000' → 4800000   '20.000' → 20000
+ *   '3,670,000'    → 3670000   '3.670,50' → 3670.50    '35.5' → 35.5
  */
 function parseColombianoNumber(str: string): number {
-  // Dejar solo dígitos, separadores y signo.
-  const s = String(str).trim().replace(/[^\d.,-]/g, '')
+  let s = String(str).trim().replace(/[^\d.,-]/g, '')
   if (!s) return NaN
+  const neg = s.startsWith('-')
+  s = s.replace(/-/g, '')
 
-  const hasDot   = s.includes('.')
-  const hasComma = s.includes(',')
+  const lastSepPos = Math.max(s.lastIndexOf('.'), s.lastIndexOf(','))
 
-  let normalized: string
-  if (hasDot && hasComma) {
-    // Punto = miles, coma = decimal.
-    normalized = s.replace(/\./g, '').replace(',', '.')
-  } else if (hasDot) {
-    const parts = s.split('.')
-    const lastGroup = parts[parts.length - 1]
-    normalized = (parts.length > 2 || lastGroup.length > 2)
-      ? s.replace(/\./g, '')  // miles
-      : s                     // decimal
-  } else if (hasComma) {
-    const parts = s.split(',')
-    const lastGroup = parts[parts.length - 1]
-    normalized = (parts.length > 2 || lastGroup.length > 2)
-      ? s.replace(/,/g, '')          // miles
-      : s.replace(',', '.')          // decimal
-  } else {
-    normalized = s
+  let intPart = s
+  let decPart = ''
+  if (lastSepPos !== -1) {
+    const after = s.slice(lastSepPos + 1)
+    // Grupo final de 1–2 dígitos → es la parte decimal; 3+ dígitos → separador de miles.
+    if (after.length >= 1 && after.length <= 2) {
+      intPart = s.slice(0, lastSepPos)
+      decPart = after
+    }
   }
 
+  intPart = intPart.replace(/[.,]/g, '')            // quitar todos los separadores de miles
+  const normalized = decPart ? `${intPart}.${decPart}` : intPart
   const n = parseFloat(normalized)
-  return isNaN(n) ? NaN : n
+  return isNaN(n) ? NaN : (neg ? -n : n)
 }
 
 function parseNum(raw: string | null): number | null {

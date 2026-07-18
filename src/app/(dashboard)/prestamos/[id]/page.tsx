@@ -31,12 +31,16 @@ export default async function PrestamoDetailPage({
   const prestamo = await getPrestamo(id)
   if (!prestamo) notFound()
 
+  // Ordenar por fecha (para que los abonos aparezcan en su lugar cronológico).
   const installments = [...(prestamo.loan_installments ?? [])].sort(
-    (a: any, b: any) => a.installment_number - b.installment_number,
+    (a: any, b: any) =>
+      (a.due_date ?? '').localeCompare(b.due_date ?? '') || a.installment_number - b.installment_number,
   )
 
-  const paid  = installments.filter((i: any) => i.status === 'PAGADA').length
-  const total = installments.length
+  // Los abonos a capital (installment_number < 1) no cuentan como cuotas.
+  const cuotas = installments.filter((i: any) => i.installment_number >= 1)
+  const paid  = cuotas.filter((i: any) => i.status === 'PAGADA').length
+  const total = cuotas.length
   const saldo = installments
     .filter((i: any) => i.status === 'PENDIENTE')
     .reduce((s: number, i: any) => s + (i.capital ?? 0), 0)

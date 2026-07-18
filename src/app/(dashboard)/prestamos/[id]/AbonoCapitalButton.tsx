@@ -44,13 +44,15 @@ export function AbonoCapitalButton({
   const [resumen,    setResumen]    = useState<AbonoResumen | null>(null)
   const [hadExtra,   setHadExtra]   = useState(false)
 
-  const selectedInst  = installments.find(i => i.id === selId) ?? null
+  // Solo cuotas reales (los abonos a capital tienen installment_number < 1)
+  const cuotas        = installments.filter(i => i.installment_number >= 1)
+  const selectedInst  = cuotas.find(i => i.id === selId) ?? null
   const montoNum      = Number(monto) || 0
   const diff          = selectedInst ? montoNum - Number(selectedInst.payment_amount) : 0
   const extraCapital  = Math.max(0, diff)
 
   function openModal() {
-    const first = installments.find(i => i.status !== 'PAGADA')
+    const first = cuotas.find(i => i.status !== 'PAGADA')
     setSelId(first?.id ?? '')
     setMonto(String(first?.payment_amount ?? ''))
     setFecha(new Date().toISOString().split('T')[0])
@@ -69,7 +71,7 @@ export function AbonoCapitalButton({
 
   function handleSelectInst(id: string) {
     setSelId(id)
-    const inst = installments.find(i => i.id === id)
+    const inst = cuotas.find(i => i.id === id)
     if (inst) setMonto(String(inst.payment_amount))
   }
 
@@ -147,7 +149,7 @@ export function AbonoCapitalButton({
                     className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   >
                     <option value="" disabled>Selecciona una cuota…</option>
-                    {installments.map(inst => (
+                    {cuotas.map(inst => (
                       <option key={inst.id} value={inst.id} disabled={inst.status === 'PAGADA'}>
                         #{inst.installment_number} · {inst.due_date} · {formatCOP(inst.payment_amount)} · {STATUS_LABEL[inst.status]}
                       </option>

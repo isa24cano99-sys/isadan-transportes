@@ -38,6 +38,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
   const [legalizaciones, setLegalizaciones] = useState(initial)
   const [plateFilter,    setPlateFilter]    = useState('')
   const [manifestFilter, setManifestFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'' | Status>('')
   const [monthFilter,  setMonthFilter]  = useState('')
   const [yearFilter,   setYearFilter]   = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Legalizacion | null>(null)
@@ -65,6 +66,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
         const auth = (leg.trips?.manifest_auth   ?? '').toLowerCase()
         if (!num.includes(q) && !auth.includes(q)) return false
       }
+      if (statusFilter && leg.status !== statusFilter) return false
       if (monthFilter && leg.date) {
         const legMonth = parseInt(leg.date.slice(5, 7), 10)
         if (legMonth !== parseInt(monthFilter, 10)) return false
@@ -75,9 +77,9 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
       }
       return true
     })
-  }, [legalizaciones, plateFilter, manifestFilter, monthFilter, yearFilter])
+  }, [legalizaciones, plateFilter, manifestFilter, statusFilter, monthFilter, yearFilter])
 
-  const hasFilters = plateFilter || manifestFilter || monthFilter || yearFilter
+  const hasFilters = plateFilter || manifestFilter || statusFilter || monthFilter || yearFilter
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -114,6 +116,13 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
             className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
           />
         </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as '' | Status)}
+          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
+          <option value="">Todos los estados</option>
+          {STATUSES.map(s => (
+            <option key={s} value={s}>{statusConfig[s]?.label ?? s}</option>
+          ))}
+        </select>
         <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
           className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
           <option value="">Todos los meses</option>
@@ -129,7 +138,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
           ))}
         </select>
         {hasFilters && (
-          <button onClick={() => { setPlateFilter(''); setManifestFilter(''); setMonthFilter(''); setYearFilter('') }}
+          <button onClick={() => { setPlateFilter(''); setManifestFilter(''); setStatusFilter(''); setMonthFilter(''); setYearFilter('') }}
             className="px-3 py-2 text-xs text-[#64748B] hover:text-[#0F172A] transition-colors">
             Limpiar
           </button>

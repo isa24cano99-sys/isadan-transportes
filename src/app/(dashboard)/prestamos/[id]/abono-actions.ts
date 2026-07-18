@@ -69,16 +69,15 @@ export async function registrarPagoAction(
     return { ok: true, hadExtraordinary: false }
   }
 
-  // Balance restante después de pagar la cuota, menos el capital extra
-  const newSaldo = Number(inst.remaining_balance) - extraCapital
-
-  // Cuotas pendientes posteriores a la cuota pagada
+  // ── Recalcular desde la cuota inmediatamente POSTERIOR A LA FECHA del abono ──
+  // (no desde la cuota seleccionada). Las cuotas anteriores/iguales a la fecha no cambian.
   const { data: remaining, error: remErr } = await supabase
     .from('loan_installments')
-    .select('id, installment_number, due_date, interest, payment_amount')
+    .select('id, installment_number, due_date, capital, interest, payment_amount, remaining_balance')
     .eq('loan_id', loanId)
     .eq('status', 'PENDIENTE')
-    .gt('installment_number', Number(inst.installment_number))
+    .gt('due_date', fecha)
+    .order('due_date')
     .order('installment_number')
 
   if (remErr) return { ok: false, error: `Error leyendo cuotas restantes: ${remErr.message}`, hadExtraordinary: false }
@@ -87,11 +86,37 @@ export async function registrarPagoAction(
   const cuotasRestAntes = (remaining ?? []).length
   const firstNext       = remaining?.[0]
 
+  // Saldo entrando a la primera cuota a recalcular (= su saldo + su capital), menos el abono.
+  const baseBalance = firstNext
+    ? Number(firstNext.remaining_balance) + Number(firstNext.capital)
+    : Number(inst.remaining_balance)
+  const newSaldo = baseBalance - extraCapital
+
+  // Fila especial "Abono a capital" en la fecha del abono. installment_number negativo
+  // único (< 1) → marcador que no colisiona con las cuotas reales (1..N).
+  const { data: prevAbonos } = await supabase
+    .from('loan_installments')
+    .select('id')
+    .eq('loan_id', loanId)
+    .lt('installment_number', 1)
+  const abonoRow = {
+    loan_id:            loanId,
+    installment_number: -((prevAbonos?.length ?? 0) + 1),
+    due_date:           fecha,
+    capital:            Math.round(extraCapital),
+    interest:           0,
+    payment_amount:     Math.round(extraCapital),
+    remaining_balance:  Math.max(0, Math.round(newSaldo)),
+    status:             'PAGADA',
+    paid_date:          fecha,
+  }
+
   // El abono cancela el saldo completamente
   if (newSaldo <= 0 || !firstNext || !cuotasRestAntes) {
     if (cuotasRestAntes) {
       await supabase.from('loan_installments').delete().in('id', remaining!.map(i => i.id))
     }
+    await supabase.from('loan_installments').insert(abonoRow)
     revalidatePath(`/prestamos/${loanId}`)
     revalidatePath('/prestamos')
     return {
@@ -155,7 +180,8 @@ export async function registrarPagoAction(
 
   if (delErr) return { ok: false, error: `Error eliminando cuotas: ${delErr.message}`, hadExtraordinary: true }
 
-  const { error: insErr } = await supabase.from('loan_installments').insert(newRows)
+  // Insertar la fila del abono + las cuotas recalculadas
+  const { error: insErr } = await supabase.from('loan_installments').insert([abonoRow, ...newRows])
   if (insErr) return { ok: false, error: `Error insertando cuotas: ${insErr.message}`, hadExtraordinary: true }
 
   if (opcion === 'REDUCIR_CUOTA') {

@@ -174,10 +174,12 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   // ── Calculated totals ───────────────────────────────────────────────────────
   const gastosFijos       = FIXED_FIELDS.reduce((s, f) => s + num(fixed[f.key]), 0)
   const gastosAdicionales = dynExpenses.reduce((s, r) => s + num(r.amount), 0)
+  const gastosViaje       = gastosFijos + gastosAdicionales               // sin porcentaje
   const porcentajeCalc    = num(freight) * (num(percentage) / 100)
-  const totalGastos       = gastosFijos + gastosAdicionales + porcentajeCalc
+  const totalGastos       = gastosViaje + porcentajeCalc
   const advanceNum        = num(advance)
-  const balance           = advanceNum - totalGastos  // >0 conductor debe · <0 empresa debe
+  const subtotal          = advanceNum - gastosViaje                      // anticipo − gastos del viaje
+  const balance           = subtotal - porcentajeCalc                     // >0 conductor debe · <0 empresa debe
 
   // ── Form data builder ───────────────────────────────────────────────────────
   function buildFormData() {
@@ -385,17 +387,27 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
       <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
         <h2 className="text-sm font-semibold text-[#0F172A] mb-4">Liquidación</h2>
         <div className="space-y-2">
+          {/* Paso 1: anticipo − gastos del viaje = subtotal */}
           <Row label="Anticipo entregado" value={formatCOP(advanceNum)} />
           <div className="pl-3 space-y-1 border-l-2 border-[#F1F5F9]">
             <Row label="Gastos fijos"       value={formatCOP(gastosFijos)} />
             <Row label="Gastos adicionales" value={formatCOP(gastosAdicionales)} />
-            <Row label={`Porcentaje conductor (${num(percentage)}%)`} value={formatCOP(porcentajeCalc)} />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-[#64748B]">(−) Gastos del viaje</span>
+            <span className="text-sm text-[#0F172A] tabular-nums">{formatCOP(gastosViaje)}</span>
           </div>
           <div className="border-t border-[#E2E8F0] pt-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-[#0F172A]">(−) Total gastos</span>
-              <span className="text-sm font-bold text-[#0F172A] tabular-nums">{formatCOP(totalGastos)}</span>
+              <span className="text-sm font-semibold text-[#0F172A]">(=) Subtotal</span>
+              <span className="text-sm font-bold text-[#0F172A] tabular-nums">{formatCOP(subtotal)}</span>
             </div>
+          </div>
+
+          {/* Paso 2: subtotal − porcentaje conductor = balance */}
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-sm text-[#64748B]">(−) Porcentaje conductor ({num(percentage)}%)</span>
+            <span className="text-sm text-[#0F172A] tabular-nums">{formatCOP(porcentajeCalc)}</span>
           </div>
           <div className="border-t border-[#E2E8F0] pt-2.5">
             <div className="flex items-start justify-between">

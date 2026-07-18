@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { pagarCuotaAction } from '../actions'
 import { formatCOP, formatDate } from '@/lib/utils'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, TrendingDown } from 'lucide-react'
 
 type Installment = {
   id: string
@@ -54,6 +54,30 @@ export function InstallmentsTable({
           </thead>
           <tbody className="divide-y divide-[#E2E8F0]">
             {installments.map(inst => {
+              // Fila especial de abono a capital (installment_number < 1)
+              if (inst.installment_number < 1) {
+                return (
+                  <tr key={inst.id} className="bg-blue-50/70">
+                    <td className="px-4 py-3 text-center">
+                      <TrendingDown size={14} className="text-[#2563EB] mx-auto" />
+                    </td>
+                    <td className="px-4 py-3 text-[#0F172A] font-semibold">{formatDate(inst.due_date)}</td>
+                    <td className="px-4 py-3 text-right font-bold text-[#2563EB]">
+                      {formatCOP(inst.payment_amount)}
+                    </td>
+                    <td colSpan={2} className="px-4 py-3 text-xs font-semibold text-[#2563EB]">
+                      Abono a capital
+                    </td>
+                    <td className="px-4 py-3 text-right text-[#0F172A]">{formatCOP(inst.remaining_balance)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                        Abono
+                      </span>
+                    </td>
+                  </tr>
+                )
+              }
+
               const isPagada = inst.status === 'PAGADA'
               const isNext   = inst.id === nextPending?.id
 
