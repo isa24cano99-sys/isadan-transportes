@@ -219,17 +219,20 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
 
   if (tripErr || !trip) return { ok: false, error: `Error al crear el viaje: ${tripErr?.message}` }
 
-  // 7. Create legalization draft
-  if (driver_id) {
-    await supabase.from('legalizations').insert({
-      trip_id:        trip.id,
-      driver_id,
-      date:           extracted.load_date ?? new Date().toISOString().slice(0, 10),
-      advance_amount: extracted.advance_amount ?? 0,
-      total_expenses: 0,
-      status:         'BORRADOR',
-    })
-  }
+  // 7. Create legalization draft — SIEMPRE, aunque no se haya detectado el conductor.
+  // (El guard anterior `if (driver_id)` dejaba viajes sin legalización cuando el
+  //  conductor no venía en el manifiesto: 6 viajes → 5 legalizaciones.)
+  console.log('Creando legalización para viaje:', trip.id)
+  const { error: legError } = await supabase.from('legalizations').insert({
+    trip_id:        trip.id,
+    driver_id,               // puede ser null si no se detectó el conductor (columna nullable)
+    vehicle_id,              // requiere la columna vehicle_id en legalizations (ver ALTER)
+    date:           extracted.load_date ?? new Date().toISOString().slice(0, 10),
+    advance_amount: extracted.advance_amount ?? 0,
+    total_expenses: 0,
+    status:         'BORRADOR',
+  })
+  console.log('Resultado legalización:', legError ? legError : 'OK')
 
   revalidatePath('/viajes')
   return { ok: true, trip_id: trip.id, extracted }
@@ -294,13 +297,40 @@ export async function reemplazarManifiestoAction(
     ...(driver_id  !== undefined ? { driver_id  } : {}),
   }).eq('id', existingTripId)
 
-  // 7. Update legalization draft advance
-  if (extracted.advance_amount != null) {
-    await supabase
-      .from('legalizations')
-      .update({ advance_amount: extracted.advance_amount })
-      .eq('trip_id', existingTripId)
-      .eq('status', 'BORRADOR')
+  // 7. Ensure a BORRADOR legalization exists (idempotente): actualiza si hay, si no la crea.
+  const { data: existingLeg } = await supabase
+    .from('legalizations')
+    .select('id')
+    .eq('trip_id', existingTripId)
+    .eq('status', 'BORRADOR')
+    .maybeSingle()
+
+  if (existingLeg) {
+    if (extracted.advance_amount != null) {
+      const { error: legUpdErr } = await supabase
+        .from('legalizations')
+        .update({ advance_amount: extracted.advance_amount })
+        .eq('id', existingLeg.id)
+      console.log('Resultado legalización (update):', legUpdErr ? legUpdErr : 'OK')
+    }
+  } else {
+    // Tomar conductor/vehículo/fecha/anticipo del viaje ya actualizado.
+    const { data: t } = await supabase
+      .from('trips')
+      .select('driver_id, vehicle_id, load_date, advance_amount')
+      .eq('id', existingTripId)
+      .single()
+    console.log('Creando legalización (reemplazar) para viaje:', existingTripId)
+    const { error: legError } = await supabase.from('legalizations').insert({
+      trip_id:        existingTripId,
+      driver_id:      t?.driver_id ?? null,
+      vehicle_id:     t?.vehicle_id ?? null,   // requiere la columna vehicle_id (ver ALTER)
+      date:           extracted.load_date ?? t?.load_date ?? new Date().toISOString().slice(0, 10),
+      advance_amount: extracted.advance_amount ?? t?.advance_amount ?? 0,
+      total_expenses: 0,
+      status:         'BORRADOR',
+    })
+    console.log('Resultado legalización (reemplazar):', legError ? legError : 'OK')
   }
 
   revalidatePath('/viajes')

@@ -9,17 +9,8 @@ import {
   createDataicoInvoice,
   createDataicoCreditNote,
   getLatestDataicoInvoiceNumber,
+  parseDateicoDate,
 } from '@/lib/dataico'
-
-// Convertir fecha de Dataico 'DD/MM/YYYY HH:mm:ss' a 'YYYY-MM-DD' (formato que acepta Supabase)
-function parseDateicoDate(dateStr: string): string {
-  if (!dateStr) return new Date().toISOString().split('T')[0]
-  const parts = dateStr.split(' ')[0].split('/')
-  if (parts.length === 3) {
-    return `${parts[2]}-${parts[1]}-${parts[0]}`
-  }
-  return new Date().toISOString().split('T')[0]
-}
 
 export type TripDetail = {
   id: string
@@ -160,8 +151,8 @@ export async function generarFacturaAction(tripId: string): Promise<
   const dataico_response = invoice as any
   console.log('DATAICO FULL RESPONSE:', JSON.stringify(dataico_response, null, 2))
 
-  // Format invoice number: "FEIT10" → "FEIT-10"
-  const invoiceNumber = (dataico_response?.invoice?.number ?? dataico_response?.number ?? '').replace(/^([A-Z]+)(\d+)$/, '$1-$2')
+  // Store invoice number WITHOUT dash (e.g. "FEIT10"); the dash is added only for display.
+  const invoiceNumber = String(dataico_response?.invoice?.number ?? dataico_response?.number ?? '').replace(/-/g, '')
   console.log('FACTURA CREADA EN DATAICO:', invoiceNumber)
   console.log('  invoice.uuid (Dataico):', invoice.uuid)
   console.log('  invoice_number (formateado):', invoiceNumber)
@@ -217,9 +208,12 @@ export async function registrarFacturaManualAction(params: {
   totalAmount: number
   date: string
 }): Promise<{ ok: boolean; error?: string }> {
+  // Normalizar el número SIN guion para que sea consistente con el resto (display añade el guion).
+  const invoiceNumber = String(params.invoiceNumber ?? '').replace(/-/g, '')
+
   const { error: invErr } = await supabase.from('invoices').insert({
     trip_id:        params.tripId,
-    invoice_number: params.invoiceNumber,
+    invoice_number: invoiceNumber,
     cufe:           params.cufe || null,
     issue_date:     params.date,
     client_name:    params.clientName,
@@ -227,13 +221,13 @@ export async function registrarFacturaManualAction(params: {
     total_amount:   params.totalAmount,
     tax_amount:     0,
     invoice_type:   'EMITIDA',
-    dataico_id:     params.invoiceNumber,
+    dataico_id:     invoiceNumber,
   })
   if (invErr) return { ok: false, error: invErr.message }
 
   const { error: tripErr } = await supabase
     .from('trips')
-    .update({ status: 'FACTURADO', dataico_invoice_id: params.invoiceNumber })
+    .update({ status: 'FACTURADO', dataico_invoice_id: invoiceNumber })
     .eq('id', params.tripId)
   if (tripErr) return { ok: false, error: tripErr.message }
 

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { CheckCircle2, Clock, Loader2, Minus, Trash2, ChevronDown } from 'lucide-react'
 import { marcarPagadaAction, aplicarAbonoAction, eliminarEntradaAction } from '../actions'
 import type { CarteraEntry } from './page'
+import { formatInvoiceNumber } from '@/lib/utils'
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const fmt = (v: number) => COP.format(v)
@@ -55,7 +56,7 @@ function PayModal({ entryId, invoiceNumber, balance, onClose }: {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
         <h2 className="text-base font-semibold text-[#0F172A] mb-1">Registrar pago</h2>
         {invoiceNumber && (
-          <p className="text-xs text-[#64748B] mb-4">Factura {invoiceNumber} · Saldo: {fmt(balance)}</p>
+          <p className="text-xs text-[#64748B] mb-4">Factura {formatInvoiceNumber(invoiceNumber)} · Saldo: {fmt(balance)}</p>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -193,7 +194,7 @@ export default function CarteraDetailClient({ entries }: { entries: CarteraEntry
                 return (
                   <tr key={entry.id} className={`hover:bg-[#F8FAFC] transition-colors ${entry.status === 'PAGADA' ? 'opacity-60' : ''}`}>
                     <td className="py-2.5 px-4 font-mono text-sm font-medium text-[#0F172A]">
-                      {entry.invoiceNumber ?? '(sin número)'}
+                      {entry.invoiceNumber ? formatInvoiceNumber(entry.invoiceNumber) : '(sin número)'}
                     </td>
                     <td className="py-2.5 px-4 text-sm text-[#64748B]">{fmtDate(entry.invoiceDate)}</td>
                     <td className="py-2.5 px-4 text-right tabular-nums text-[#0F172A]">{fmt(entry.invoiceAmount)}</td>

@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { formatCOP, formatDate } from '@/lib/utils'
+import { formatCOP, formatDate, formatInvoiceNumber } from '@/lib/utils'
 import Link from 'next/link'
 import {
   TruckIcon, Pencil, Eye, Search, X,
@@ -195,7 +195,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                       <td className="px-3 py-2 text-right">
                         {success ? (
                           <span className="inline-flex items-center gap-1 text-xs text-green-700 font-semibold">
-                            <CheckCircle size={12} /> {success}
+                            <CheckCircle size={12} /> {formatInvoiceNumber(success)}
                           </span>
                         ) : (
                           <div className="inline-flex flex-col items-end gap-1">
@@ -242,7 +242,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                   <div className="mt-2.5">
                     {success ? (
                       <span className="inline-flex items-center gap-1.5 text-xs text-green-700 font-semibold">
-                        <CheckCircle size={13} /> Facturada: {success}
+                        <CheckCircle size={13} /> Facturada: {formatInvoiceNumber(success)}
                       </span>
                     ) : (
                       <>
@@ -301,7 +301,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                       <td className="px-3 py-2">
                         {inv?.invoice_number ? (
                           <span className="text-xs font-mono font-semibold bg-yellow-50 border border-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full whitespace-nowrap">
-                            {inv.invoice_number}
+                            {formatInvoiceNumber(inv.invoice_number)}
                           </span>
                         ) : (
                           <span className="text-xs text-[#94A3B8]">—</span>
@@ -341,7 +341,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                       <span className="text-xs font-mono font-bold text-[#2563EB]">{trip.trip_number}</span>
                       {inv?.invoice_number && (
                         <span className="text-xs font-mono font-semibold bg-yellow-50 border border-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full">
-                          {inv.invoice_number}
+                          {formatInvoiceNumber(inv.invoice_number)}
                         </span>
                       )}
                     </div>

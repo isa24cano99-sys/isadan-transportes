@@ -29,12 +29,30 @@ export async function crearViajeAction(formData: FormData): Promise<{ ok: boolea
     return { ok: false, error: 'Completa todos los campos obligatorios' }
   }
 
-  const { error } = await supabase.from('trips').insert({ ...fields, status: 'PLANEADO' })
+  const { data: trip, error } = await supabase
+    .from('trips')
+    .insert({ ...fields, status: 'PLANEADO' })
+    .select('id')
+    .single()
 
-  if (error) {
+  if (error || !trip) {
     console.error(error)
     return { ok: false, error: 'Error al guardar el viaje' }
   }
+
+  // Crear legalización BORRADOR automáticamente (igual que el flujo de manifiesto),
+  // para que ningún viaje quede sin legalización. driver_id/vehicle_id son obligatorios arriba.
+  console.log('Creando legalización para viaje:', trip.id)
+  const { error: legError } = await supabase.from('legalizations').insert({
+    trip_id:        trip.id,
+    driver_id:      fields.driver_id,
+    vehicle_id:     fields.vehicle_id,
+    date:           fields.load_date,
+    advance_amount: fields.advance_amount ?? 0,
+    total_expenses: 0,
+    status:         'BORRADOR',
+  })
+  console.log('Resultado legalización:', legError ? legError : 'OK')
 
   revalidatePath('/viajes')
   return { ok: true }

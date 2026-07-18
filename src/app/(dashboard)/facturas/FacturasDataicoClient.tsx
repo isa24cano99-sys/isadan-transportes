@@ -1,13 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, FileText, Truck, ExternalLink, Minus } from 'lucide-react'
-import { sincronizarFacturasDataicoAction } from './actions'
+import { RefreshCw, FileText, Truck, ExternalLink, Minus, Upload, ChevronDown, ChevronRight, TrendingUp } from 'lucide-react'
+import { importarFacturasExcelAction } from './actions'
 import { generarFacturaAction } from '../viajes/[id]/actions'
+import { formatInvoiceNumber } from '@/lib/utils'
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const fmt = (v: number) => COP.format(v)
+
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export type FacturaRow = {
   id:             string
@@ -15,7 +18,6 @@ export type FacturaRow = {
   issue_date:     string | null
   client_name:    string | null
   total_amount:   number | null
-  dian_status:    string | null
   pdf_url:        string | null
 }
 
@@ -29,43 +31,75 @@ export type ViajeSinFactura = {
   client_name:  string | null
 }
 
-/** Badge de color según estado DIAN. */
-function dianBadge(status: string | null): { label: string; cls: string } {
-  const s = (status ?? '').toUpperCase()
-  if (s === 'ACEPTADA')  return { label: 'Aceptada',  cls: 'bg-green-100 text-green-800' }
-  if (s === 'BORRADOR')  return { label: 'Borrador',  cls: 'bg-gray-100 text-gray-700' }
-  if (s === 'PENDIENTE') return { label: 'Pendiente', cls: 'bg-yellow-100 text-yellow-800' }
-  if (s === 'RECHAZADA') return { label: 'Rechazada', cls: 'bg-red-100 text-red-800' }
-  if (!s)                return { label: '—',         cls: 'bg-gray-100 text-gray-500' }
-  return { label: status as string, cls: 'bg-blue-100 text-blue-800' }
-}
-
 export default function FacturasDataicoClient({
   facturas,
   viajesSinFactura,
+  defaultMes,
+  defaultAnio,
 }: {
   facturas: FacturaRow[]
   viajesSinFactura: ViajeSinFactura[]
+  defaultMes: string
+  defaultAnio: string
 }) {
   const router = useRouter()
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [importing, setImporting] = useState(false)
   const [invoicing,  setInvoicing]  = useState<Set<string>>(new Set())
   const [invoiceErr, setInvoiceErr] = useState<Record<string, string>>({})
 
-  const handleSync = async () => {
-    setSyncing(true)
-    setSyncMsg(null)
-    const res = await sincronizarFacturasDataicoAction()
-    setSyncing(false)
+  // Filtro de período. El mes/año actual se calcula en el servidor (page.tsx) y
+  // llega por props, así el render server/cliente coincide (sin setState en effect).
+  const [mes,  setMes]  = useState(defaultMes)
+  const [anio, setAnio] = useState(defaultAnio)
+  const [showDetail, setShowDetail] = useState(false)
+
+  const anios = useMemo(() => {
+    const set = new Set<number>()
+    for (const f of facturas) if (f.issue_date) set.add(Number(f.issue_date.slice(0, 4)))
+    if (anio) set.add(Number(anio))
+    return Array.from(set).sort((a, b) => b - a)
+  }, [facturas, anio])
+
+  const facturasFiltradas = useMemo(() => facturas.filter(f => {
+    if (!f.issue_date) return !mes && !anio
+    const [y, m] = f.issue_date.split('-')
+    if (anio && y !== anio) return false
+    if (mes && String(parseInt(m, 10)) !== mes) return false
+    return true
+  }), [facturas, mes, anio])
+
+  const totalPeriodo = useMemo(
+    () => facturasFiltradas.reduce((s, f) => s + Number(f.total_amount ?? 0), 0),
+    [facturasFiltradas],
+  )
+  const periodoLabel = mes || anio
+    ? `${mes ? MESES[parseInt(mes, 10) - 1] : 'Todos los meses'} ${anio || ''}`.trim()
+    : 'Todo el histórico'
+
+  const handleExcelFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    // Permitir volver a subir el mismo archivo
+    e.target.value = ''
+    if (!file) return
+
+    const name = file.name.toLowerCase()
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      setImportMsg({ type: 'err', text: 'El archivo debe ser un Excel (.xlsx / .xls).' })
+      return
+    }
+
+    setImporting(true)
+    setImportMsg(null)
+    const res = await importarFacturasExcelAction(file)
+    setImporting(false)
     if (!res.ok) {
-      setSyncMsg({ type: 'err', text: res.error ?? 'Error al sincronizar' })
+      setImportMsg({ type: 'err', text: res.error ?? 'Error al importar el Excel' })
     } else {
-      setSyncMsg({
+      setImportMsg({
         type: 'ok',
-        text: res.synced > 0
-          ? `${res.synced} factura${res.synced !== 1 ? 's' : ''} sincronizada${res.synced !== 1 ? 's' : ''}.`
-          : res.message ?? 'Sin cambios.',
+        text: `${res.procesadas} procesadas · ${res.nuevas} nuevas · ${res.actualizadas} actualizadas.`,
       })
       setTimeout(() => router.refresh(), 800)
     }
@@ -85,72 +119,106 @@ export default function FacturasDataicoClient({
 
   return (
     <div className="space-y-5">
-      {/* Header + sync */}
+      {/* Header + import */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-[#0F172A]">Facturas electrónicas (Dataico)</h2>
+          <h2 className="text-base font-semibold text-[#0F172A]">Ingresos Facturados</h2>
           <p className="text-xs text-[#64748B] mt-0.5">
-            {facturas.length} factura{facturas.length !== 1 ? 's' : ''} emitida{facturas.length !== 1 ? 's' : ''}
+            Facturas emitidas (Dataico) · total del período seleccionado
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {syncMsg && (
+          {importMsg && (
             <span className={`text-xs px-2 py-1 rounded-lg font-medium ${
-              syncMsg.type === 'ok'
+              importMsg.type === 'ok'
                 ? 'bg-green-50 text-green-700 border border-green-200'
                 : 'bg-red-50 text-red-700 border border-red-200'
             }`}>
-              {syncMsg.text}
+              {importMsg.text}
             </span>
           )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleExcelFile}
+            className="hidden"
+          />
           <button
-            onClick={handleSync}
-            disabled={syncing}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
             className="flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors min-h-[44px]"
           >
-            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Sincronizando…' : 'Sincronizar con Dataico'}
+            <Upload size={14} className={importing ? 'animate-pulse' : ''} />
+            {importing ? 'Importando…' : 'Importar Excel Dataico'}
           </button>
         </div>
       </div>
 
-      {/* Invoices table */}
-      {facturas.length > 0 ? (
-        <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
-                  <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Número FEIT</th>
-                  <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Fecha</th>
-                  <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Cliente</th>
-                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Valor</th>
-                  <th className="text-center py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Estado DIAN</th>
-                  <th className="py-3 px-4" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F1F5F9]">
-                {facturas.map(f => {
-                  const badge = dianBadge(f.dian_status)
-                  return (
+      {/* Filtro mes/año */}
+      <div className="flex items-center gap-2">
+        <select value={mes} onChange={e => setMes(e.target.value)}
+          className="px-2.5 py-1.5 text-xs border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
+          <option value="">Todos los meses</option>
+          {MESES.map((m, i) => <option key={i + 1} value={String(i + 1)}>{m}</option>)}
+        </select>
+        <select value={anio} onChange={e => setAnio(e.target.value)}
+          className="px-2.5 py-1.5 text-xs border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
+          <option value="">Todos los años</option>
+          {anios.map(y => <option key={y} value={String(y)}>{y}</option>)}
+        </select>
+      </div>
+
+      {/* Card total del período (click → ver detalle) */}
+      <button
+        onClick={() => setShowDetail(v => !v)}
+        className="w-full text-left bg-white border border-[#E2E8F0] rounded-xl p-4 hover:border-[#2563EB]/30 hover:shadow-sm transition-all"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+              <TrendingUp size={16} className="text-[#2563EB]" />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-[#0F172A] tabular-nums">{fmt(totalPeriodo)}</p>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                {periodoLabel} · {facturasFiltradas.length} factura{facturasFiltradas.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#2563EB]">
+            {showDetail ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Ver detalle
+          </span>
+        </div>
+      </button>
+
+      {/* Detalle (colapsable) */}
+      {showDetail && (
+        facturasFiltradas.length > 0 ? (
+          <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
+                    <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Número FEIT</th>
+                    <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Fecha</th>
+                    <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Cliente</th>
+                    <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Valor</th>
+                    <th className="py-3 px-4" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F1F5F9]">
+                  {facturasFiltradas.map(f => (
                     <tr key={f.id} className="hover:bg-[#F8FAFC] transition-colors">
-                      <td className="py-3 px-4 font-medium text-[#0F172A] font-mono text-xs">{f.invoice_number ?? '—'}</td>
+                      <td className="py-3 px-4 font-medium text-[#0F172A] font-mono text-xs">{formatInvoiceNumber(f.invoice_number)}</td>
                       <td className="py-3 px-4 text-[#64748B]">{f.issue_date ?? '—'}</td>
                       <td className="py-3 px-4 text-[#0F172A]">{f.client_name ?? '—'}</td>
                       <td className="py-3 px-4 text-right tabular-nums text-[#0F172A]">{fmt(Number(f.total_amount ?? 0))}</td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                      </td>
                       <td className="py-3 px-4 text-right">
                         {f.pdf_url ? (
-                          <a
-                            href={f.pdf_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-medium text-[#2563EB] hover:underline"
-                          >
+                          <a href={f.pdf_url} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-[#2563EB] hover:underline">
                             PDF <ExternalLink size={11} />
                           </a>
                         ) : (
@@ -158,22 +226,22 @@ export default function FacturasDataicoClient({
                         )}
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-8 text-center">
-          <div className="w-12 h-12 bg-[#F1F5F9] rounded-xl flex items-center justify-center mx-auto mb-3">
-            <FileText size={20} className="text-[#94A3B8]" />
+        ) : (
+          <div className="bg-white border border-[#E2E8F0] rounded-xl p-8 text-center">
+            <div className="w-12 h-12 bg-[#F1F5F9] rounded-xl flex items-center justify-center mx-auto mb-3">
+              <FileText size={20} className="text-[#94A3B8]" />
+            </div>
+            <p className="text-sm font-medium text-[#0F172A]">No hay facturas en el período</p>
+            <p className="text-xs text-[#64748B] mt-1">
+              Cambia el filtro o haz clic en <strong>Importar Excel Dataico</strong> para traer el historial.
+            </p>
           </div>
-          <p className="text-sm font-medium text-[#0F172A]">No hay facturas emitidas</p>
-          <p className="text-xs text-[#64748B] mt-1">
-            Haz clic en <strong>Sincronizar con Dataico</strong> para traer las facturas.
-          </p>
-        </div>
+        )
       )}
 
       {/* Unbilled trips */}

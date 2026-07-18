@@ -1,23 +1,30 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
-import { Upload, FileText, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import FacturasDataicoClient, { type FacturaRow, type ViajeSinFactura } from './FacturasDataicoClient'
+import PeajesFlypassClient from './PeajesFlypassClient'
+import PeajesImportadosClient, { type TollLite } from './PeajesImportadosClient'
 
 export const dynamic = 'force-dynamic'
 
-async function getFacturacionData(): Promise<{ facturas: FacturaRow[]; viajesSinFactura: ViajeSinFactura[] }> {
-  // Facturas emitidas — select('*') para tolerar columnas que aún no existan (dian_status, etc.)
-  const [invRes, tripsRes] = await Promise.all([
-    supabase
-      .from('invoices')
-      .select('*')
-      .eq('invoice_type', 'EMITIDA'),
+async function getFacturacionData(): Promise<{
+  facturas: FacturaRow[]
+  viajesSinFactura: ViajeSinFactura[]
+  tolls: TollLite[]
+}> {
+  const [invRes, tripsRes, tollsRes] = await Promise.all([
+    // Facturas emitidas — select('*') para tolerar columnas que aún no existan.
+    supabase.from('invoices').select('*').eq('invoice_type', 'EMITIDA'),
     supabase
       .from('trips')
       .select('id, trip_number, origin, destination, load_date, freight_value, clients(name)')
       .eq('status', 'FINALIZADO')
       .is('dataico_invoice_id', null)
       .order('load_date', { ascending: false }),
+    supabase
+      .from('toll_transactions')
+      .select('id, plate, pass_date, total')
+      .order('pass_date', { ascending: false }),
   ])
 
   const facturas: FacturaRow[] = ((invRes.data ?? []) as any[])
@@ -27,7 +34,6 @@ async function getFacturacionData(): Promise<{ facturas: FacturaRow[]; viajesSin
       issue_date:     r.issue_date ?? null,
       client_name:    r.client_name ?? null,
       total_amount:   r.total_amount ?? null,
-      dian_status:    r.dian_status ?? null,
       pdf_url:        r.pdf_url ?? null,
     }))
     .sort((a, b) => (b.issue_date ?? '').localeCompare(a.issue_date ?? ''))
@@ -42,139 +48,56 @@ async function getFacturacionData(): Promise<{ facturas: FacturaRow[]; viajesSin
     client_name:   t.clients?.name ?? null,
   }))
 
-  return { facturas, viajesSinFactura }
-}
+  const tolls: TollLite[] = ((tollsRes.data ?? []) as any[]).map(t => ({
+    id:        t.id,
+    plate:     t.plate ?? null,
+    pass_date: t.pass_date ?? null,
+    total:     Number(t.total ?? 0),
+  }))
 
-async function getStats() {
-  const [
-    { count: totalDian },
-    { count: cruzadas },
-    { count: totalPeajes },
-  ] = await Promise.all([
-    supabase.from('dian_invoices_import').select('*', { count: 'exact', head: true }),
-    supabase.from('dian_invoices_import').select('*', { count: 'exact', head: true })
-      .not('matched_toll_id', 'is', null),
-    supabase.from('toll_transactions').select('*', { count: 'exact', head: true }),
-  ])
-
-  const sinCruzar = (totalDian ?? 0) - (cruzadas ?? 0)
-
-  return {
-    totalDian:   totalDian  ?? 0,
-    cruzadas:    cruzadas   ?? 0,
-    sinCruzar,
-    totalPeajes: totalPeajes ?? 0,
-  }
+  return { facturas, viajesSinFactura, tolls }
 }
 
 export default async function FacturasPage() {
-  const [stats, { facturas, viajesSinFactura }] = await Promise.all([
-    getStats(),
-    getFacturacionData(),
-  ])
-
-  const cards = [
-    {
-      label: 'Facturas DIAN importadas',
-      value: stats.totalDian,
-      icon: FileText,
-      color: 'text-[#2563EB]',
-      bg:    'bg-blue-50',
-    },
-    {
-      label: 'Cruzadas con peaje Flypass',
-      value: stats.cruzadas,
-      icon: CheckCircle,
-      color: 'text-green-700',
-      bg:    'bg-green-50',
-    },
-    {
-      label: 'Sin cruzar / sin clasificar',
-      value: stats.sinCruzar,
-      icon: AlertTriangle,
-      color: stats.sinCruzar > 0 ? 'text-yellow-700' : 'text-green-700',
-      bg:    stats.sinCruzar > 0 ? 'bg-yellow-50'    : 'bg-green-50',
-    },
-    {
-      label: 'Peajes Flypass importados',
-      value: stats.totalPeajes,
-      icon: Upload,
-      color: 'text-[#2563EB]',
-      bg:    'bg-blue-50',
-    },
-  ]
-
-  const accesos = [
-    {
-      href:        '/facturas/importar',
-      title:       'Importar DIAN / Flypass',
-      description: 'Carga el reporte Flypass y el reporte DIAN para cruzar facturas de peajes automáticamente.',
-      icon:        Upload,
-      primary:     true,
-    },
-    {
-      href:        '/facturas/importar',
-      title:       'Ver facturas importadas',
-      description: `${stats.totalDian} facturas DIAN · ${stats.totalPeajes} peajes · ${stats.cruzadas} cruzados.`,
-      icon:        FileText,
-      primary:     false,
-    },
-  ]
+  const { facturas, viajesSinFactura, tolls } = await getFacturacionData()
+  const now = new Date()
+  const defaultMes  = String(now.getMonth() + 1)
+  const defaultAnio = String(now.getFullYear())
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-[#0F172A]">Facturación DIAN</h1>
-        <p className="text-sm text-[#64748B] mt-0.5">
-          Importa, cruza y revisa las facturas electrónicas de peajes y otros proveedores.
-        </p>
+    <div className="p-4 md:p-6 space-y-10">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-[#0F172A]">Facturación</h1>
+          <p className="text-sm text-[#64748B] mt-0.5">
+            Ingresos facturados y peajes Flypass.
+          </p>
+        </div>
+        <Link
+          href="/facturas/importar"
+          className="group inline-flex items-center gap-2 text-sm font-medium text-[#2563EB] hover:underline"
+        >
+          Cruce DIAN / CUFE
+          <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
+        </Link>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {cards.map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-            <div className={`inline-flex items-center justify-center w-8 h-8 rounded-lg ${bg} mb-3`}>
-              <Icon size={16} className={color} />
-            </div>
-            <p className={`text-2xl font-bold ${color}`}>{value.toLocaleString('es-CO')}</p>
-            <p className="text-xs text-[#94A3B8] mt-1">{label}</p>
-          </div>
-        ))}
+      {/* Sección 1: Ingresos Facturados */}
+      <FacturasDataicoClient
+        facturas={facturas}
+        viajesSinFactura={viajesSinFactura}
+        defaultMes={defaultMes}
+        defaultAnio={defaultAnio}
+      />
+
+      {/* Sección 2: Peajes Flypass → bancos */}
+      <div className="pt-8 border-t border-[#E2E8F0]">
+        <PeajesFlypassClient />
       </div>
 
-      {/* Access cards */}
-      <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wide mb-3">Accesos rápidos</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {accesos.map(({ href, title, description, icon: Icon, primary }) => (
-          <Link
-            key={href + title}
-            href={href}
-            className={`group flex items-start gap-4 p-5 rounded-xl border transition-all ${
-              primary
-                ? 'bg-[#2563EB] border-[#2563EB] hover:bg-[#1D4ED8] text-white'
-                : 'bg-white border-[#E2E8F0] hover:border-[#2563EB]/30 hover:shadow-sm'
-            }`}
-          >
-            <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${
-              primary ? 'bg-white/20' : 'bg-[#F1F5F9]'
-            }`}>
-              <Icon size={18} className={primary ? 'text-white' : 'text-[#2563EB]'} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className={`font-semibold text-sm ${primary ? 'text-white' : 'text-[#0F172A]'}`}>{title}</p>
-              <p className={`text-xs mt-0.5 ${primary ? 'text-white/70' : 'text-[#94A3B8]'}`}>{description}</p>
-            </div>
-            <ArrowRight size={16} className={`flex-shrink-0 mt-0.5 transition-transform group-hover:translate-x-0.5 ${
-              primary ? 'text-white/70' : 'text-[#94A3B8]'
-            }`} />
-          </Link>
-        ))}
-      </div>
-
-      {/* Facturación electrónica (Dataico) */}
-      <div className="mt-10 pt-8 border-t border-[#E2E8F0]">
-        <FacturasDataicoClient facturas={facturas} viajesSinFactura={viajesSinFactura} />
+      {/* Sección 3: Peajes ya importados */}
+      <div className="pt-8 border-t border-[#E2E8F0]">
+        <PeajesImportadosClient tolls={tolls} />
       </div>
     </div>
   )

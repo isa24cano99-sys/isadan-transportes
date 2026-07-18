@@ -4,9 +4,9 @@ import { useState, useEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import { formatCOP } from '@/lib/utils'
 import {
-  importarFlypassAction, importarDianAction, cruzarCufeAction,
+  importarDianAction, cruzarCufeAction,
   getTollsAction, getResultadosAction, asociarViajeAction,
-  type TollRow, type DianRow, type ImportResult, type TollWithMatch, type DianInv,
+  type DianRow, type ImportResult, type TollWithMatch, type DianInv,
 } from './actions'
 import { Upload, CheckCircle, AlertTriangle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
@@ -40,15 +40,6 @@ function getNum(row: Record<string, unknown>, ...names: string[]): number {
   return 0
 }
 
-function parseFlypassDate(val: unknown): string | null {
-  if (!val) return null
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val.toISOString()
-  const s = String(val).trim()
-  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}(?::\d{2})?)/)
-  if (m) return `${m[3]}-${m[2]}-${m[1]}T${m[4]}`
-  return s || null
-}
-
 function parseDianDate(val: unknown): string | null {
   if (!val) return null
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val.toISOString().split('T')[0]
@@ -56,24 +47,6 @@ function parseDianDate(val: unknown): string | null {
   const m = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/)
   if (m) return `${m[3]}-${m[2]}-${m[1]}`
   return s || null
-}
-
-function mapFlypass(raw: Record<string, unknown>): TollRow {
-  const dateRaw = raw['F.Paso'] ?? raw['F. Paso'] ?? raw['f.paso'] ?? raw['F.PASO']
-  return {
-    status:    getCol(raw, 'Estado'),
-    type:      getCol(raw, 'Tipo'),
-    document:  getCol(raw, 'Documento'),
-    plate:     getCol(raw, 'Placa'),
-    toll_name: getCol(raw, 'Peaje'),
-    category:  getCol(raw, 'Categoria', 'Categoría'),
-    pass_date: parseFlypassDate(dateRaw),
-    subtotal:  getNum(raw, 'Subtotal'),
-    tax:       getNum(raw, 'Impuesto'),
-    total:     getNum(raw, 'Total'),
-    cufe:      getCol(raw, 'CUFE', 'Cufe'),
-    nit:       getCol(raw, 'NIT', 'Nit'),
-  }
 }
 
 function mapDian(raw: Record<string, unknown>): DianRow {
@@ -127,19 +100,13 @@ function truncCufe(cufe: string | null): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ImportarClient({ trips }: { trips: Trip[] }) {
-  // Flypass upload
-  const [fpRows,      setFpRows]      = useState<TollRow[]>([])
-  const [fpFileName,  setFpFileName]  = useState('')
-  const [loadingFP,   setLoadingFP]   = useState(false)
-  const [fpResult,    setFpResult]    = useState<ImportResult | null>(null)
-
   // DIAN upload
   const [dianRows,    setDianRows]    = useState<DianRow[]>([])
   const [dianFileName,setDianFileName]= useState('')
   const [loadingDian, setLoadingDian] = useState(false)
   const [dianResult,  setDianResult]  = useState<ImportResult | null>(null)
 
-  // Peajes table (shown after FP import)
+  // Peajes table (cargados desde la BD; el upload de Flypass vive en /facturas)
   const [tolls,       setTolls]       = useState<TollWithMatch[]>([])
   const [loadingTolls,setLoadingTolls]= useState(false)
 
@@ -152,22 +119,19 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
   const [assignments, setAssignments] = useState<Record<string, string>>({})
   const [savingTrip,  setSavingTrip]  = useState<string | null>(null)
 
-  // Flypass filter
+  // Filtro de período de la tabla de peajes
   const [fpMonthFilter, setFpMonthFilter] = useState('')
   const [fpYearFilter,  setFpYearFilter]  = useState('')
 
-  const fpOk   = fpResult?.ok === true
   const dianOk = dianResult?.ok === true
 
-  // Load tolls table right after Flypass import
-  useEffect(() => {
-    if (fpOk) { loadTolls() }
-  }, [fpOk])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Cargar peajes existentes al entrar (ya no dependemos del upload de Flypass).
+  useEffect(() => { loadTolls() }, [])
 
-  // Auto cross-match when both are imported
+  // Cruce automático tras importar DIAN.
   useEffect(() => {
-    if (fpOk && dianOk && !crossing && !crossStats) { runCross() }
-  }, [fpOk, dianOk])  // eslint-disable-line react-hooks/exhaustive-deps
+    if (dianOk && !crossing && !crossStats) { runCross() }
+  }, [dianOk])  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadTolls() {
     setLoadingTolls(true)
@@ -193,22 +157,10 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
     setCrossing(false)
   }
 
-  const handleFpFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return
-    setFpFileName(file.name); setFpResult(null)
-    setFpRows((await parseXlsx(file)).map(mapFlypass))
-  }
-
   const handleDianFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     setDianFileName(file.name); setDianResult(null)
     setDianRows((await parseXlsx(file)).map(mapDian))
-  }
-
-  const importFlypass = async () => {
-    setLoadingFP(true)
-    setFpResult(await importarFlypassAction(fpRows))
-    setLoadingFP(false)
   }
 
   const importDian = async () => {
@@ -234,41 +186,31 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
     })
   }, [tolls, fpMonthFilter, fpYearFilter])
 
-  const tollsByPlate = useMemo(() => {
-    const map = new Map<string, { count: number; total: number }>()
-    for (const t of filteredTolls) {
-      const plate = t.plate || '—'
-      const cur = map.get(plate) ?? { count: 0, total: 0 }
-      map.set(plate, { count: cur.count + 1, total: cur.total + Number(t.total ?? 0) })
-    }
-    return Array.from(map.entries())
-      .map(([plate, s]) => ({ plate, ...s }))
-      .sort((a, b) => b.total - a.total)
-  }, [filteredTolls])
-
   const sinFactura = filteredTolls.filter(t => !t.tiene_factura)
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-[#0F172A]">Importar archivos</h1>
-        <p className="text-sm text-[#64748B] mt-0.5">
-          Carga el reporte Flypass y el reporte DIAN para cruzar facturas de peajes automáticamente.
-        </p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-[#0F172A]">Cruce DIAN / CUFE</h1>
+          <p className="text-sm text-[#64748B] mt-0.5">
+            Carga el reporte DIAN y crúzalo por CUFE contra los peajes ya importados.
+          </p>
+        </div>
+        <button
+          onClick={runCross}
+          disabled={crossing}
+          className="inline-flex items-center gap-1.5 bg-white border border-[#E2E8F0] hover:border-[#2563EB]/40 hover:bg-[#F8FAFC] disabled:opacity-50 text-[#0F172A] text-sm font-medium px-4 py-2.5 rounded-lg transition-colors min-h-[44px]"
+        >
+          <RefreshCw size={14} className={crossing ? 'animate-spin' : ''} />
+          {crossing ? 'Cruzando…' : 'Cruzar CUFEs'}
+        </button>
       </div>
 
-      {/* ── Upload cards ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      {/* ── Upload card DIAN ── */}
+      <div className="mb-6 max-w-xl">
         <UploadCard
-          label="A" title="Reporte Flypass"
-          description="Archivo .xlsx del portal Flypass con las transacciones de peajes."
-          fileName={fpFileName} rowCount={fpRows.length}
-          loading={loadingFP} result={fpResult}
-          onFile={handleFpFile} onImport={importFlypass}
-          buttonLabel="Importar peajes"
-        />
-        <UploadCard
-          label="B" title="Reporte DIAN"
+          label="DIAN" title="Reporte DIAN"
           description="Archivo .xlsx con facturas electrónicas recibidas en la bandeja DIAN."
           fileName={dianFileName} rowCount={dianRows.length}
           loading={loadingDian} result={dianResult}
@@ -389,44 +331,6 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
                 {loadingTolls && <RefreshCw size={14} className="animate-spin text-[#94A3B8]" />}
               </div>
             </div>
-
-            {/* Resumen por placa */}
-            {tollsByPlate.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-[#E2E8F0]">
-                <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-2">Resumen por placa</p>
-                <div className="overflow-x-auto rounded-lg border border-[#E2E8F0]">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-[#64748B]">Placa</th>
-                        <th className="text-right px-3 py-2 text-xs font-semibold text-[#64748B]">Cantidad de peajes</th>
-                        <th className="text-right px-3 py-2 text-xs font-semibold text-[#64748B]">Total COP</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E2E8F0]">
-                      {tollsByPlate.map(({ plate, count, total }) => (
-                        <tr key={plate} className="hover:bg-[#F8FAFC]">
-                          <td className="px-3 py-2 text-xs font-mono font-bold text-[#0F172A]">{plate}</td>
-                          <td className="px-3 py-2 text-xs text-right text-[#64748B]">{count}</td>
-                          <td className="px-3 py-2 text-xs text-right font-semibold text-[#0F172A] tabular-nums">{formatCOP(total)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-[#F1F5F9] border-t-2 border-[#CBD5E1]">
-                        <td className="px-3 py-2 text-xs font-bold text-[#0F172A]">Total</td>
-                        <td className="px-3 py-2 text-xs text-right font-bold text-[#0F172A]">
-                          {tollsByPlate.reduce((s, r) => s + r.count, 0)}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-right font-bold text-[#0F172A] tabular-nums">
-                          {formatCOP(tollsByPlate.reduce((s, r) => s + r.total, 0))}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
           </div>
 
           {loadingTolls && tolls.length === 0 ? (

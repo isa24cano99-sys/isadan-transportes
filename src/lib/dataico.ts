@@ -103,32 +103,11 @@ export async function getLatestDataicoInvoiceNumber(prefix: string): Promise<str
 }
 
 /**
- * Fetch every invoice from Dataico (GET /invoices), paginating until exhausted.
- * Returns the raw invoice objects — callers map defensively since the list
- * endpoint may expose fewer/different fields than a single-invoice fetch.
- */
-export async function getDataicoInvoices(maxPages = 50): Promise<Record<string, unknown>[]> {
-  const all: Record<string, unknown>[] = []
-  const perPage = 100
-  for (let page = 1; page <= maxPages; page++) {
-    const url = `${BASE}/invoices?per_page=${perPage}&page=${page}`
-    const res = await fetch(url, { headers: authHeaders(), cache: 'no-store' })
-    if (!res.ok) {
-      // Fail hard on the very first page; otherwise return what we have so far.
-      if (page === 1) throw new Error(`Dataico ${res.status}: ${await res.text()}`)
-      break
-    }
-    const json = await res.json()
-    const list: Record<string, unknown>[] = Array.isArray(json.invoices) ? json.invoices : []
-    all.push(...list)
-    if (list.length < perPage) break
-  }
-  return all
-}
-
-/**
  * Fetch one invoice by its number (prefix + consecutive, no separator).
  * E.g. prefix "FEIT" + consecutive "10" → number "FEIT10"
+ *
+ * Nota: Dataico NO tiene endpoint de listado; esta consulta por número exacto
+ * es la única forma de leer una factura por API.
  */
 export async function getDataicoInvoice(number: string): Promise<DataicoInvoice | null> {
   const normalized = number.replace('-', '')

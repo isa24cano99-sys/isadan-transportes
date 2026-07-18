@@ -22,3 +22,13 @@ export function formatDate(date: string): string {
     timeZone: 'UTC',
   }).format(new Date(date))
 }
+
+/**
+ * Display-only formatter for invoice numbers. Stored form is ALWAYS without a
+ * dash (e.g. 'FEIT12'); this inserts the dash for the user ('FEIT12' → 'FEIT-12').
+ * Idempotent: already-dashed or non-matching values are handled gracefully.
+ */
+export function formatInvoiceNumber(n: string | null | undefined): string {
+  if (!n) return '—'
+  return String(n).replace(/-/g, '').replace(/^([A-Za-z]+)(\d+)$/, '$1-$2')
+}

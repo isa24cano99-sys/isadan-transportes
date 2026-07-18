@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
 import type { PYLData, RawTx, RawLegExp, RawToll, RawInvoice } from './page'
+import { formatInvoiceNumber } from '@/lib/utils'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -445,7 +446,7 @@ export default function EstadoResultadosClient({
             <div key={cid}>
               <SectionRow open={isOpen(cid)} onToggle={() => toggle(cid)} label={c.name} puc={c.nit ? `NIT ${c.nit}` : undefined} amount={c.total} indent={2} />
               {isOpen(cid) && c.invs.map(inv => (
-                <TxItem key={inv.invoiceNumber ?? String(inv.amount)} label={inv.invoiceNumber ?? '(sin número)'} amount={inv.amount} indent={3} />
+                <TxItem key={inv.invoiceNumber ?? String(inv.amount)} label={inv.invoiceNumber ? formatInvoiceNumber(inv.invoiceNumber) : '(sin número)'} amount={inv.amount} indent={3} />
               ))}
             </div>
           )
