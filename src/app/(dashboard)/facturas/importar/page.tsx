@@ -6,15 +6,17 @@ import ImportarClient from './ImportarClient'
 async function getTrips() {
   const { data } = await supabase
     .from('trips')
-    .select('id, trip_number, origin, destination, vehicles(plate)')
+    .select('id, trip_number, manifest_number, origin, destination, load_date, vehicles(plate)')
     .order('created_at', { ascending: false })
 
   return (data ?? []).map((t: any) => ({
-    id:          t.id as string,
-    trip_number: t.trip_number as string,
-    origin:      t.origin as string,
-    destination: t.destination as string,
-    plate:       (t.vehicles as any)?.plate ?? null,
+    id:              t.id as string,
+    trip_number:     t.trip_number as string,
+    manifest_number: (t.manifest_number as string | null) ?? null,
+    origin:          t.origin as string,
+    destination:     t.destination as string,
+    load_date:       (t.load_date as string | null) ?? null,
+    plate:           (t.vehicles as any)?.plate ?? null,
   }))
 }
 

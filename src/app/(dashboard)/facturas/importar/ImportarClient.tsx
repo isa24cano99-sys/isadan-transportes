@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
-import { formatCOP } from '@/lib/utils'
+import { formatCOP, formatTripOption, tripMatchesQuery } from '@/lib/utils'
 import {
   importarDianAction, cruzarCufeAction,
   getTollsAction, getResultadosAction, asociarViajeAction,
@@ -10,7 +10,7 @@ import {
 } from './actions'
 import { Upload, CheckCircle, AlertTriangle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
-type Trip = { id: string; trip_number: string; origin: string; destination: string; plate: string | null }
+type Trip = { id: string; trip_number: string; manifest_number: string | null; origin: string; destination: string; load_date: string | null; plate: string | null }
 type CrossStats = { matched: number; dianTotal: number; otrosGastos: DianInv[] }
 
 // ── Excel parsing helpers ──────────────────────────────────────────────────────
@@ -118,6 +118,7 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
   // Trip assignment
   const [assignments, setAssignments] = useState<Record<string, string>>({})
   const [savingTrip,  setSavingTrip]  = useState<string | null>(null)
+  const [tripSearch,  setTripSearch]  = useState('')
 
   // Filtro de período de la tabla de peajes
   const [fpMonthFilter, setFpMonthFilter] = useState('')
@@ -314,6 +315,13 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={tripSearch}
+                  onChange={e => setTripSearch(e.target.value)}
+                  placeholder="Buscar viaje (manifiesto, placa, ruta)…"
+                  className="px-2.5 py-1.5 text-xs border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-[#0F172A] w-56"
+                />
                 <select value={fpMonthFilter} onChange={e => setFpMonthFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-[#64748B]">
                   <option value="">Todos los meses</option>
@@ -394,11 +402,11 @@ export default function ImportarClient({ trips }: { trips: Trip[] }) {
                           className="w-full text-xs border border-[#E2E8F0] rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-50"
                         >
                           <option value="">— Sin asignar —</option>
-                          {trips.map(trip => (
-                            <option key={trip.id} value={trip.id}>
-                              #{trip.trip_number}{trip.plate ? ` · ${trip.plate}` : ''} · {trip.origin} → {trip.destination}
-                            </option>
-                          ))}
+                          {trips
+                            .filter(trip => trip.id === assignments[t.id] || tripMatchesQuery(trip, tripSearch))
+                            .map(trip => (
+                              <option key={trip.id} value={trip.id}>{formatTripOption(trip)}</option>
+                            ))}
                         </select>
                       </td>
                     </tr>

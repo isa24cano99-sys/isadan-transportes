@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { crearLegalizacionAction, actualizarLegalizacionAction, crearCuentaYCategoriaAction } from './actions'
-import { formatCOP } from '@/lib/utils'
+import { formatCOP, formatTripOption, tripMatchesQuery } from '@/lib/utils'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
 import { X, Plus, Trash2 } from 'lucide-react'
 
@@ -72,6 +72,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   const initTrip = initialData ? trips.find(t => t.id === initialData.trip_id) ?? null : null
 
   const [tripId,      setTripId]      = useState(initialData?.trip_id ?? '')
+  const [tripSearch,  setTripSearch]  = useState('')
   const [selectedTrip,setSelectedTrip]= useState<Trip | null>(initTrip)
   const [tripDate,    setTripDate]    = useState(initialData?.trip_date ?? '')
   const [freight,     setFreight]     = useState(initialData ? String(initialData.freight) : '')
@@ -236,11 +237,18 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className={labelCls}>Viaje *</label>
+            <input
+              type="text"
+              value={tripSearch}
+              onChange={e => setTripSearch(e.target.value)}
+              placeholder="Buscar por manifiesto, placa o ruta…"
+              className={`${inputCls} mb-2`}
+            />
             <select name="trip_id" value={tripId} onChange={e => handleTripChange(e.target.value)} required
               className={`${inputCls} bg-white`}>
               <option value="">Seleccionar viaje</option>
-              {trips.map(t => (
-                <option key={t.id} value={t.id}>{t.trip_number} — {t.origin} → {t.destination}</option>
+              {trips.filter(t => tripMatchesQuery(t, tripSearch)).map(t => (
+                <option key={t.id} value={t.id}>{formatTripOption(t)}</option>
               ))}
             </select>
           </div>

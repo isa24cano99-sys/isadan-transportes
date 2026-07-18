@@ -6,6 +6,7 @@ import { Zap, X } from 'lucide-react'
 import { crearTransaccionAction } from './actions'
 import CategorySelector from '@/components/CategorySelector'
 import SupplierSelector from '@/components/SupplierSelector'
+import { formatTripOption, tripMatchesQuery } from '@/lib/utils'
 import {
   sugerirCategoriaAction,
   type TransactionCategory,
@@ -24,6 +25,7 @@ import type { PucAccount } from '@/components/PucSelector'
 type Trip = {
   id: string
   trip_number: string
+  manifest_number: string | null
   origin: string
   destination: string
   load_date: string | null
@@ -52,6 +54,7 @@ export default function TransaccionForm({
   const [error,        setError]        = useState('')
   const [categoryId,   setCategoryId]   = useState('')
   const [tripId,       setTripId]       = useState('')
+  const [tripSearch,   setTripSearch]   = useState('')
   const [description,  setDescription]  = useState('')
   const [supplierNit,  setSupplierNit]  = useState('')
   const [supplierName, setSupplierName] = useState('')
@@ -217,17 +220,18 @@ export default function TransaccionForm({
       {trips.length > 0 && (
         <div>
           <label className={labelCls}>Viaje asociado (opcional)</label>
+          <input
+            type="text"
+            value={tripSearch}
+            onChange={e => setTripSearch(e.target.value)}
+            placeholder="Buscar por manifiesto, placa o ruta…"
+            className={`${inputCls} mb-2`}
+          />
           <select value={tripId} onChange={e => setTripId(e.target.value)} className={inputCls}>
             <option value="">Sin viaje asociado</option>
-            {trips.map(t => {
-              const fecha = t.load_date ? t.load_date.split('-').reverse().join('/') : '—'
-              const placa = t.vehicles?.plate ?? '—'
-              return (
-                <option key={t.id} value={t.id}>
-                  {t.trip_number} · {placa} · {t.origin} → {t.destination} · {fecha}
-                </option>
-              )
-            })}
+            {trips.filter(t => tripMatchesQuery(t, tripSearch)).map(t => (
+              <option key={t.id} value={t.id}>{formatTripOption(t)}</option>
+            ))}
           </select>
           {selectedTrip && (
             <div className="mt-2">

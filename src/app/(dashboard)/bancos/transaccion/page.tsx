@@ -14,7 +14,7 @@ async function getData() {
     supabase.from('puc_accounts').select('id, codigo, nombre, tipo, active').order('tipo').order('codigo'),
     supabase
       .from('trips')
-      .select('id, trip_number, origin, destination, load_date, vehicles(plate)')
+      .select('id, trip_number, manifest_number, origin, destination, load_date, vehicles(plate)')
       .order('created_at', { ascending: false }),
   ])
 
