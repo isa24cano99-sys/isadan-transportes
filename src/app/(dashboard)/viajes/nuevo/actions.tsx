@@ -73,6 +73,15 @@ export async function editarViajeAction(id: string, formData: FormData): Promise
     return { ok: false, error: 'Error al guardar los cambios' }
   }
 
+  // Sincronizar el anticipo con la legalización en BORRADOR de este viaje (si existe).
+  // Solo se toca en BORRADOR: si ya está PENDIENTE/APROBADA no se modifican sus valores.
+  const { error: legError } = await supabase
+    .from('legalizations')
+    .update({ advance_amount: fields.advance_amount })
+    .eq('trip_id', id)
+    .eq('status', 'BORRADOR')
+  if (legError) console.error('[editarViaje] error actualizando legalización BORRADOR:', legError.message)
+
   revalidatePath('/viajes')
   revalidatePath(`/viajes/${id}`)
   return { ok: true }

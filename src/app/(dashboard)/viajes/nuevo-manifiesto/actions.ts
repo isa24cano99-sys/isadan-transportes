@@ -31,11 +31,50 @@ function extract(text: string, regex: RegExp): string | null {
   return m?.[1] ? m[1].trim() : null
 }
 
+/**
+ * Parsea un número reconociendo separadores colombianos (puntos de miles) y
+ * anglosajones (comas de miles), con o sin decimales.
+ * - Puntos Y comas → punto = miles, coma = decimal: '3.670,50' → 3670.50
+ * - Solo puntos → si hay más de un punto, o el grupo tras el último tiene >2
+ *   dígitos, son miles: '3.670.000' → 3670000; si no, decimal: '3.67' → 3.67
+ * - Solo comas → misma lógica invertida: '3,670,000' → 3670000; '3,67' → 3.67
+ * - Sin separadores → número simple
+ */
+function parseColombianoNumber(str: string): number {
+  // Dejar solo dígitos, separadores y signo.
+  const s = String(str).trim().replace(/[^\d.,-]/g, '')
+  if (!s) return NaN
+
+  const hasDot   = s.includes('.')
+  const hasComma = s.includes(',')
+
+  let normalized: string
+  if (hasDot && hasComma) {
+    // Punto = miles, coma = decimal.
+    normalized = s.replace(/\./g, '').replace(',', '.')
+  } else if (hasDot) {
+    const parts = s.split('.')
+    const lastGroup = parts[parts.length - 1]
+    normalized = (parts.length > 2 || lastGroup.length > 2)
+      ? s.replace(/\./g, '')  // miles
+      : s                     // decimal
+  } else if (hasComma) {
+    const parts = s.split(',')
+    const lastGroup = parts[parts.length - 1]
+    normalized = (parts.length > 2 || lastGroup.length > 2)
+      ? s.replace(/,/g, '')          // miles
+      : s.replace(',', '.')          // decimal
+  } else {
+    normalized = s
+  }
+
+  const n = parseFloat(normalized)
+  return isNaN(n) ? NaN : n
+}
+
 function parseNum(raw: string | null): number | null {
   if (!raw) return null
-  // Colombian manifest format: comma = thousands separator, period = decimal
-  const cleaned = raw.replace(/,/g, '')
-  const n = parseFloat(cleaned)
+  const n = parseColombianoNumber(raw)
   return isNaN(n) ? null : n
 }
 
