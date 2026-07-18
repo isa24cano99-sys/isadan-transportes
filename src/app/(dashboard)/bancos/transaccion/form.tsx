@@ -7,6 +7,7 @@ import { crearTransaccionAction } from './actions'
 import CategorySelector from '@/components/CategorySelector'
 import SupplierSelector from '@/components/SupplierSelector'
 import { formatTripOption, tripMatchesQuery } from '@/lib/utils'
+import type { Trip } from '@/lib/types'
 import {
   sugerirCategoriaAction,
   type TransactionCategory,
@@ -21,16 +22,6 @@ function SourceBadge({ source }: { source: SugerirResult['source'] }) {
   return <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">Historial</span>
 }
 import type { PucAccount } from '@/components/PucSelector'
-
-type Trip = {
-  id: string
-  trip_number: string
-  manifest_number: string | null
-  origin: string
-  destination: string
-  load_date: string | null
-  vehicles: { plate: string } | null
-}
 
 export default function TransaccionForm({
   accounts,

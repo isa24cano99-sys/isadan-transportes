@@ -10,7 +10,7 @@ import {
 } from './actions'
 import { Upload, CheckCircle, AlertTriangle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
-type Trip = { id: string; trip_number: string; manifest_number: string | null; origin: string; destination: string; load_date: string | null; plate: string | null }
+import type { Trip } from '@/lib/types'
 type CrossStats = { matched: number; dianTotal: number; otrosGastos: DianInv[] }
 
 // ── Excel parsing helpers ──────────────────────────────────────────────────────

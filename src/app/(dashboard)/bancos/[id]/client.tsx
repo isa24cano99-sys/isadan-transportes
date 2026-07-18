@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
+import type { Trip } from '@/lib/types'
 
 function SourceBadge({ source }: { source: SugerirResult['source'] }) {
   if (source === 'RULES')
@@ -57,11 +58,6 @@ type SortCol    = 'date' | 'type' | 'category' | 'description' | 'amount'
 interface EditForm {
   type: string; amount: string; date: string; category_id: string
   description: string; supplier_nit: string; supplier_name: string
-}
-
-type Trip = {
-  id: string; trip_number: string; origin: string; destination: string
-  load_date: string | null; vehicles: { plate: string } | null
 }
 
 interface Props {
