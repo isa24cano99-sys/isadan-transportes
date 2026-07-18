@@ -19,6 +19,18 @@ function buildLegalizationPayload(formData: FormData) {
   const expenses: { expense_type: string; amount: number; description: string | null }[] = []
   let gastos_viaje = 0
 
+  // 1. Gastos fijos: { expense_type: monto }. La clave (ej. 'acpm_contado') se guarda tal cual.
+  const fixedRaw = formData.get('fixed_expenses') as string | null
+  const fixed: Record<string, number> = fixedRaw ? JSON.parse(fixedRaw) : {}
+  for (const [key, rawAmount] of Object.entries(fixed)) {
+    const amt = Number(rawAmount) || 0
+    if (amt > 0) {
+      expenses.push({ expense_type: key, amount: amt, description: null })
+      gastos_viaje += amt
+    }
+  }
+
+  // 2. Gastos adicionales (dinámicos): expense_type = código PUC de la categoría.
   const dynRaw = formData.get('dynamic_expenses') as string | null
   const dynRows: DynExpenseRow[] = dynRaw ? JSON.parse(dynRaw) : []
   for (const row of dynRows) {
@@ -29,23 +41,23 @@ function buildLegalizationPayload(formData: FormData) {
     }
   }
 
+  // 3. Porcentaje conductor: se guarda como gasto y CUENTA dentro del total de gastos.
   const porcentaje_calculado = freight * (percentage / 100)
-  const balance_anticipo     = advance - gastos_viaje
-  const saldo_final          = porcentaje_calculado - balance_anticipo
-
   if (porcentaje_calculado > 0) {
     expenses.push({
       expense_type: 'porcentaje',
       amount:       porcentaje_calculado,
-      description:  String(percentage),  // store raw % for reload
+      description:  String(percentage),  // se guarda el % crudo para recargar
     })
+    gastos_viaje += porcentaje_calculado
   }
 
-  return { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses, weight_kg, price_per_ton }
+  // total_expenses = fijos + adicionales + porcentaje; balance (generado) = advance - total_expenses
+  return { trip_id, driver_id, date, advance, gastos_viaje, expenses, weight_kg, price_per_ton }
 }
 
 export async function crearLegalizacionAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, advance, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 
@@ -78,7 +90,7 @@ export async function crearLegalizacionAction(formData: FormData): Promise<{ ok:
 }
 
 export async function actualizarLegalizacionAction(id: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, advance, gastos_viaje, saldo_final, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, advance, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 

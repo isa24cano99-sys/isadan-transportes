@@ -2,7 +2,12 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
-import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit } from '../../nueva/form'
+import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit, FIXED_FIELDS } from '../../nueva/form'
+
+const FIXED_KEYS = new Set(FIXED_FIELDS.map(f => f.key))
+// Mapa PUC → clave fija (para datos legacy guardados por código PUC). El primer match gana.
+const PUC_TO_FIXED: Record<string, string> = {}
+for (const f of FIXED_FIELDS) if (!(f.puc in PUC_TO_FIXED)) PUC_TO_FIXED[f.puc] = f.key
 
 // Maps the old static expense_type keys to human-readable names (for legacy expenses)
 const LEGACY_TYPE_NAMES: Record<string, string> = {
@@ -52,8 +57,9 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
   const { leg, expenses, trips, categories } = await getData(id)
   if (!leg) notFound()
 
-  // Build dynExpenses from stored legalization_expenses
+  // Reconstruir gastos fijos + adicionales desde legalization_expenses
   let percentage = 0
+  const fixedExpenses: Record<string, number> = {}
   const dynExpenses: DynExpenseInit[] = []
 
   for (const e of expenses) {
@@ -62,7 +68,20 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
       continue
     }
 
-    // Look up by puc_code first (new format), then by legacy name mapping
+    const amt = e.amount ?? 0
+
+    // Campo fijo por clave directa, o por PUC (datos legacy guardados por código).
+    if (FIXED_KEYS.has(e.expense_type)) {
+      fixedExpenses[e.expense_type] = (fixedExpenses[e.expense_type] ?? 0) + amt
+      continue
+    }
+    if (PUC_TO_FIXED[e.expense_type]) {
+      const k = PUC_TO_FIXED[e.expense_type]
+      fixedExpenses[k] = (fixedExpenses[k] ?? 0) + amt
+      continue
+    }
+
+    // Gasto adicional: buscar categoría por puc_code, luego por nombre legacy.
     const legacyName = LEGACY_TYPE_NAMES[e.expense_type]
     const cat = (categories as any[]).find(
       (c: any) =>
@@ -75,7 +94,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
       pucCode:      cat?.puc_code ?? e.expense_type,
       categoryName: cat?.name     ?? (legacyName ?? e.expense_type),
       description:  e.description ?? '',
-      amount:       e.amount       ?? 0,
+      amount:       amt,
     })
   }
 
@@ -89,6 +108,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
     freight,
     advance:     leg.advance_amount ?? 0,
     percentage,
+    fixedExpenses,
     dynExpenses,
   }
 

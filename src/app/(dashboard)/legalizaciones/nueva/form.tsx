@@ -45,8 +45,24 @@ export interface LegalizacionInitialData {
   freight: number
   advance: number
   percentage: number
+  fixedExpenses: Record<string, number>
   dynExpenses: DynExpenseInit[]
 }
+
+/** Campos de gasto fijos (siempre visibles). `key` = expense_type persistido; `puc` para el comprobante. */
+export const FIXED_FIELDS: { key: string; label: string; puc: string }[] = [
+  { key: 'acpm_contado', label: 'ACPM / Combustible',          puc: '61450510' },
+  { key: 'cargue',       label: 'Cargue',                      puc: '61450530' },
+  { key: 'descargue',    label: 'Descargue',                   puc: '61450535' },
+  { key: 'peajes',       label: 'Peajes',                      puc: '61450575' },
+  { key: 'lavada',       label: 'Lavada',                      puc: '61450550' },
+  { key: 'parqueos',     label: 'Parqueos',                    puc: '61450560' },
+  { key: 'engrase',      label: 'Engrase',                     puc: '61450545' },
+  { key: 'llantas',      label: 'Llantas',                     puc: '61450555' },
+  { key: 'carrozada',    label: 'Carrozada / Parchada carpa',  puc: '61450570' },
+  { key: 'cambio_aceite',label: 'Cambio aceite / Repuestos',   puc: '61450545' },
+  { key: 'varada',       label: 'Varada / Otros servicios',    puc: '61450565' },
+]
 
 interface Props {
   trips: Trip[]
@@ -77,6 +93,17 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   const [percentage,  setPercentage]  = useState(initialData ? String(initialData.percentage) : '10')
   const [weightKg,    setWeightKg]    = useState(initTrip?.weight_kg     != null ? String(initTrip.weight_kg)     : '')
   const [pricePerTon, setPricePerTon] = useState(initTrip?.price_per_ton != null ? String(initTrip.price_per_ton) : '')
+
+  // ── Fixed expense fields (always visible) ───────────────────────────────────
+  const [fixed, setFixed] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const f of FIXED_FIELDS) {
+      const v = initialData?.fixedExpenses?.[f.key]
+      init[f.key] = v != null && v > 0 ? String(v) : ''
+    }
+    return init
+  })
+  const setFixedAmount = (key: string, val: string) => setFixed(prev => ({ ...prev, [key]: val }))
 
   // ── Dynamic expense rows ────────────────────────────────────────────────────
   const [localCats, setLocalCats] = useState<TransactionCategory[]>(categories)
@@ -156,13 +183,12 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   }, [trips])
 
   // ── Calculated totals ───────────────────────────────────────────────────────
-  const gastosViaje     = dynExpenses.reduce((s, r) => s + num(r.amount), 0)
-  const porcentajeCalc  = num(freight) * (num(percentage) / 100)
-  const advanceNum      = num(advance)
-  const balanceAnticipo = advanceNum - gastosViaje
-  const sobrante        = balanceAnticipo > 0 ? balanceAnticipo : 0
-  const faltante        = balanceAnticipo < 0 ? -balanceAnticipo : 0
-  const saldoFinal      = porcentajeCalc - balanceAnticipo
+  const gastosFijos       = FIXED_FIELDS.reduce((s, f) => s + num(fixed[f.key]), 0)
+  const gastosAdicionales = dynExpenses.reduce((s, r) => s + num(r.amount), 0)
+  const porcentajeCalc    = num(freight) * (num(percentage) / 100)
+  const totalGastos       = gastosFijos + gastosAdicionales + porcentajeCalc
+  const advanceNum        = num(advance)
+  const balance           = advanceNum - totalGastos  // >0 conductor debe · <0 empresa debe
 
   // ── Form data builder ───────────────────────────────────────────────────────
   function buildFormData() {
@@ -175,6 +201,9 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
     fd.set('percentage',    percentage)
     fd.set('weight_kg',     weightKg)
     fd.set('price_per_ton', pricePerTon)
+    fd.set('fixed_expenses', JSON.stringify(
+      Object.fromEntries(FIXED_FIELDS.map(f => [f.key, num(fixed[f.key])]).filter(([, v]) => (v as number) > 0)),
+    ))
     fd.set('dynamic_expenses', JSON.stringify(
       dynExpenses.filter(r => num(r.amount) > 0).map(r => {
         const cat = localCats.find(c => c.id === r.categoryId)
@@ -275,16 +304,40 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
         </div>
       </div>
 
-      {/* ── GASTOS DEL VIAJE ──────────────────────────────────────────────── */}
+      {/* ── GASTOS FIJOS ──────────────────────────────────────────────────── */}
       <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-[#0F172A]">Gastos del viaje</h2>
+        <h2 className="text-sm font-semibold text-[#0F172A] mb-4">Gastos del viaje</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
+          {FIXED_FIELDS.map(f => (
+            <div key={f.key}>
+              <label className={labelCls}>{f.label}</label>
+              <input
+                type="number" min="0" inputMode="numeric"
+                value={fixed[f.key] ?? ''}
+                onChange={e => setFixedAmount(f.key, e.target.value)}
+                placeholder="0"
+                className={inputCls}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 pt-3 border-t border-[#E2E8F0] flex items-center justify-between">
+          <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Subtotal gastos fijos</span>
+          <span className="text-sm font-bold text-[#0F172A] tabular-nums">{formatCOP(gastosFijos)}</span>
+        </div>
+      </div>
+
+      {/* ── GASTOS ADICIONALES ────────────────────────────────────────────── */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-sm font-semibold text-[#0F172A]">Gastos adicionales</h2>
           <button type="button"
             onClick={() => { setShowNewAcc(true); setNewAccError('') }}
             className="text-xs text-[#64748B] hover:text-[#0F172A] border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 transition-colors">
             + Nueva cuenta
           </button>
         </div>
+        <p className="text-xs text-[#94A3B8] mb-4">Gastos que no encajan en los campos fijos. Cada uno con su categoría PUC.</p>
 
         {/* Column headers */}
         {dynExpenses.length > 0 && (
@@ -343,30 +396,27 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
       <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
         <h2 className="text-sm font-semibold text-[#0F172A] mb-4">Liquidación</h2>
         <div className="space-y-2">
-          <Row label="Anticipo entregado"   value={formatCOP(advanceNum)} />
-          <Row label="(-) Gastos del viaje" value={formatCOP(gastosViaje)} />
-          <div className="border-t border-[#E2E8F0] pt-2.5 pb-1">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-[#0F172A]">(=) Balance anticipo</span>
-              <span className={`text-sm font-bold ${balanceAnticipo > 0 ? 'text-green-700' : balanceAnticipo < 0 ? 'text-red-600' : 'text-[#64748B]'}`}>
-                {formatCOP(Math.abs(balanceAnticipo))} {balanceAnticipo > 0 ? 'sobrante' : balanceAnticipo < 0 ? 'faltante' : ''}
-              </span>
-            </div>
+          <Row label="Anticipo entregado" value={formatCOP(advanceNum)} />
+          <div className="pl-3 space-y-1 border-l-2 border-[#F1F5F9]">
+            <Row label="Gastos fijos"       value={formatCOP(gastosFijos)} />
+            <Row label="Gastos adicionales" value={formatCOP(gastosAdicionales)} />
+            <Row label={`Porcentaje conductor (${num(percentage)}%)`} value={formatCOP(porcentajeCalc)} />
           </div>
-          <div className="pt-3 mt-1 border-t border-[#E2E8F0] space-y-2">
-            <Row label={`Porcentaje conductor (${num(percentage)}% del flete)`} value={formatCOP(porcentajeCalc)} />
-            {sobrante > 0 && <Row label="(-) Sobrante anticipo" value={formatCOP(sobrante)} />}
-            {faltante > 0 && <Row label="(+) Faltante anticipo" value={formatCOP(faltante)} />}
+          <div className="border-t border-[#E2E8F0] pt-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-[#0F172A]">(−) Total gastos</span>
+              <span className="text-sm font-bold text-[#0F172A] tabular-nums">{formatCOP(totalGastos)}</span>
+            </div>
           </div>
           <div className="border-t border-[#E2E8F0] pt-2.5">
             <div className="flex items-start justify-between">
-              <span className="text-sm font-semibold text-[#0F172A]">(=) Saldo a pagar al conductor</span>
+              <span className="text-sm font-semibold text-[#0F172A]">(=) Balance</span>
               <div className="text-right">
-                <span className={`text-base font-bold ${saldoFinal > 0 ? 'text-green-700' : saldoFinal < 0 ? 'text-red-600' : 'text-[#64748B]'}`}>
-                  {saldoFinal < 0 ? '-' : ''}{formatCOP(Math.abs(saldoFinal))}
+                <span className={`text-base font-bold ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                  {formatCOP(Math.abs(balance))}
                 </span>
-                <p className={`text-xs mt-0.5 ${saldoFinal > 0 ? 'text-green-700' : saldoFinal < 0 ? 'text-red-600' : 'text-[#64748B]'}`}>
-                  {saldoFinal > 0 ? 'Empresa le debe al conductor' : saldoFinal < 0 ? 'Conductor le debe a la empresa' : 'Cuadrado'}
+                <p className={`text-xs mt-0.5 ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-green-700' : 'text-[#64748B]'}`}>
+                  {balance > 0 ? 'Conductor debe a la empresa' : balance < 0 ? 'Empresa le debe al conductor' : 'Cuadrado'}
                 </p>
               </div>
             </div>
@@ -408,22 +458,25 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
             </Section>
 
             <Section title="Financiero">
-              <PreviewRow label="Flete"        value={formatCOP(num(freight))} />
-              <PreviewRow label="Anticipo"     value={formatCOP(num(advance))} />
-              <PreviewRow label="Total gastos" value={formatCOP(gastosViaje)} />
-              <PreviewRow label="Balance anticipo"
-                value={`${formatCOP(Math.abs(balanceAnticipo))} ${balanceAnticipo >= 0 ? 'sobrante' : 'faltante'}`} />
+              <PreviewRow label="Flete"              value={formatCOP(num(freight))} />
+              <PreviewRow label="Anticipo"           value={formatCOP(num(advance))} />
+              <PreviewRow label="Gastos fijos"       value={formatCOP(gastosFijos)} />
+              <PreviewRow label="Gastos adicionales" value={formatCOP(gastosAdicionales)} />
               <PreviewRow label={`Porcentaje conductor (${percentage}%)`} value={formatCOP(porcentajeCalc)} />
+              <PreviewRow label="(−) Total gastos"   value={formatCOP(totalGastos)} />
               <div className="border-t border-[#E2E8F0] pt-2 mt-2 flex justify-between font-semibold">
-                <span className="text-[#0F172A]">Saldo al conductor</span>
-                <span className={saldoFinal >= 0 ? 'text-green-700' : 'text-red-600'}>
-                  {saldoFinal < 0 ? '-' : ''}{formatCOP(Math.abs(saldoFinal))}
+                <span className="text-[#0F172A]">Balance</span>
+                <span className={balance > 0 ? 'text-red-600' : balance < 0 ? 'text-green-700' : 'text-[#64748B]'}>
+                  {formatCOP(Math.abs(balance))} {balance > 0 ? '(cond. debe)' : balance < 0 ? '(emp. debe)' : ''}
                 </span>
               </div>
             </Section>
 
-            {(gastosViaje > 0 || porcentajeCalc > 0) && (
+            {totalGastos > 0 && (
               <Section title="Detalle de gastos">
+                {FIXED_FIELDS.filter(f => num(fixed[f.key]) > 0).map(f => (
+                  <PreviewRow key={f.key} label={f.label} value={formatCOP(num(fixed[f.key]))} />
+                ))}
                 {dynExpenses.filter(r => num(r.amount) > 0).map(r => {
                   const cat   = localCats.find(c => c.id === r.categoryId)
                   const label = (cat?.name ?? 'Gasto') + (r.description ? ` · ${r.description}` : '')
