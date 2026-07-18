@@ -21,3 +21,33 @@ export async function marcarCuotaPagadaAction(
   revalidatePath('/prestamos')
   return { ok: true }
 }
+
+/**
+ * Cambia manualmente el estado de una cuota (para corregir cuotas mal marcadas).
+ * PAGADA → guarda la fecha de pago; PENDIENTE → la limpia.
+ */
+export async function actualizarEstadoCuotaAction(
+  installmentId: string,
+  loanId: string,
+  status: 'PAGADA' | 'PENDIENTE',
+  paidDate: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const update =
+    status === 'PAGADA'
+      ? { status: 'PAGADA', paid_date: paidDate }
+      : { status: 'PENDIENTE', paid_date: null }
+
+  const { error } = await supabase
+    .from('loan_installments')
+    .update(update)
+    .eq('id', installmentId)
+
+  if (error) {
+    console.error('[actualizarEstadoCuota]', error.message)
+    return { ok: false, error: 'Error al actualizar la cuota' }
+  }
+
+  revalidatePath(`/prestamos/${loanId}`)
+  revalidatePath('/prestamos')
+  return { ok: true }
+}
