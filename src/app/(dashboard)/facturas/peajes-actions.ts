@@ -110,7 +110,7 @@ const emptyResult = (extra: Partial<FlypassResult>): FlypassResult => ({
 /**
  * Sube el reporte Flypass, guarda los peajes en `toll_transactions` (dedup por
  * `document`) y registra un egreso en `bank_transactions` por cada placa+día
- * con fecha ≥ `fechaInicio`, sin duplicar (dedup por `source` + `reference_id`).
+ * con fecha ≥ `fechaInicio`, sin duplicar (dedup por `source` + `description`).
  */
 export async function importarFlypassPeajesAction(
   file: File,
@@ -193,33 +193,34 @@ export async function importarFlypassPeajesAction(
     .from('transaction_categories').select('id').eq('puc_code', PEAJE_PUC).maybeSingle()
   const categoryId = cat?.id ?? null
 
-  // 5. Registrar egresos para placa+día ≥ fechaInicio (dedup por reference_id)
+  // 5. Registrar egresos para placa+día ≥ fechaInicio.
+  //    Dedup por `description` (determinística) porque reference_id es uuid.
+  const descOf  = (g: { plate: string; fecha: string }) => `Peajes Flypass ${g.plate} ${g.fecha}`
   const enRango = allGroups.filter(g => g.fecha >= fechaInicio)
-  const refIds  = enRango.map(g => `${g.plate}_${g.fecha}`)
+  const descs   = enRango.map(descOf)
 
   let existingRefs = new Set<string>()
-  if (refIds.length > 0) {
+  if (descs.length > 0) {
     const { data: existing } = await supabase
       .from('bank_transactions')
-      .select('reference_id')
+      .select('description')
       .eq('source', 'EXTRACTO_FLYPASS')
-      .in('reference_id', refIds)
-    existingRefs = new Set((existing ?? []).map(e => e.reference_id as string))
+      .in('description', descs)
+    existingRefs = new Set((existing ?? []).map(e => e.description as string))
   }
 
   const toInsert = enRango
-    .filter(g => !existingRefs.has(`${g.plate}_${g.fecha}`))
+    .filter(g => !existingRefs.has(descOf(g)))
     .map(g => ({
       account_id:     account.id,
       date:           g.fecha,
-      description:    `Peajes Flypass ${g.plate} ${g.fecha}`,
+      description:    descOf(g),
       amount:         g.total,
       type:           'EGRESO',
       category:       PEAJE_PUC,
       category_id:    categoryId,
       source:         'EXTRACTO_FLYPASS',
       reference_type: 'FLYPASS_PEAJE',
-      reference_id:   `${g.plate}_${g.fecha}`,
     }))
 
   let bankCreated = 0
@@ -236,7 +237,7 @@ export async function importarFlypassPeajesAction(
   // 6. Armar la tabla agrupada con estado por fila
   const grouped: GrupoPeaje[] = allGroups.map(g => {
     if (g.fecha < fechaInicio) return { ...g, estado: 'fuera-de-rango' as const }
-    return { ...g, estado: existingRefs.has(`${g.plate}_${g.fecha}`) ? ('omitido' as const) : ('creado' as const) }
+    return { ...g, estado: existingRefs.has(descOf(g)) ? ('omitido' as const) : ('creado' as const) }
   })
 
   revalidatePath('/facturas')
