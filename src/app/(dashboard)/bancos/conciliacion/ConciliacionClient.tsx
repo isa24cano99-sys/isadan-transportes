@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle,
-  XCircle, ChevronDown, ChevronRight, X, GitMerge, Lock, Plus, Calendar,
+  XCircle, ChevronDown, ChevronRight, X, GitMerge, Lock, Plus, Calendar, RefreshCw,
 } from 'lucide-react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import CategorySelector from '@/components/CategorySelector'
@@ -254,6 +254,18 @@ export default function ConciliacionClient({
     const r = await recruzarAction(res.accountId, res.year, res.month)
     setProcessing(false)
     if (r.ok) setResult(r)
+  }
+
+  // "Recalcular": re-cruza el extracto GUARDADO en Supabase contra las transacciones
+  // actuales (sin re-subir archivo) y actualiza resultado_data.
+  const recalcular = async () => {
+    if (!res) return
+    setProcessing(true)
+    const r = await recruzarAction(res.accountId, res.year, res.month)
+    setProcessing(false)
+    if (r.ok) { setResult(r); return }
+    if (file) { run(res.accountId); return }   // respaldo: si hay archivo en memoria
+    alert(('error' in r ? r.error : undefined) ?? 'No se pudo recalcular. Sube el extracto del mes.')
   }
 
   const backToList = () => { setMode('list'); setResult(null); setFile(null) }
@@ -571,10 +583,14 @@ export default function ConciliacionClient({
               <CheckCircle2 size={15} className="text-blue-600 shrink-0" />
               <p className="text-sm font-semibold text-blue-800">{res.accountName} · {mesLabel(res.month)} {res.year}</p>
             </div>
-            <div className="flex items-center gap-3">
-              <p className="text-xs text-blue-600 font-mono">{formatDate(res.periodo.desde)} → {formatDate(res.periodo.hasta)}</p>
-              <button onClick={recargarExtracto}
-                className="text-xs font-medium text-blue-700 hover:text-blue-900 border border-blue-300 hover:bg-blue-100 rounded-lg px-2.5 py-1 transition-colors inline-flex items-center gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs text-blue-600 font-mono mr-1">{formatDate(res.periodo.desde)} → {formatDate(res.periodo.hasta)}</p>
+              <button onClick={recalcular} disabled={processing}
+                className="text-xs font-medium text-blue-700 hover:text-blue-900 border border-blue-300 hover:bg-blue-100 disabled:opacity-50 rounded-lg px-2.5 py-1 transition-colors inline-flex items-center gap-1">
+                <RefreshCw size={11} className={processing ? 'animate-spin' : ''} /> {processing ? 'Recalculando…' : 'Recalcular'}
+              </button>
+              <button onClick={recargarExtracto} disabled={processing}
+                className="text-xs font-medium text-blue-700 hover:text-blue-900 border border-blue-300 hover:bg-blue-100 disabled:opacity-50 rounded-lg px-2.5 py-1 transition-colors inline-flex items-center gap-1">
                 <Upload size={11} /> Recargar extracto
               </button>
             </div>
