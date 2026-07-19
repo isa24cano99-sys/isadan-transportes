@@ -342,6 +342,15 @@ export async function asignarVehiculoAction(tripId: string, vehicleId: string): 
   if (!vehicle) return { ok: false, error: 'Vehiculo no encontrado' }
   const { error } = await supabase.from('trips').update({ vehicle_id: vehicleId }).eq('id', tripId)
   if (error) return { ok: false, error: error.message }
+
+  // Sincronizar la legalización en BORRADOR con el nuevo vehículo (solo el campo que cambió)
+  const { error: legErr } = await supabase
+    .from('legalizations')
+    .update({ vehicle_id: vehicleId })
+    .eq('trip_id', tripId)
+    .eq('status', 'BORRADOR')
+  if (legErr) console.error('[asignarVehiculo] sync legalización BORRADOR:', legErr.message)
+
   revalidatePath(`/viajes/${tripId}`)
   return { ok: true, vehicle }
 }
@@ -355,6 +364,15 @@ export async function asignarConductorAction(tripId: string, driverId: string): 
   if (!driver) return { ok: false, error: 'Conductor no encontrado' }
   const { error } = await supabase.from('trips').update({ driver_id: driverId }).eq('id', tripId)
   if (error) return { ok: false, error: error.message }
+
+  // Sincronizar la legalización en BORRADOR con el nuevo conductor (solo el campo que cambió)
+  const { error: legErr } = await supabase
+    .from('legalizations')
+    .update({ driver_id: driverId })
+    .eq('trip_id', tripId)
+    .eq('status', 'BORRADOR')
+  if (legErr) console.error('[asignarConductor] sync legalización BORRADOR:', legErr.message)
+
   revalidatePath(`/viajes/${tripId}`)
   return { ok: true, driver }
 }
