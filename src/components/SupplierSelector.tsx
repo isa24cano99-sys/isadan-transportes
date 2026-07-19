@@ -107,13 +107,28 @@ export default function SupplierSelector({
       {open && (
         <div className="absolute z-50 w-full mt-1 bg-white border border-[#E2E8F0] rounded-xl shadow-lg overflow-hidden">
           <div className="max-h-48 overflow-y-auto">
-            {results.length > 0 ? results.map(s => (
-              <button key={s.id} type="button" onClick={() => select(s)}
-                className="w-full text-left px-4 py-2.5 text-sm hover:bg-[#F1F5F9] transition-colors border-b border-[#E2E8F0] last:border-0">
-                <span className="text-[#0F172A] font-medium">{s.nombre}</span>
-                {s.nit && <span className="ml-2 text-[10px] text-[#94A3B8]">NIT {s.nit}</span>}
-              </button>
-            )) : (
+            {results.length > 0 ? (
+              <>
+                {(['CLIENTE', 'PROVEEDOR'] as const).map(tipo => {
+                  const items = results.filter(s => s.tipo === tipo)
+                  if (items.length === 0) return null
+                  return (
+                    <div key={tipo}>
+                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider bg-[#F8FAFC] border-b border-[#E2E8F0] sticky top-0 text-[#94A3B8]">
+                        {tipo === 'CLIENTE' ? 'Clientes' : 'Proveedores'}
+                      </div>
+                      {items.map(s => (
+                        <button key={`${s.tipo}-${s.id}`} type="button" onClick={() => select(s)}
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-[#F1F5F9] transition-colors border-b border-[#E2E8F0] last:border-0">
+                          <span className="text-[#0F172A] font-medium">{s.nombre}</span>
+                          {s.nit && <span className="ml-2 text-[10px] text-[#94A3B8]">NIT {s.nit}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })}
+              </>
+            ) : (
               <p className="text-xs text-[#94A3B8] text-center py-4">Sin resultados para &ldquo;{search}&rdquo;</p>
             )}
           </div>
@@ -121,11 +136,11 @@ export default function SupplierSelector({
             {!creating ? (
               <button type="button" onClick={() => { setCreating(true); setNewNombre(search) }}
                 className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#2563EB] hover:bg-blue-50 font-medium transition-colors">
-                <Plus size={13} /> Nuevo proveedor
+                <Plus size={13} /> Nuevo tercero
               </button>
             ) : (
               <div className="p-3 space-y-2 bg-[#F8FAFC]">
-                <p className="text-xs font-semibold text-[#64748B]">Nuevo proveedor</p>
+                <p className="text-xs font-semibold text-[#64748B]">Nuevo tercero</p>
                 <input autoFocus type="text" value={newNombre} onChange={e => setNewNombre(e.target.value)}
                   placeholder="Nombre *" className={miniInputCls} />
                 <input type="text" value={newNit} onChange={e => setNewNit(e.target.value)}

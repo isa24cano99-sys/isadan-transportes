@@ -18,17 +18,30 @@ export type SupplierResult = {
   id: string
   nit: string | null
   nombre: string
+  tipo: 'CLIENTE' | 'PROVEEDOR'
 }
 
+/**
+ * Busca "terceros" unificando dos fuentes: clientes (tabla `clients`) y
+ * proveedores (tabla `supplier_catalog`). Filtra por nombre o NIT en ambas.
+ * No modifica ninguna tabla; solo unifica para la vista del selector.
+ */
 export async function buscarProveedoresAction(query: string): Promise<SupplierResult[]> {
   if (query.trim().length < 2) return []
   const q = query.trim()
-  const { data } = await supabase
-    .from('supplier_catalog')
-    .select('id, nit, nombre')
-    .or(`nombre.ilike.%${q}%,nit.ilike.%${q}%`)
-    .limit(10)
-  return (data ?? []) as SupplierResult[]
+  const [cliRes, provRes] = await Promise.all([
+    supabase.from('clients').select('id, nit, name')
+      .or(`name.ilike.%${q}%,nit.ilike.%${q}%`).limit(10),
+    supabase.from('supplier_catalog').select('id, nit, nombre')
+      .or(`nombre.ilike.%${q}%,nit.ilike.%${q}%`).limit(10),
+  ])
+  const clientes: SupplierResult[] = (cliRes.data ?? []).map((c: any) => ({
+    id: c.id, nit: c.nit ?? null, nombre: c.name, tipo: 'CLIENTE' as const,
+  }))
+  const proveedores: SupplierResult[] = (provRes.data ?? []).map((p: any) => ({
+    id: p.id, nit: p.nit ?? null, nombre: p.nombre, tipo: 'PROVEEDOR' as const,
+  }))
+  return [...clientes, ...proveedores]
 }
 
 export async function crearProveedorAction(
@@ -43,7 +56,7 @@ export async function crearProveedorAction(
     .select('id, nit, nombre')
     .single()
   if (error) return { ok: false, error: error.message }
-  return { ok: true, supplier: data as SupplierResult }
+  return { ok: true, supplier: { ...(data as any), tipo: 'PROVEEDOR' as const } }
 }
 
 export async function crearCategoriaAction(

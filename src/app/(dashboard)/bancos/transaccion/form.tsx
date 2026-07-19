@@ -193,7 +193,7 @@ export default function TransaccionForm({
 
       {/* Proveedor */}
       <div>
-        <label className={labelCls}>Proveedor (opcional)</label>
+        <label className={labelCls}>Tercero (opcional)</label>
         <SupplierSelector
           nit={supplierNit}
           name={supplierName}

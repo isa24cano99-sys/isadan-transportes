@@ -416,7 +416,7 @@ export default function BankDetailClient({
               <th className={thCls} onClick={() => handleSort('type')}>Tipo <SortArrow col="type" /></th>
               <th className={thCls} onClick={() => handleSort('category')}>Categoría <SortArrow col="category" /></th>
               <th className={thCls} onClick={() => handleSort('description')}>Descripción <SortArrow col="description" /></th>
-              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider whitespace-nowrap hidden lg:table-cell">Proveedor</th>
+              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider whitespace-nowrap hidden lg:table-cell">Tercero</th>
               <th className={`${thCls} text-right`} onClick={() => handleSort('amount')}>Monto <SortArrow col="amount" /></th>
               <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Origen</th>
               <th className="px-3 py-2" />
@@ -650,7 +650,7 @@ export default function BankDetailClient({
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Proveedor (opcional)</label>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tercero (opcional)</label>
                 <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
                   onChange={(nit, name) => setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name }))} />
               </div>
