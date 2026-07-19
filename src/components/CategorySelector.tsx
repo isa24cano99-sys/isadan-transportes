@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Search, Plus, X, ChevronDown } from 'lucide-react'
 import { crearCategoriaAction, type TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
 import type { PucAccount } from './PucSelector'
@@ -51,15 +51,10 @@ export default function CategorySelector({
 
   const selected = categories.find(c => c.id === value) ?? null
 
-  // Map puc codigo → nombre for display
-  const pucNameMap = useMemo(
-    () => new Map(pucAccounts.map(p => [p.codigo, p.nombre])),
-    [pucAccounts],
-  )
-
-  // Use the PUC account nombre when available, fallback to category name
-  const getCatLabel = (c: TransactionCategory) =>
-    (c.puc_code ? pucNameMap.get(c.puc_code) : undefined) ?? c.name
+  // Mostrar SIEMPRE el nombre de la categoría (transaction_categories.name).
+  // No usar el nombre de la cuenta PUC: varias categorías comparten el mismo
+  // puc_code (p. ej. 52959510) y todas aparecerían con el mismo nombre.
+  const getCatLabel = (c: TransactionCategory) => c.name
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
