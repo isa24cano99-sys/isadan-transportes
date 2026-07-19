@@ -408,6 +408,35 @@ export default function BankDetailClient({
         </div>
       </div>
 
+      {/* Barra fija de acciones masivas — sticky, justo bajo los filtros */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-30 mb-3">
+          <div className="bg-[#0F172A] text-white rounded-2xl shadow-lg px-4 py-3 flex items-center gap-3">
+            <span className="text-xs font-semibold whitespace-nowrap shrink-0">
+              {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+            </span>
+            <div className="flex-1 min-w-0">
+              <CategorySelector
+                value={bulkCategoryId}
+                onChange={setBulkCategoryId}
+                categories={categories}
+                pucAccounts={pucAccounts}
+              />
+            </div>
+            <button
+              onClick={handleBulkAssign}
+              disabled={!bulkCategoryId || bulkAssigning}
+              className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+            >
+              {bulkAssigning ? 'Asignando...' : 'Asignar'}
+            </button>
+            <button onClick={() => { setSelectedIds(new Set()); setBulkCategoryId('') }} className="shrink-0">
+              <X size={16} className="text-[#94A3B8] hover:text-white transition-colors" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Desktop table */}
       <div className="hidden md:block bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
         <table className="w-full">
@@ -593,32 +622,6 @@ export default function BankDetailClient({
         </div>
       )}
 
-      {/* Bulk action floating bar */}
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-[#0F172A] text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 w-[calc(100vw-2rem)] sm:w-auto sm:min-w-[500px] sm:max-w-[90vw]">
-          <span className="text-xs font-semibold whitespace-nowrap shrink-0">
-            {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
-          </span>
-          <div className="flex-1 min-w-0">
-            <CategorySelector
-              value={bulkCategoryId}
-              onChange={setBulkCategoryId}
-              categories={categories}
-              pucAccounts={pucAccounts}
-            />
-          </div>
-          <button
-            onClick={handleBulkAssign}
-            disabled={!bulkCategoryId || bulkAssigning}
-            className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
-          >
-            {bulkAssigning ? 'Asignando...' : 'Asignar'}
-          </button>
-          <button onClick={() => { setSelectedIds(new Set()); setBulkCategoryId('') }} className="shrink-0">
-            <X size={16} className="text-[#94A3B8] hover:text-white transition-colors" />
-          </button>
-        </div>
-      )}
 
       {/* Edit modal */}
       {editTxn && editForm && (
