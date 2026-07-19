@@ -645,8 +645,15 @@ export default function ConciliacionClient({
                   <tbody className="divide-y divide-[#F1F5F9]">
                     {res.sinConfirmar.map(t => (
                       <tr key={t.id} className="hover:bg-red-50/20 transition-colors">
-                        <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{formatDate(t.date)}</td>
-                        <td className="px-3 py-2 text-xs text-[#0F172A] max-w-xs truncate">{t.description}</td>
+                        <td className="px-3 py-2 text-xs font-mono text-[#64748B] align-top">{formatDate(t.date)}</td>
+                        <td className="px-3 py-2 text-xs text-[#0F172A] max-w-xs">
+                          <span className="block truncate">{t.description}</span>
+                          {t.nota && (
+                            <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                              <AlertTriangle size={9} /> {t.nota}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${t.type === 'INGRESO' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{t.type}</span></td>
                         <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{t.type === 'EGRESO' ? '−' : '+'}{formatCOP(t.amount)}</td>
                       </tr>

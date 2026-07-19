@@ -58,6 +58,7 @@ export type AppTxn = {
   amount: number
   type: 'INGRESO' | 'EGRESO'
   description: string
+  nota?: string   // aviso (p. ej. posible diferencia de fecha) para la sección "sin confirmar"
 }
 
 export type ConciliadoItem = { extracto: ExtractoRow; app: AppTxn }
@@ -205,14 +206,45 @@ async function cruzarExtracto(
     category:    (t.category as string | null) ?? null,
   }))
 
-  // ── Clasificación Flypass ──────────────────────────────────────────────────
-  const PEAJE_PUC = '61450575'
-  const isFlyDesc = (s: string) => /flypass/i.test(s)
-  const isFlyApp  = (t: AppTxnExt) => isFlyDesc(t.description) || t.category === PEAJE_PUC
+  // ── Clasificadores de grupos especiales (se concilian por grupo, no individual) ──
+  const PEAJE_PUC   = '61450575'
+  const GMF_PUC     = '53050505'
+  const INTERES_PUC = '42100510'
+  const isFlyDesc     = (s: string) => /flypass/i.test(s)
+  const isInteresDesc = (s: string) => /interes/i.test(s)                          // 'ABONO INTERESES AHORROS', 'INTERESES'
+  const isGmfDesc     = (s: string) => /4\s?x\s?1000|impto\.?\s*gobierno/i.test(s)  // 'IMPTO GOBIERNO 4X1000'
+  const isFlyApp      = (t: AppTxnExt) => isFlyDesc(t.description) || t.category === PEAJE_PUC
+  const isInteresApp  = (t: AppTxnExt) => isInteresDesc(t.description) || t.category === INTERES_PUC
+  const isGmfApp      = (t: AppTxnExt) => isGmfDesc(t.description) || /gmf/i.test(t.description) || t.category === GMF_PUC
+  const isEspecialEx  = (r: ExtractoRow) => isFlyDesc(r.descripcion) || isInteresDesc(r.descripcion) || isGmfDesc(r.descripcion)
+  const isEspecialApp = (t: AppTxnExt) => isFlyApp(t) || isInteresApp(t) || isGmfApp(t)
 
   const matchedAppIds       = new Set<string>()
   const matchedExtractoIdxs = new Set<number>()
   const conciliados: ConciliadoItem[] = []
+
+  // Agrupación mensual: suma de movimientos del extracto vs suma en app (±tolerancia)
+  const matchGrupoMensual = (
+    nombre: string,
+    exPred: (r: ExtractoRow) => boolean,
+    appPred: (t: AppTxnExt) => boolean,
+    tolerancia: number,
+    tipo: 'INGRESO' | 'EGRESO',
+  ) => {
+    const exIdxs  = extractoRows.map((_, i) => i).filter(i => !matchedExtractoIdxs.has(i) && exPred(extractoRows[i]))
+    const appList = appTxns.filter(t => !matchedAppIds.has(t.id) && appPred(t))
+    if (exIdxs.length === 0 || appList.length === 0) return
+    const sumEx  = exIdxs.reduce((s, i) => s + extractoRows[i].monto, 0)
+    const sumApp = appList.reduce((s, t) => s + t.amount, 0)
+    if (Math.abs(sumEx - sumApp) > tolerancia) return
+    exIdxs.forEach(i => matchedExtractoIdxs.add(i))
+    appList.forEach(t => matchedAppIds.add(t.id))
+    const day = extractoRows[exIdxs[0]].fecha
+    conciliados.push({
+      extracto: { fecha: day, descripcion: `${nombre} — ${exIdxs.length} mov. extracto`, monto: sumEx, tipo },
+      app:      { id: `grupo_${nombre}_${day}`, date: day, amount: sumApp, type: tipo, description: `${nombre} — ${appList.length} mov. app` },
+    })
+  }
 
   // ── 1. Flypass agrupado por día: suma extracto vs suma app (±100) ──────────
   const flyExByDay = new Map<string, number[]>()          // día → índices de extracto
@@ -242,17 +274,21 @@ async function cruzarExtracto(
     }
   }
 
-  // ── 2. Resto: match individual (mismo tipo, monto ±10, fecha ±1 día) ────────
+  // ── 2. Intereses bancarios (mes) y GMF 4x1000 (mes): suma vs suma (±500) ────
+  matchGrupoMensual('Intereses bancarios', r => isInteresDesc(r.descripcion), isInteresApp, 500, 'INGRESO')
+  matchGrupoMensual('GMF 4x1000',          r => isGmfDesc(r.descripcion),     isGmfApp,     500, 'EGRESO')
+
+  // ── 3. Resto: match individual (mismo tipo, monto ±10, fecha ±1 día) ────────
   for (let i = 0; i < extractoRows.length; i++) {
     if (matchedExtractoIdxs.has(i)) continue
     const ex = extractoRows[i]
-    if (isFlyDesc(ex.descripcion)) continue   // Flypass solo se concilia por día (paso 1)
+    if (isEspecialEx(ex)) continue   // Flypass/intereses/GMF solo se concilian por grupo
     let best: AppTxnExt | null = null
     let bestDays = Infinity
 
     for (const app of appTxns) {
       if (matchedAppIds.has(app.id))            continue
-      if (isFlyApp(app))                        continue   // no mezclar Flypass en match individual
+      if (isEspecialApp(app))                   continue   // no mezclar grupos especiales en individual
       if (ex.tipo !== app.type)                 continue
       if (Math.abs(ex.monto - app.amount) > 10) continue   // ±10 pesos (redondeos del banco)
       const days = Math.abs(daysBetween(ex.fecha, app.date))
@@ -270,7 +306,16 @@ async function cruzarExtracto(
   const sinRegistrar = extractoRows.filter((_, i) => !matchedExtractoIdxs.has(i))
   const sinConfirmar: AppTxn[] = appTxns
     .filter(t => !matchedAppIds.has(t.id))
-    .map(t => ({ id: t.id, date: t.date, amount: t.amount, type: t.type, description: t.description }))
+    .map(t => {
+      // Si el extracto trae un movimiento del mismo tipo y monto similar (±500) pero
+      // con fecha a más de 3 días, puede ser un desfase de mes (llegó en otro mes).
+      const desfase = sinRegistrar.some(r =>
+        r.tipo === t.type &&
+        Math.abs(r.monto - t.amount) <= 500 &&
+        Math.abs(daysBetween(r.fecha, t.date)) > 3)
+      const base = { id: t.id, date: t.date, amount: t.amount, type: t.type, description: t.description }
+      return desfase ? { ...base, nota: 'Posible diferencia de fecha — verificar manualmente' } : base
+    })
 
   const totalIngresos = extractoRows.filter(r => r.tipo === 'INGRESO').reduce((s, r) => s + r.monto, 0)
   const totalEgresos  = extractoRows.filter(r => r.tipo === 'EGRESO').reduce((s, r) => s + r.monto, 0)
