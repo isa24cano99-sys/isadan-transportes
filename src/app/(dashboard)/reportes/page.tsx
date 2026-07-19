@@ -29,6 +29,7 @@ export type RawTx = {
   month: number
   pucCode: string
   description: string | null
+  supplierName: string | null
   amount: number
 }
 
@@ -94,9 +95,10 @@ export default async function ReportesPage({
     // 2. All bank transactions for the year (we filter server-side)
     supabase
       .from('bank_transactions')
-      .select('type, amount, date, description, category, transaction_categories(puc_code, name)')
+      .select('type, amount, date, description, supplier_name, category, transaction_categories(puc_code, name)')
       .gte('date', from)
-      .lte('date', to),
+      .lte('date', to)
+      .limit(50000),
 
     // 3. Legalization expenses with vehicle chain
     supabase
@@ -117,7 +119,8 @@ export default async function ReportesPage({
       .from('toll_transactions')
       .select('plate, total, pass_date')
       .gte('pass_date', from + 'T00:00:00')
-      .lte('pass_date', to + 'T23:59:59'),
+      .lte('pass_date', to + 'T23:59:59')
+      .limit(50000),
   ])
 
   // ── Pre-process invoices ───────────────────────────────────────────────────
@@ -155,9 +158,10 @@ export default async function ReportesPage({
         if (!month) return null
         return {
           month,
-          pucCode:     pickPuc(t)!,
-          description: t.description ?? null,
-          amount:      Number(t.amount ?? 0),
+          pucCode:      pickPuc(t)!,
+          description:  t.description ?? null,
+          supplierName: t.supplier_name ?? null,
+          amount:       Number(t.amount ?? 0),
         }
       })
       .filter(Boolean) as RawTx[]

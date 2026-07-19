@@ -21,14 +21,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sidebar drawer */}
+      {/* Sidebar: drawer en móvil; en desktop fijo y se expande sobre el contenido al hover */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 lg:static lg:z-auto
+        fixed inset-y-0 left-0 z-50
         transition-transform duration-200 ease-in-out
         ${open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <Sidebar />
       </div>
+
+      {/* Espaciador que reserva el ancho contraído del sidebar en desktop */}
+      <div className="hidden lg:block w-14 flex-shrink-0" aria-hidden />
 
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">

@@ -2,25 +2,30 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import {
+  LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
+  Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
+  Wallet, BarChart3, Receipt, type LucideIcon,
+} from 'lucide-react'
 
-const links = [
-  { href: '/',                    label: 'Dashboard' },
-  { href: '/viajes',              label: 'Viajes' },
-  { href: '/legalizaciones',      label: 'Legalizaciones' },
-  { href: '/bancos',              label: 'Bancos' },
-  { href: '/bancos/conciliacion', label: 'Conciliación' },
-  { href: '/facturas',            label: 'Facturación' },
-  { href: '/proveedores',         label: 'Proveedores' },
-  { href: '/prestamos',           label: 'Préstamos' },
-  { href: '/prestaciones',        label: 'Prestaciones' },
-  { href: '/nomina',              label: 'Nómina' },
-  { href: '/vehiculos',           label: 'Vehículos' },
-  { href: '/conductores',         label: 'Conductores' },
-  { href: '/clientes',            label: 'Clientes' },
-  { href: '/documentos',          label: 'Documentos' },
-  { href: '/cartera',             label: 'Cartera' },
-  { href: '/reportes',            label: 'Estado resultados' },
-  { href: '/impuesto',            label: 'Impuesto SIMPLE' },
+const links: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: '/',                    label: 'Dashboard',        icon: LayoutDashboard },
+  { href: '/viajes',              label: 'Viajes',           icon: Route },
+  { href: '/legalizaciones',      label: 'Legalizaciones',   icon: ClipboardCheck },
+  { href: '/bancos',              label: 'Bancos',           icon: Landmark },
+  { href: '/bancos/conciliacion', label: 'Conciliación',     icon: GitMerge },
+  { href: '/facturas',            label: 'Facturación',      icon: FileText },
+  { href: '/proveedores',         label: 'Proveedores',      icon: Building2 },
+  { href: '/prestamos',           label: 'Préstamos',        icon: HandCoins },
+  { href: '/prestaciones',        label: 'Prestaciones',     icon: PiggyBank },
+  { href: '/nomina',              label: 'Nómina',           icon: Users },
+  { href: '/vehiculos',           label: 'Vehículos',        icon: Truck },
+  { href: '/conductores',         label: 'Conductores',      icon: User },
+  { href: '/clientes',            label: 'Clientes',         icon: Contact },
+  { href: '/documentos',          label: 'Documentos',       icon: Folder },
+  { href: '/cartera',             label: 'Cartera',          icon: Wallet },
+  { href: '/reportes',            label: 'Estado resultados', icon: BarChart3 },
+  { href: '/impuesto',            label: 'Impuesto SIMPLE',  icon: Receipt },
 ]
 
 const allHrefs = links.map(l => l.href)
@@ -28,7 +33,6 @@ const allHrefs = links.map(l => l.href)
 function isActive(href: string, pathname: string): boolean {
   if (href === '/') return pathname === '/'
   if (!pathname.startsWith(href)) return false
-  // Yield to a more-specific sibling link when it also matches
   return !allHrefs.some(h => h !== href && h.startsWith(href + '/') && pathname.startsWith(h))
 }
 
@@ -36,25 +40,43 @@ export default function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-56 bg-[#0F172A] flex flex-col h-screen flex-shrink-0">
-      <div className="px-4 py-5 border-b border-white/10">
-        <p className="text-white font-bold text-sm">ISADAN Transportes</p>
-        <p className="text-white/40 text-xs mt-0.5">Gestión operativa</p>
+    <aside
+      className="group h-screen bg-[#0F172A] flex flex-col overflow-hidden
+                 w-56 lg:w-14 lg:hover:w-56 transition-[width] duration-200 ease-in-out"
+    >
+      {/* Brand */}
+      <div className="flex items-center h-14 px-4 border-b border-white/10 shrink-0">
+        <div className="w-6 h-6 rounded-md bg-blue-600 flex items-center justify-center shrink-0">
+          <Truck size={14} className="text-white" />
+        </div>
+        <div className="ml-3 min-w-0 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-200">
+          <p className="text-white font-bold text-sm whitespace-nowrap leading-tight">ISADAN Transportes</p>
+          <p className="text-white/40 text-[10px] whitespace-nowrap">Gestión operativa</p>
+        </div>
       </div>
-      <nav className="flex-1 overflow-y-auto py-3 px-3">
-        {links.map(({ href, label }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`flex items-center px-2 py-2 rounded-lg text-sm mb-0.5 transition-colors
-              ${isActive(href, pathname)
-                ? 'bg-blue-600/25 text-blue-400 font-medium'
-                : 'text-white/60 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            {label}
-          </Link>
-        ))}
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2">
+        {links.map(({ href, label, icon: Icon }) => {
+          const active = isActive(href, pathname)
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={label}
+              className={`flex items-center h-9 px-2.5 rounded-lg mb-0.5 transition-colors
+                ${active
+                  ? 'bg-blue-600/25 text-blue-400 font-medium'
+                  : 'text-white/60 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Icon size={18} className="shrink-0" />
+              <span className="ml-3 text-sm whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-200">
+                {label}
+              </span>
+            </Link>
+          )
+        })}
       </nav>
     </aside>
   )
