@@ -173,11 +173,25 @@ export async function conciliarAction(
     accountName = acc?.bank_name ?? ''
   }
 
+  const result = await cruzarExtracto(accountId!, accountName, year, month, extractoRows, saldoFinal)
+  await guardarPendiente(result, extractoRows)
+  return result
+}
+
+type OkResult = Extract<ConciliacionResult, { ok: true }>
+
+/** Cruza los movimientos del extracto contra las transacciones app del mismo mes. */
+async function cruzarExtracto(
+  accountId: string, accountName: string, year: number, month: number,
+  extractoRows: ExtractoRow[], saldoFinal: number,
+): Promise<OkResult> {
+  const { desde, hasta } = monthBounds(year, month)
+
   // ── Transacciones de la app SOLO del mes (primer–último día) ───────────────
   const { data: appRaw } = await supabase
     .from('bank_transactions')
     .select('id, date, amount, type, description, category')
-    .eq('account_id', accountId!)
+    .eq('account_id', accountId)
     .gte('date', desde)
     .lte('date', hasta)
 
@@ -258,29 +272,83 @@ export async function conciliarAction(
     .filter(t => !matchedAppIds.has(t.id))
     .map(t => ({ id: t.id, date: t.date, amount: t.amount, type: t.type, description: t.description }))
 
-  // ── Resumen del extracto ──────────────────────────────────────────────────
   const totalIngresos = extractoRows.filter(r => r.tipo === 'INGRESO').reduce((s, r) => s + r.monto, 0)
   const totalEgresos  = extractoRows.filter(r => r.tipo === 'EGRESO').reduce((s, r) => s + r.monto, 0)
   const saldoInicial  = saldoFinal - totalIngresos + totalEgresos
-
-  // ── Saldo de la app al cierre del mes ─────────────────────────────────────
-  const saldoApp = await computeSaldoApp(accountId!, hasta)
+  const saldoApp      = await computeSaldoApp(accountId, hasta)
 
   return {
     ok: true,
-    accountId: accountId!,
-    accountName,
-    year, month,
+    accountId, accountName, year, month,
     periodo: { desde, hasta },
-    saldoInicial,
-    totalIngresos,
-    totalEgresos,
-    saldoFinal,
-    saldoApp,
-    conciliados,
-    sinRegistrar,
-    sinConfirmar,
+    saldoInicial, totalIngresos, totalEgresos, saldoFinal, saldoApp,
+    conciliados, sinRegistrar, sinConfirmar,
   }
+}
+
+/** Guarda/actualiza el cruce como PENDIENTE (no toca meses ya CONCILIADOS). */
+async function guardarPendiente(result: OkResult, extractoRows: ExtractoRow[]): Promise<void> {
+  const { data: existing } = await supabase
+    .from('bank_reconciliations').select('status')
+    .eq('account_id', result.accountId).eq('year', result.year).eq('month', result.month)
+    .maybeSingle()
+  if (existing?.status === 'CONCILIADO') return
+
+  const row = {
+    account_id:                  result.accountId,
+    year:                        result.year,
+    month:                       result.month,
+    status:                      'PENDIENTE',
+    extracto_saldo_inicial:      Math.round(result.saldoInicial),
+    extracto_total_ingresos:     Math.round(result.totalIngresos),
+    extracto_total_egresos:      Math.round(result.totalEgresos),
+    extracto_saldo_final:        Math.round(result.saldoFinal),
+    app_saldo_final:             Math.round(result.saldoApp),
+    diferencia:                  Math.round(result.saldoFinal - result.saldoApp),
+    transacciones_conciliadas:   result.conciliados.length,
+    transacciones_sin_registrar: result.sinRegistrar.length,
+    transacciones_sin_confirmar: result.sinConfirmar.length,
+    extracto_data:               extractoRows,
+    resultado_data: {
+      accountName:   result.accountName,
+      periodo:       result.periodo,
+      saldoInicial:  result.saldoInicial,
+      totalIngresos: result.totalIngresos,
+      totalEgresos:  result.totalEgresos,
+      saldoFinal:    result.saldoFinal,
+      saldoApp:      result.saldoApp,
+      conciliados:   result.conciliados,
+      sinRegistrar:  result.sinRegistrar,
+      sinConfirmar:  result.sinConfirmar,
+    },
+  }
+  const { error } = await supabase
+    .from('bank_reconciliations').upsert(row, { onConflict: 'account_id,year,month' })
+  if (error) console.error('[guardarPendiente] error:', error.message)
+  revalidatePath('/bancos/conciliacion')
+}
+
+/**
+ * Re-cruza usando el extracto ya guardado (sin re-subir archivo). Se usa al refrescar
+ * tras registrar un movimiento cuando la sesión cargó datos persistidos.
+ */
+export async function recruzarAction(
+  accountId: string, year: number, month: number,
+): Promise<ConciliacionResult> {
+  const { data: rec } = await supabase
+    .from('bank_reconciliations')
+    .select('extracto_data, extracto_saldo_final, resultado_data, status')
+    .eq('account_id', accountId).eq('year', year).eq('month', month)
+    .maybeSingle()
+  if (!rec?.extracto_data) return { ok: false, error: 'No hay extracto guardado para este mes. Sube el extracto.' }
+  if (rec.status === 'CONCILIADO') return { ok: false, error: 'Este mes ya está conciliado.' }
+
+  const { data: acc } = await supabase.from('bank_accounts').select('bank_name').eq('id', accountId).single()
+  const extractoRows = rec.extracto_data as ExtractoRow[]
+  const saldoFinal   = Number((rec.resultado_data as any)?.saldoFinal ?? rec.extracto_saldo_final ?? 0)
+  const result = await cruzarExtracto(accountId, acc?.bank_name ?? '', year, month, extractoRows, saldoFinal)
+  await guardarPendiente(result, extractoRows)
+  return result
 }
 
 /** Saldo de la app = saldo inicial de la cuenta + ingresos − egresos hasta la fecha. */

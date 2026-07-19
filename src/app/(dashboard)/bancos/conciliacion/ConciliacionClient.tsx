@@ -12,14 +12,28 @@ import CategorySelector from '@/components/CategorySelector'
 import type { PucAccount } from '@/components/PucSelector'
 import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
 import {
-  conciliarAction, cerrarMesAction,
+  conciliarAction, cerrarMesAction, recruzarAction,
   type ConciliacionResult, type ExtractoRow, type AccountOption,
+  type ConciliadoItem, type AppTxn,
 } from './actions'
 import { crearTransaccionAction } from '../transaccion/actions'
 
 // ── Tipos compartidos con la página ─────────────────────────────────────────
 
 export type AccountLite = { id: string; bank_name: string; account_number: string | null }
+
+export type SavedResultado = {
+  accountName: string
+  periodo: { desde: string; hasta: string }
+  saldoInicial: number
+  totalIngresos: number
+  totalEgresos: number
+  saldoFinal: number
+  saldoApp: number
+  conciliados: ConciliadoItem[]
+  sinRegistrar: ExtractoRow[]
+  sinConfirmar: AppTxn[]
+}
 
 export type ReconciliacionRow = {
   id: string
@@ -37,6 +51,8 @@ export type ReconciliacionRow = {
   sinRegistrar: number
   sinConfirmar: number
   closedAt: string | null
+  resultadoData: SavedResultado | null
+  hasExtracto: boolean
 }
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -218,6 +234,28 @@ export default function ConciliacionClient({
     setMode('nueva')
   }
 
+  // Abre el flujo con el resultado ya guardado (sin re-subir el extracto).
+  const loadSaved = (rec: ReconciliacionRow) => {
+    if (!rec.resultadoData) { startNueva(rec.year, rec.month); return }
+    setFlowYear(rec.year); setFlowMonth(rec.month)
+    setFile(null); setNeedsAccounts(null); setAcctRaw(''); setAcepta(false); setShowConciliados(false)
+    setResult({ ok: true, accountId: rec.accountId, year: rec.year, month: rec.month, ...rec.resultadoData })
+    setMode('nueva')
+  }
+
+  // "Recargar extracto": limpia el resultado para volver a subir el archivo del mismo mes.
+  const recargarExtracto = () => { setResult(null); setFile(null); setNeedsAccounts(null); setAcepta(false) }
+
+  // Tras registrar un movimiento, re-cruza: con archivo en memoria o desde lo guardado.
+  const refreshCross = async () => {
+    if (!res) return
+    if (file) { await run(res.accountId); return }
+    setProcessing(true)
+    const r = await recruzarAction(res.accountId, res.year, res.month)
+    setProcessing(false)
+    if (r.ok) setResult(r)
+  }
+
   const backToList = () => { setMode('list'); setResult(null); setFile(null) }
 
   const handleFile = useCallback((f: File) => {
@@ -317,9 +355,9 @@ export default function ConciliacionClient({
                   {open ? <ChevronDown size={15} className="text-[#94A3B8] shrink-0" /> : <ChevronRight size={15} className="text-[#94A3B8] shrink-0" />}
                   <span className="font-semibold text-[#0F172A] text-sm w-36 shrink-0">{mesLabel(month)} {year}</span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 inline-flex items-center gap-1 ${
-                    isClosed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                    isClosed ? 'bg-green-100 text-green-700' : rec ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
                   }`}>
-                    {isClosed && <Lock size={9} />}{isClosed ? 'CONCILIADO' : 'PENDIENTE'}
+                    {isClosed && <Lock size={9} />}{isClosed ? 'CONCILIADO' : rec ? 'EN PROCESO' : 'PENDIENTE'}
                   </span>
                   <span className="flex-1" />
                   {rec && (
@@ -362,6 +400,32 @@ export default function ConciliacionClient({
                             <Lock size={10} /> Cerrado el {formatDate(rec.closedAt.slice(0, 10))} · solo lectura
                           </p>
                         )}
+                      </div>
+                    ) : rec ? (
+                      <div className="space-y-3 pt-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {[
+                            { label: 'Saldo inicial', value: formatCOP(rec.saldoInicial) },
+                            { label: 'Ingresos',      value: formatCOP(rec.totalIngresos) },
+                            { label: 'Egresos',       value: formatCOP(rec.totalEgresos) },
+                            { label: 'Saldo final',   value: formatCOP(rec.saldoFinal) },
+                          ].map(s => (
+                            <div key={s.label} className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
+                              <p className="text-[10px] text-[#94A3B8]">{s.label}</p>
+                              <p className="text-sm font-bold text-[#0F172A] tabular-nums mt-0.5">{s.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                          <span className="inline-flex items-center gap-1 text-green-700"><CheckCircle2 size={12} /> {rec.conciliadas} conciliadas</span>
+                          <span className="inline-flex items-center gap-1 text-amber-700"><AlertTriangle size={12} /> {rec.sinRegistrar} sin registrar</span>
+                          <span className="inline-flex items-center gap-1 text-red-600"><XCircle size={12} /> {rec.sinConfirmar} sin confirmar</span>
+                          <button onClick={() => loadSaved(rec)}
+                            className="ml-auto text-xs bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium px-3 py-1.5 rounded-lg transition-colors shrink-0">
+                            Abrir conciliación
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-[#94A3B8]">Guardado sin cerrar · puedes continuar o recargar el extracto.</p>
                       </div>
                     ) : (
                       <div className="pt-3 flex items-center justify-between gap-3">
@@ -507,7 +571,13 @@ export default function ConciliacionClient({
               <CheckCircle2 size={15} className="text-blue-600 shrink-0" />
               <p className="text-sm font-semibold text-blue-800">{res.accountName} · {mesLabel(res.month)} {res.year}</p>
             </div>
-            <p className="text-xs text-blue-600 font-mono">{formatDate(res.periodo.desde)} → {formatDate(res.periodo.hasta)}</p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-blue-600 font-mono">{formatDate(res.periodo.desde)} → {formatDate(res.periodo.hasta)}</p>
+              <button onClick={recargarExtracto}
+                className="text-xs font-medium text-blue-700 hover:text-blue-900 border border-blue-300 hover:bg-blue-100 rounded-lg px-2.5 py-1 transition-colors inline-flex items-center gap-1">
+                <Upload size={11} /> Recargar extracto
+              </button>
+            </div>
           </div>
 
           {/* KPIs */}
@@ -647,7 +717,7 @@ export default function ConciliacionClient({
           categories={categories}
           pucAccounts={pucAccounts}
           onClose={() => setRegistrarRow(null)}
-          onDone={() => { setRegistrarRow(null); run(res.accountId) }}
+          onDone={() => { setRegistrarRow(null); refreshCross() }}
         />
       )}
     </div>

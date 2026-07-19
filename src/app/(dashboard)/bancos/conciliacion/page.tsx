@@ -51,6 +51,8 @@ export default async function ConciliacionPage() {
     sinRegistrar:      Number(r.transacciones_sin_registrar ?? 0),
     sinConfirmar:      Number(r.transacciones_sin_confirmar ?? 0),
     closedAt:          r.closed_at ?? null,
+    resultadoData:     r.resultado_data ?? null,
+    hasExtracto:       !!r.extracto_data,
   }))
 
   const minDate = minRes.data?.[0]?.date ?? null
