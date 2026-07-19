@@ -2,12 +2,12 @@
 
 import Link from 'next/link'
 import { useState, useMemo, useRef } from 'react'
-import { formatCOP, formatDate, formatTripOption, tripMatchesQuery } from '@/lib/utils'
+import { formatCOP, formatDate, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
-  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap,
+  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck,
 } from 'lucide-react'
-import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction } from '../transaccion/actions'
+import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, obtenerClienteViajeAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
 import type { Trip } from '@/lib/types'
 
@@ -101,6 +101,7 @@ export default function BankDetailClient({
   const [editTxn,        setEditTxn]        = useState<Transaction | null>(null)
   const [editForm,       setEditForm]       = useState<EditForm | null>(null)
   const [editTripSearch, setEditTripSearch] = useState('')
+  const [editTripClientSug, setEditTripClientSug] = useState<{ nit: string; name: string } | null>(null)
   const [saving,         setSaving]         = useState(false)
   const [editError,      setEditError]      = useState('')
   const [editSuggestion, setEditSuggestion] = useState<SugerirResult | null>(null)
@@ -165,6 +166,13 @@ export default function BankDetailClient({
     return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [transactions])
 
+  // Mapa viaje→datos para mostrar el manifiesto en las filas con viaje vinculado
+  const tripById = useMemo(() => new Map(trips.map(t => [t.id, t])), [trips])
+  const tripBadge = (t: Transaction) =>
+    t.reference_type === 'TRIP' && t.reference_id
+      ? tripManifiesto(tripById.get(t.reference_id))
+      : null
+
   const openEdit = (t: Transaction) => {
     setEditTxn(t)
     setEditForm({
@@ -174,6 +182,7 @@ export default function BankDetailClient({
       trip_id: t.reference_type === 'TRIP' ? (t.reference_id ?? '') : '',
     })
     setEditTripSearch('')
+    setEditTripClientSug(null)
     setEditError('')
     setEditSuggestion(null)
     if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
@@ -181,8 +190,17 @@ export default function BankDetailClient({
 
   const closeEdit = () => {
     setEditTxn(null); setEditForm(null)
-    setEditSuggestion(null)
+    setEditSuggestion(null); setEditTripClientSug(null)
     if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
+  }
+
+  // Al elegir viaje en el modal, buscar su cliente para sugerir el tercero.
+  const handleEditTripChange = async (id: string) => {
+    setEditForm(p => p && ({ ...p, trip_id: id }))
+    setEditTripClientSug(null)
+    if (!id) return
+    const c = await obtenerClienteViajeAction(id)
+    if (c && (c.name || c.nit)) setEditTripClientSug({ nit: c.nit ?? '', name: c.name ?? '' })
   }
 
   const handleDeleteConfirm = async () => {
@@ -492,7 +510,17 @@ export default function BankDetailClient({
                     </span>
                   </td>
                   <td className="px-3 py-1.5"><CategoryBadge cat={t.transaction_categories} /></td>
-                  <td className="px-3 py-1.5 text-xs text-[#0F172A] max-w-[220px] truncate">{t.description}</td>
+                  <td className="px-3 py-1.5 text-xs text-[#0F172A] max-w-[220px]">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{t.description}</span>
+                      {tripBadge(t) && (
+                        <span title={`Viaje ${tripBadge(t)}`} aria-label={`Viaje ${tripBadge(t)}`}
+                          className="shrink-0 inline-flex items-center text-blue-500">
+                          <Truck size={11} />
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-1.5 text-xs text-[#94A3B8] whitespace-nowrap max-w-[140px] truncate hidden lg:table-cell">
                     {t.supplier_name ?? '—'}
                   </td>
@@ -544,7 +572,15 @@ export default function BankDetailClient({
                   className="mt-0.5 w-3.5 h-3.5 rounded accent-[#2563EB] cursor-pointer flex-shrink-0"
                 />
                 <div className="min-w-0">
-                  <p className="text-xs text-[#0F172A] font-medium truncate">{t.description}</p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs text-[#0F172A] font-medium truncate">{t.description}</p>
+                    {tripBadge(t) && (
+                      <span title={`Viaje ${tripBadge(t)}`} aria-label={`Viaje ${tripBadge(t)}`}
+                        className="shrink-0 inline-flex items-center text-blue-500">
+                        <Truck size={11} />
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[10px] text-[#94A3B8] mt-0.5">{formatDate(t.date)}</p>
                 </div>
               </div>
@@ -665,7 +701,23 @@ export default function BankDetailClient({
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tercero (opcional)</label>
                 <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
-                  onChange={(nit, name) => setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name }))} />
+                  onChange={(nit, name) => { setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name })); setEditTripClientSug(null) }} />
+                {editTripClientSug && !editForm.supplier_nit && !editForm.supplier_name && (
+                  <div className="mt-2 flex items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                    <span className="text-blue-800 min-w-0 truncate">
+                      Sugerido del viaje: <span className="font-semibold">{editTripClientSug.name || editTripClientSug.nit}</span>
+                    </span>
+                    <button type="button"
+                      onClick={() => { setEditForm(p => p && ({ ...p, supplier_nit: editTripClientSug.nit, supplier_name: editTripClientSug.name })); setEditTripClientSug(null) }}
+                      className="ml-auto shrink-0 text-blue-700 hover:text-blue-900 font-semibold">
+                      Aceptar
+                    </button>
+                    <button type="button" onClick={() => setEditTripClientSug(null)}
+                      className="shrink-0 text-[#94A3B8] hover:text-[#64748B]">
+                      Ignorar
+                    </button>
+                  </div>
+                )}
               </div>
               {trips.length > 0 && (
                 <div>
@@ -678,7 +730,7 @@ export default function BankDetailClient({
                     className={`${inpCls} mb-2`}
                   />
                   <select value={editForm.trip_id}
-                    onChange={e => setEditForm(p => p && ({ ...p, trip_id: e.target.value }))}
+                    onChange={e => handleEditTripChange(e.target.value)}
                     className={inpCls}>
                     <option value="">Sin viaje asociado</option>
                     {trips

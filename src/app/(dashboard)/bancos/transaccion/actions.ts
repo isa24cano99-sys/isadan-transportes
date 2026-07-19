@@ -4,6 +4,21 @@ import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { extraerPatron } from '@/lib/transaction-categorizer'
 
+/** Devuelve el cliente (nombre + NIT) del viaje, para sugerir el tercero. */
+export async function obtenerClienteViajeAction(
+  tripId: string,
+): Promise<{ nit: string | null; name: string | null } | null> {
+  if (!tripId) return null
+  const { data } = await supabase
+    .from('trips')
+    .select('clients(name, nit)')
+    .eq('id', tripId)
+    .single()
+  const c = (data as any)?.clients
+  if (!c || (!c.name && !c.nit)) return null
+  return { nit: c.nit ?? null, name: c.name ?? null }
+}
+
 function extractTxnFields(formData: FormData) {
   return {
     type:           formData.get('type') as string,

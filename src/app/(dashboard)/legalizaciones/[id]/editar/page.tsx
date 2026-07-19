@@ -41,7 +41,7 @@ async function getData(id: string) {
       .eq('legalization_id', id),
     supabase
       .from('trips')
-      .select('id, trip_number, origin, destination, load_date, freight_value, advance_amount, driver_id, manifest_number, weight_kg, price_per_ton, clients(name), vehicles(plate), drivers(full_name)')
+      .select('id, trip_number, origin, destination, load_date, freight_value, advance_amount, driver_id, manifest_number, manifest_auth, weight_kg, price_per_ton, clients(name), vehicles(plate), drivers(full_name)')
       .order('created_at', { ascending: false }),
     supabase
       .from('transaction_categories')

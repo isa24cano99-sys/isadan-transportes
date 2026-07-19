@@ -1,6 +1,7 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import { tripManifiesto } from '@/lib/utils'
 
 // ── PUC mapping ───────────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ export async function fetchLegalizacionDetailAction(legId: string): Promise<{
       .from('legalizations')
       .select(`
         id, date, status, advance_amount, total_expenses, balance,
-        trips(trip_number, origin, destination, vehicles(plate)),
+        trips(trip_number, manifest_number, manifest_auth, origin, destination, vehicles(plate)),
         drivers(full_name)
       `)
       .eq('id', legId)
@@ -170,7 +171,7 @@ export async function fetchLegalizacionDetailAction(legId: string): Promise<{
       advanceAmount: Number(leg.advance_amount ?? 0),
       totalExpenses: Number(leg.total_expenses ?? 0),
       balance:       Number(leg.balance ?? 0),
-      tripNumber:    trip?.trip_number ?? '—',
+      tripNumber:    tripManifiesto(trip),
       origin:        trip?.origin       ?? '—',
       destination:   trip?.destination  ?? '—',
       plate,

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { formatCOP, formatDate } from '@/lib/utils'
+import { formatCOP, formatDate, tripManifiesto } from '@/lib/utils'
 import {
   Users, ChevronDown, ChevronUp, Loader2, CheckCircle2, X, FileDown, Pencil, Trash2,
 } from 'lucide-react'
@@ -209,7 +209,7 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
         margin: { left: 15, right: 15 },
         head: [['Viaje', 'Ruta', 'Anticipo', 'Gastos', 'Balance', 'Resultado']],
         body: calc.legalizaciones.map((l: LegalizacionCalculo) => [
-          l.trip?.trip_number ?? '—',
+          tripManifiesto(l.trip),
           l.trip ? `${l.trip.origin} → ${l.trip.destination}` : '—',
           formatCOP(l.advance_amount),
           formatCOP(l.total_expenses),
@@ -535,7 +535,7 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                           <tbody className="divide-y divide-[#E2E8F0]">
                             {calculo.legalizaciones.map(l => (
                               <tr key={l.id} className="hover:bg-[#F8FAFC]">
-                                <td className="px-3 py-1.5 font-mono font-bold text-[#2563EB]">{l.trip?.trip_number ?? '—'}</td>
+                                <td className="px-3 py-1.5 font-mono font-bold text-[#2563EB]">{tripManifiesto(l.trip)}</td>
                                 <td className="px-3 py-1.5 text-[#64748B] max-w-[140px] truncate">
                                   {l.trip ? `${l.trip.origin} → ${l.trip.destination}` : '—'}
                                 </td>
@@ -558,7 +558,7 @@ export default function NominaClient({ drivers }: { drivers: Driver[] }) {
                         {calculo.legalizaciones.map(l => (
                           <div key={l.id} className="border border-[#E2E8F0] rounded-xl p-3">
                             <div className="flex items-center justify-between mb-1">
-                              <span className="font-mono font-bold text-[#2563EB] text-sm">{l.trip?.trip_number ?? '—'}</span>
+                              <span className="font-mono font-bold text-[#2563EB] text-sm">{tripManifiesto(l.trip)}</span>
                               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
                                 l.balance > 0 ? 'bg-red-50 text-red-600'
                                 : l.balance < 0 ? 'bg-green-50 text-green-700'

@@ -10,7 +10,7 @@ async function getData() {
       .select(`
         id, trip_number, origin, destination, load_date,
         freight_value, advance_amount, driver_id,
-        manifest_number, weight_kg, price_per_ton,
+        manifest_number, manifest_auth, weight_kg, price_per_ton,
         clients(name), vehicles(plate), drivers(full_name)
       `)
       .order('created_at', { ascending: false }),

@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { crearLegalizacionAction, actualizarLegalizacionAction, crearCuentaYCategoriaAction } from './actions'
-import { formatCOP, formatTripOption, tripMatchesQuery } from '@/lib/utils'
+import { formatCOP, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
 import { X, Plus, Trash2 } from 'lucide-react'
 
@@ -25,6 +25,7 @@ interface Trip {
   advance_amount: number
   driver_id: string | null
   manifest_number: string | null
+  manifest_auth: string | null
   weight_kg: number | null
   price_per_ton: number | null
   clients: { name: string } | null
@@ -457,7 +458,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
           </div>
           <div className="p-6 space-y-4 text-sm overflow-y-auto flex-1">
             <Section title="Viaje">
-              <PreviewRow label="# Viaje"    value={selectedTrip?.trip_number ?? '—'} />
+              <PreviewRow label="Manifiesto" value={tripManifiesto(selectedTrip)} />
               <PreviewRow label="Ruta"       value={selectedTrip ? `${selectedTrip.origin} → ${selectedTrip.destination}` : '—'} />
               <PreviewRow label="Conductor"  value={selectedTrip?.drivers?.full_name ?? '—'} />
               <PreviewRow label="Placa"      value={selectedTrip?.vehicles?.plate ?? '—'} />

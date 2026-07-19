@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Zap, X } from 'lucide-react'
-import { crearTransaccionAction } from './actions'
+import { crearTransaccionAction, obtenerClienteViajeAction } from './actions'
 import CategorySelector from '@/components/CategorySelector'
 import SupplierSelector from '@/components/SupplierSelector'
 import { formatTripOption, tripMatchesQuery } from '@/lib/utils'
@@ -50,6 +50,7 @@ export default function TransaccionForm({
   const [supplierNit,  setSupplierNit]  = useState('')
   const [supplierName, setSupplierName] = useState('')
   const [suggestion,   setSuggestion]   = useState<SugerirResult | null>(null)
+  const [tripClientSug, setTripClientSug] = useState<{ nit: string; name: string } | null>(null)
   const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const supplierNitRef = useRef('')
   supplierNitRef.current = supplierNit
@@ -74,6 +75,15 @@ export default function TransaccionForm({
     if (!suggestion) return
     setCategoryId(suggestion.categoryId)
     setSuggestion(null)
+  }
+
+  // Al elegir viaje, buscar su cliente para sugerir el tercero (si está vacío).
+  const handleTripChange = async (id: string) => {
+    setTripId(id)
+    setTripClientSug(null)
+    if (!id) return
+    const c = await obtenerClienteViajeAction(id)
+    if (c && (c.name || c.nit)) setTripClientSug({ nit: c.nit ?? '', name: c.name ?? '' })
   }
 
   const handleCancel = () => {
@@ -197,8 +207,24 @@ export default function TransaccionForm({
         <SupplierSelector
           nit={supplierNit}
           name={supplierName}
-          onChange={(nit, name) => { setSupplierNit(nit); setSupplierName(name) }}
+          onChange={(nit, name) => { setSupplierNit(nit); setSupplierName(name); setTripClientSug(null) }}
         />
+        {tripClientSug && !supplierNit && !supplierName && (
+          <div className="mt-2 flex items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
+            <span className="text-blue-800 min-w-0 truncate">
+              Sugerido del viaje: <span className="font-semibold">{tripClientSug.name || tripClientSug.nit}</span>
+            </span>
+            <button type="button"
+              onClick={() => { setSupplierNit(tripClientSug.nit); setSupplierName(tripClientSug.name); setTripClientSug(null) }}
+              className="ml-auto shrink-0 text-blue-700 hover:text-blue-900 font-semibold">
+              Aceptar
+            </button>
+            <button type="button" onClick={() => setTripClientSug(null)}
+              className="shrink-0 text-[#94A3B8] hover:text-[#64748B]">
+              Ignorar
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Monto */}
@@ -218,7 +244,7 @@ export default function TransaccionForm({
             placeholder="Buscar por manifiesto, placa o ruta…"
             className={`${inputCls} mb-2`}
           />
-          <select value={tripId} onChange={e => setTripId(e.target.value)} className={inputCls}>
+          <select value={tripId} onChange={e => handleTripChange(e.target.value)} className={inputCls}>
             <option value="">Sin viaje asociado</option>
             {trips.filter(t => tripMatchesQuery(t, tripSearch)).map(t => (
               <option key={t.id} value={t.id}>{formatTripOption(t)}</option>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { formatCOP, formatDate, legalizacionBalance } from '@/lib/utils'
+import { formatCOP, formatDate, legalizacionBalance, tripManifiesto } from '@/lib/utils'
 import Link from 'next/link'
 import { FileText, Search, Pencil, Trash2 } from 'lucide-react'
 import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction } from './actions'
@@ -188,7 +188,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
               return (
                 <tr key={leg.id} className="hover:bg-[#F8FAFC] transition-colors">
                   <td className="px-3 py-2">
-                    <span className="text-xs font-mono font-bold text-[#2563EB]">{trip?.trip_number ?? '—'}</span>
+                    <span className="text-xs font-mono font-bold text-[#2563EB]">{tripManifiesto(trip)}</span>
                     {trip && <p className="text-xs text-[#64748B] mt-0.5">{trip.origin} → {trip.destination}</p>}
                   </td>
                   <td className="px-3 py-2 text-xs font-mono text-[#0F172A]">{vehiclePlate}</td>
@@ -261,7 +261,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
             <div key={leg.id} className="bg-white border border-[#E2E8F0] rounded-xl p-3">
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div>
-                  <span className="text-xs font-mono font-bold text-[#2563EB]">{trip?.trip_number ?? '—'}</span>
+                  <span className="text-xs font-mono font-bold text-[#2563EB]">{tripManifiesto(trip)}</span>
                   {trip && <p className="text-xs text-[#64748B] mt-0.5">{trip.origin} → {trip.destination}</p>}
                 </div>
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${st.className}`}>{st.label}</span>
@@ -309,7 +309,7 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
             <h2 className="font-semibold text-[#0F172A]">Eliminar legalizacion</h2>
             <p className="text-xs text-[#64748B]">
               Se eliminara la legalizacion del viaje{' '}
-              <span className="font-medium text-[#0F172A]">{deleteTarget.trips?.trip_number ?? '—'}</span>{' '}
+              <span className="font-medium text-[#0F172A]">{tripManifiesto(deleteTarget.trips)}</span>{' '}
               junto con todos sus gastos. Esta accion no se puede deshacer.
             </p>
             <div className="flex gap-3">

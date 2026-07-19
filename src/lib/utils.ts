@@ -36,11 +36,24 @@ export function formatInvoiceNumber(n: string | null | undefined): string {
 type TripLike = {
   trip_number?:     string | null
   manifest_number?: string | null
+  manifest_auth?:   string | null
   origin?:          string | null
   destination?:     string | null
   load_date?:       string | null
   plate?:           string | null
   vehicles?:        { plate?: string | null } | null
+}
+
+/**
+ * Identificador de viaje priorizando el manifiesto:
+ * manifest_number → manifest_auth → trip_number → '—'.
+ */
+export function tripManifiesto(t: TripLike | null | undefined): string {
+  if (!t) return '—'
+  return (t.manifest_number ?? '').trim()
+      || (t.manifest_auth ?? '').trim()
+      || (t.trip_number ?? '').trim()
+      || '—'
 }
 
 /**

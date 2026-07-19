@@ -9,7 +9,7 @@ export type LegalizacionCalculo = {
   balance: number
   advance_amount: number
   total_expenses: number
-  trip: { trip_number: string; origin: string; destination: string; freight_value: number } | null
+  trip: { trip_number: string; manifest_number: string | null; manifest_auth: string | null; origin: string; destination: string; freight_value: number } | null
 }
 
 export type NominaCalculo = {
@@ -34,7 +34,7 @@ export async function calcularNominaAction(
 
   const { data: legs, error } = await supabase
     .from('legalizations')
-    .select('*, trips(trip_number, origin, destination, freight_value)')
+    .select('*, trips(trip_number, manifest_number, manifest_auth, origin, destination, freight_value)')
     .eq('driver_id', driverId)
     .eq('status', 'APROBADA')
     .gte('date', dateFrom)
