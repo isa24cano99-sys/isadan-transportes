@@ -110,7 +110,7 @@ const emptyResult = (extra: Partial<FlypassResult>): FlypassResult => ({
 /**
  * Sube el reporte Flypass, guarda los peajes en `toll_transactions` (dedup por
  * `document`) y registra un egreso en `bank_transactions` por cada placa+día
- * con fecha ≥ `fechaInicio`, sin duplicar (dedup por `source` + `description`).
+ * con fecha ≥ `fechaInicio`, sin duplicar (dedup por `reference_type` + `description`).
  */
 export async function importarFlypassPeajesAction(
   file: File,
@@ -204,7 +204,7 @@ export async function importarFlypassPeajesAction(
     const { data: existing } = await supabase
       .from('bank_transactions')
       .select('description')
-      .eq('source', 'EXTRACTO_FLYPASS')
+      .eq('reference_type', 'FLYPASS_PEAJE')
       .in('description', descs)
     existingRefs = new Set((existing ?? []).map(e => e.description as string))
   }
@@ -219,7 +219,9 @@ export async function importarFlypassPeajesAction(
       type:           'EGRESO',
       category:       PEAJE_PUC,
       category_id:    categoryId,
-      source:         'EXTRACTO_FLYPASS',
+      // `source` tiene check constraint (solo MANUAL/NOMINA/EXTRACTO_BANCOLOMBIA…);
+      // los egresos Flypass se identifican por `reference_type`, no por source.
+      source:         'MANUAL',
       reference_type: 'FLYPASS_PEAJE',
     }))
 
