@@ -1,20 +1,62 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle,
-  XCircle, ChevronDown, ChevronRight, X, GitMerge,
+  XCircle, ChevronDown, ChevronRight, X, GitMerge, Lock, Plus, Calendar,
 } from 'lucide-react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import CategorySelector from '@/components/CategorySelector'
 import type { PucAccount } from '@/components/PucSelector'
 import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
 import {
-  conciliarAction,
+  conciliarAction, cerrarMesAction,
   type ConciliacionResult, type ExtractoRow, type AccountOption,
 } from './actions'
 import { crearTransaccionAction } from '../transaccion/actions'
+
+// ── Tipos compartidos con la página ─────────────────────────────────────────
+
+export type AccountLite = { id: string; bank_name: string; account_number: string | null }
+
+export type ReconciliacionRow = {
+  id: string
+  accountId: string
+  year: number
+  month: number
+  status: 'PENDIENTE' | 'CONCILIADO'
+  saldoInicial: number
+  totalIngresos: number
+  totalEgresos: number
+  saldoFinal: number
+  appSaldoFinal: number
+  diferencia: number
+  conciliadas: number
+  sinRegistrar: number
+  sinConfirmar: number
+  closedAt: string | null
+}
+
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const mesLabel = (m: number) => MESES[m - 1] ?? String(m)
+
+function monthsInRange(minDate: string | null, maxDate: string | null): { year: number; month: number }[] {
+  const now = new Date()
+  const start = minDate ? new Date(minDate + 'T00:00:00') : now
+  const end   = maxDate ? new Date(maxDate + 'T00:00:00') : now
+  const list: { year: number; month: number }[] = []
+  let y = start.getFullYear(), m = start.getMonth() + 1
+  const endY = end.getFullYear(), endM = end.getMonth() + 1
+  let guard = 0
+  while ((y < endY || (y === endY && m <= endM)) && guard++ < 240) {
+    list.push({ year: y, month: m })
+    m++; if (m > 12) { m = 1; y++ }
+  }
+  if (list.length === 0) list.push({ year: now.getFullYear(), month: now.getMonth() + 1 })
+  return list.reverse()
+}
 
 // ── RegistrarModal ────────────────────────────────────────────────────────────
 
@@ -26,7 +68,7 @@ function RegistrarModal({
   categories: TransactionCategory[]
   pucAccounts: PucAccount[]
   onClose: () => void
-  onDone: (row: ExtractoRow) => void
+  onDone: () => void
 }) {
   const [desc,       setDesc]       = useState(row.descripcion)
   const [categoryId, setCategoryId] = useState('')
@@ -44,7 +86,7 @@ function RegistrarModal({
     fd.set('category_id', categoryId)
     fd.set('description', desc)
     const res = await crearTransaccionAction(fd)
-    if (res.ok) onDone(row)
+    if (res.ok) onDone()
     else { setError(res.error ?? 'Error al guardar'); setSaving(false) }
   }
 
@@ -57,54 +99,25 @@ function RegistrarModal({
           <h2 className="font-semibold text-[#0F172A]">Registrar movimiento</h2>
           <button onClick={onClose}><X size={18} className="text-[#64748B]" /></button>
         </div>
-
-        {/* Preview */}
         <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-3 mb-4 grid grid-cols-3 gap-2 text-xs">
-          <div>
-            <p className="text-[#94A3B8] mb-0.5">Fecha</p>
-            <p className="font-mono text-[#0F172A]">{formatDate(row.fecha)}</p>
-          </div>
-          <div>
-            <p className="text-[#94A3B8] mb-0.5">Tipo</p>
-            <p className={`font-semibold ${row.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{row.tipo}</p>
-          </div>
-          <div>
-            <p className="text-[#94A3B8] mb-0.5">Monto</p>
-            <p className={`font-bold tabular-nums ${row.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>
-              {row.tipo === 'EGRESO' ? '−' : '+'}{formatCOP(row.monto)}
-            </p>
-          </div>
-          <div className="col-span-3">
-            <p className="text-[#94A3B8] mb-0.5">Descripción banco</p>
-            <p className="text-[#64748B] truncate">{row.descripcion}</p>
-          </div>
+          <div><p className="text-[#94A3B8] mb-0.5">Fecha</p><p className="font-mono text-[#0F172A]">{formatDate(row.fecha)}</p></div>
+          <div><p className="text-[#94A3B8] mb-0.5">Tipo</p><p className={`font-semibold ${row.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{row.tipo}</p></div>
+          <div><p className="text-[#94A3B8] mb-0.5">Monto</p><p className={`font-bold tabular-nums ${row.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{row.tipo === 'EGRESO' ? '−' : '+'}{formatCOP(row.monto)}</p></div>
+          <div className="col-span-3"><p className="text-[#94A3B8] mb-0.5">Descripción banco</p><p className="text-[#64748B] truncate">{row.descripcion}</p></div>
         </div>
-
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción en la app</label>
-            <textarea rows={2} value={desc} onChange={e => setDesc(e.target.value)}
-              className={`${cls} resize-none`} />
+            <textarea rows={2} value={desc} onChange={e => setDesc(e.target.value)} className={`${cls} resize-none`} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría *</label>
-            <CategorySelector
-              value={categoryId}
-              onChange={setCategoryId}
-              categories={categories}
-              pucAccounts={pucAccounts}
-            />
+            <CategorySelector value={categoryId} onChange={setCategoryId} categories={categories} pucAccounts={pucAccounts} />
           </div>
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex gap-3 pt-1">
-            <button onClick={onClose}
-              className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-xs hover:bg-[#F8FAFC] transition-colors">
-              Cancelar
-            </button>
-            <button onClick={handleSave} disabled={saving}
-              className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-xs transition-colors">
-              {saving ? 'Guardando…' : 'Registrar transacción'}
-            </button>
+            <button onClick={onClose} className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-xs hover:bg-[#F8FAFC] transition-colors">Cancelar</button>
+            <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-xs transition-colors">{saving ? 'Guardando…' : 'Registrar transacción'}</button>
           </div>
         </div>
       </div>
@@ -112,46 +125,109 @@ function RegistrarModal({
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Resumen de saldos (reusable) ──────────────────────────────────────────────
+
+function SaldoResumen({ saldoFinal, saldoApp }: { saldoFinal: number; saldoApp: number }) {
+  const diff = saldoFinal - saldoApp
+  const absDiff = Math.abs(diff)
+  const diffColor = absDiff === 0 ? 'text-green-600' : absDiff <= 10000 ? 'text-yellow-600' : 'text-red-600'
+  return (
+    <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
+      <p className="text-[10px] font-semibold text-[#64748B] uppercase tracking-wider mb-3">Comparación de saldos</p>
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Saldo extracto', value: saldoFinal, cls: 'text-[#0F172A]', diff: false },
+          { label: 'Saldo app',      value: saldoApp,   cls: 'text-[#0F172A]', diff: false },
+          { label: 'Diferencia',     value: diff,       cls: diffColor,        diff: true },
+        ].map(({ label, value, cls, diff: isDiff }) => (
+          <div key={label}>
+            <p className="text-[10px] text-[#94A3B8] mb-0.5">{label}</p>
+            <p className={`text-base md:text-lg font-bold tabular-nums ${cls}`}>
+              {isDiff && absDiff === 0 ? '—' : `${isDiff && diff > 0 ? '+' : ''}${formatCOP(Math.abs(value))}`}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className={`text-xs font-medium mt-3 ${diffColor}`}>
+        {absDiff === 0 ? '✅ Saldo cuadrado perfectamente' : absDiff <= 10000 ? '⚠️ Diferencia menor — posible redondeo' : '🔴 Diferencia significativa — revisar transacciones'}
+      </p>
+    </div>
+  )
+}
+
+// ── Componente principal ──────────────────────────────────────────────────────
 
 export default function ConciliacionClient({
-  categories,
-  pucAccounts,
+  categories, pucAccounts, accounts, reconciliations, minDate, maxDate,
 }: {
   categories: TransactionCategory[]
   pucAccounts: PucAccount[]
+  accounts: AccountLite[]
+  reconciliations: ReconciliacionRow[]
+  minDate: string | null
+  maxDate: string | null
 }) {
+  const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [dragging,        setDragging]        = useState(false)
-  const [file,            setFile]            = useState<File | null>(null)
-  const [processing,      setProcessing]      = useState(false)
-  const [result,          setResult]          = useState<ConciliacionResult | null>(null)
-  const [needsAccounts,   setNeedsAccounts]   = useState<AccountOption[] | null>(null)
-  const [acctRaw,         setAcctRaw]         = useState('')
-  const [selectedAccount, setSelectedAccount] = useState('')
+  const [mode, setMode] = useState<'list' | 'nueva'>('list')
+  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+
+  // Acordeón
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+
+  // Flujo
+  const now = new Date()
+  const [flowYear,  setFlowYear]  = useState(now.getFullYear())
+  const [flowMonth, setFlowMonth] = useState(now.getMonth() + 1)
+  const [dragging,  setDragging]  = useState(false)
+  const [file,      setFile]      = useState<File | null>(null)
+  const [processing, setProcessing] = useState(false)
+  const [result,    setResult]    = useState<ConciliacionResult | null>(null)
+  const [needsAccounts, setNeedsAccounts] = useState<AccountOption[] | null>(null)
+  const [acctRaw,   setAcctRaw]   = useState('')
   const [showConciliados, setShowConciliados] = useState(false)
-  const [registrarRow,    setRegistrarRow]    = useState<ExtractoRow | null>(null)
-  const [sinReg,          setSinReg]          = useState<ExtractoRow[]>([])
+  const [registrarRow, setRegistrarRow] = useState<ExtractoRow | null>(null)
+  const [acepta,    setAcepta]    = useState(false)
+  const [closing,   setClosing]   = useState(false)
 
   const res = result?.ok ? result : null
 
+  const reconMap = useMemo(() => {
+    const m = new Map<string, ReconciliacionRow>()
+    for (const r of reconciliations) m.set(`${r.accountId}_${r.year}_${r.month}`, r)
+    return m
+  }, [reconciliations])
+
+  const months = useMemo(() => monthsInRange(minDate, maxDate), [minDate, maxDate])
+  const years  = useMemo(() => {
+    const s = new Set<number>(months.map(x => x.year))
+    s.add(now.getFullYear())
+    return Array.from(s).sort((a, b) => b - a)
+  }, [months, now])
+
+  const reconFor = (y: number, m: number) => reconMap.get(`${accountId}_${y}_${m}`)
+
+  // ── Flujo helpers ──────────────────────────────────────────────────────────
+
+  const startNueva = (y?: number, m?: number) => {
+    setFlowYear(y ?? now.getFullYear())
+    setFlowMonth(m ?? (now.getMonth() + 1))
+    setFile(null); setResult(null); setNeedsAccounts(null); setAcctRaw('')
+    setAcepta(false); setShowConciliados(false)
+    setMode('nueva')
+  }
+
+  const backToList = () => { setMode('list'); setResult(null); setFile(null) }
+
   const handleFile = useCallback((f: File) => {
-    if (!f.name.match(/\.(xlsx|xls)$/i)) {
-      alert('Solo se aceptan archivos Excel (.xlsx o .xls)')
-      return
-    }
-    setFile(f)
-    setResult(null)
-    setNeedsAccounts(null)
-    setAcctRaw('')
+    if (!f.name.match(/\.(xlsx|xls)$/i)) { alert('Solo se aceptan archivos Excel (.xlsx o .xls)'); return }
+    setFile(f); setResult(null); setNeedsAccounts(null); setAcctRaw('')
   }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f) handleFile(f)
+    e.preventDefault(); setDragging(false)
+    const f = e.dataTransfer.files[0]; if (f) handleFile(f)
   }, [handleFile])
 
   const run = async (overrideId?: string) => {
@@ -159,74 +235,205 @@ export default function ConciliacionClient({
     setProcessing(true)
     const fd = new FormData()
     fd.append('file', file)
-    if (overrideId) fd.append('account_id', overrideId)
+    fd.append('year',  String(flowYear))
+    fd.append('month', String(flowMonth))
+    const acc = overrideId || accountId
+    if (acc) fd.append('account_id', acc)
     const r = await conciliarAction(fd)
     if (!r.ok && (r as any).needsAccount) {
-      setNeedsAccounts((r as any).accounts)
-      setAcctRaw((r as any).acctNumRaw)
-      setProcessing(false)
-      return
+      setNeedsAccounts((r as any).accounts); setAcctRaw((r as any).acctNumRaw)
+      setProcessing(false); return
     }
-    setResult(r)
-    setNeedsAccounts(null)
-    if (r.ok) setSinReg(r.sinRegistrar)
-    setProcessing(false)
+    setResult(r); setNeedsAccounts(null); setProcessing(false)
   }
 
-  const reset = () => {
-    setResult(null)
-    setFile(null)
-    setNeedsAccounts(null)
-    setSelectedAccount('')
-    setSinReg([])
-    setShowConciliados(false)
+  const handleCerrar = async () => {
+    if (!res) return
+    setClosing(true)
+    const r = await cerrarMesAction({
+      accountId:     res.accountId,
+      year:          res.year,
+      month:         res.month,
+      saldoInicial:  res.saldoInicial,
+      totalIngresos: res.totalIngresos,
+      totalEgresos:  res.totalEgresos,
+      saldoFinal:    res.saldoFinal,
+      conciliadas:   res.conciliados.length,
+      sinRegistrar:  res.sinRegistrar.length,
+      sinConfirmar:  res.sinConfirmar.length,
+    })
+    setClosing(false)
+    if (r.ok) { backToList(); router.refresh() }
+    else alert(r.error ?? 'No se pudo cerrar el mes')
   }
 
-  const diff      = res ? res.saldoExtracto - res.saldoApp : 0
-  const absDiff   = Math.abs(diff)
-  const diffColor = absDiff === 0 ? 'text-green-600' : absDiff <= 10000 ? 'text-yellow-600' : 'text-red-600'
+  const diff    = res ? res.saldoFinal - res.saldoApp : 0
+  const puedeCerrar = res && (Math.abs(diff) === 0 || acepta)
 
-  const SectionHeader = ({
-    icon, count, title, note, bg, textCls,
-  }: {
-    icon: string; count: number; title: string; note: string; bg: string; textCls: string
-  }) => (
-    <div className={`px-4 py-2.5 border-b flex items-center justify-between ${bg}`}>
-      <p className={`text-xs font-semibold ${textCls}`}>
-        {icon} {title} ({count})
-        <span className="ml-2 font-normal opacity-80">{note}</span>
-      </p>
-    </div>
-  )
+  // ─────────────────────────────────────────────────────────────────────────
+  // VISTA: LISTA (acordeón)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (mode === 'list') {
+    return (
+      <div className="p-4 md:p-6 max-w-4xl">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Link href="/bancos" className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] transition-colors"><ArrowLeft size={18} /></Link>
+            <div>
+              <h1 className="text-lg font-semibold text-[#0F172A] flex items-center gap-2">
+                <GitMerge size={18} className="text-[#2563EB]" /> Conciliación bancaria
+              </h1>
+              <p className="text-xs text-[#64748B] mt-0.5">Concilia cada mes contra el extracto de Bancolombia y cierra los meses cuadrados.</p>
+            </div>
+          </div>
+          <button onClick={() => startNueva()}
+            className="flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+            <Plus size={15} /> Nueva conciliación
+          </button>
+        </div>
 
+        {accounts.length > 1 && (
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-xs font-semibold text-[#64748B]">Cuenta:</span>
+            <select value={accountId} onChange={e => setAccountId(e.target.value)}
+              className="border border-[#E2E8F0] rounded-lg px-3 py-1.5 text-sm bg-white text-[#0F172A]">
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.bank_name}{a.account_number ? ` — ****${a.account_number.slice(-4)}` : ''}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {months.map(({ year, month }) => {
+            const key = `${year}_${month}`
+            const rec = reconFor(year, month)
+            const isClosed = rec?.status === 'CONCILIADO'
+            const open = expandedKey === key
+            const absDiff = Math.abs(rec?.diferencia ?? 0)
+            const diffColor = absDiff === 0 ? 'text-green-600' : absDiff <= 10000 ? 'text-yellow-600' : 'text-red-600'
+            return (
+              <div key={key} className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
+                <button onClick={() => setExpandedKey(open ? null : key)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#F8FAFC] transition-colors text-left">
+                  {open ? <ChevronDown size={15} className="text-[#94A3B8] shrink-0" /> : <ChevronRight size={15} className="text-[#94A3B8] shrink-0" />}
+                  <span className="font-semibold text-[#0F172A] text-sm w-36 shrink-0">{mesLabel(month)} {year}</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 inline-flex items-center gap-1 ${
+                    isClosed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {isClosed && <Lock size={9} />}{isClosed ? 'CONCILIADO' : 'PENDIENTE'}
+                  </span>
+                  <span className="flex-1" />
+                  {rec && (
+                    <>
+                      <span className="text-xs text-[#64748B] tabular-nums hidden sm:inline">Saldo {formatCOP(rec.saldoFinal)}</span>
+                      <span className={`text-xs font-semibold tabular-nums w-24 text-right ${diffColor}`}>
+                        {absDiff === 0 ? 'Cuadrado' : `Δ ${formatCOP(absDiff)}`}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                {open && (
+                  <div className="px-4 pb-4 pt-1 border-t border-[#F1F5F9]">
+                    {isClosed && rec ? (
+                      <div className="space-y-3 pt-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {[
+                            { label: 'Saldo inicial', value: formatCOP(rec.saldoInicial) },
+                            { label: 'Ingresos',      value: formatCOP(rec.totalIngresos) },
+                            { label: 'Egresos',       value: formatCOP(rec.totalEgresos) },
+                            { label: 'Saldo final',   value: formatCOP(rec.saldoFinal) },
+                          ].map(s => (
+                            <div key={s.label} className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
+                              <p className="text-[10px] text-[#94A3B8]">{s.label}</p>
+                              <p className="text-sm font-bold text-[#0F172A] tabular-nums mt-0.5">{s.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                          <span className="inline-flex items-center gap-1 text-green-700"><CheckCircle2 size={12} /> {rec.conciliadas} conciliadas</span>
+                          <span className="inline-flex items-center gap-1 text-amber-700"><AlertTriangle size={12} /> {rec.sinRegistrar} sin registrar</span>
+                          <span className="inline-flex items-center gap-1 text-red-600"><XCircle size={12} /> {rec.sinConfirmar} sin confirmar</span>
+                          <span className="text-[#94A3B8] ml-auto">
+                            Saldo app {formatCOP(rec.appSaldoFinal)} · Diferencia <span className={diffColor}>{formatCOP(rec.diferencia)}</span>
+                          </span>
+                        </div>
+                        {rec.closedAt && (
+                          <p className="text-[11px] text-[#94A3B8] flex items-center gap-1">
+                            <Lock size={10} /> Cerrado el {formatDate(rec.closedAt.slice(0, 10))} · solo lectura
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="pt-3 flex items-center justify-between gap-3">
+                        <p className="text-xs text-[#64748B]">Este mes aún no se ha conciliado.</p>
+                        <button onClick={() => startNueva(year, month)}
+                          className="text-xs bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium px-3 py-1.5 rounded-lg transition-colors shrink-0">
+                          Conciliar este mes
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // VISTA: NUEVA CONCILIACIÓN (flujo)
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 md:p-6 max-w-5xl">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Link href="/bancos"
-            className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] transition-colors">
-            <ArrowLeft size={18} />
-          </Link>
+          <button onClick={backToList} className="p-1.5 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] transition-colors"><ArrowLeft size={18} /></button>
           <div>
             <h1 className="text-lg font-semibold text-[#0F172A] flex items-center gap-2">
-              <GitMerge size={18} className="text-[#2563EB]" />
-              Conciliación bancaria
+              <GitMerge size={18} className="text-[#2563EB]" /> Nueva conciliación
             </h1>
-            <p className="text-xs text-[#64748B] mt-0.5">
-              Sube el extracto de Bancolombia y cruza contra las transacciones registradas
-            </p>
+            <p className="text-xs text-[#64748B] mt-0.5">Selecciona el mes, sube el extracto y cruza contra las transacciones de ese mes.</p>
           </div>
         </div>
-        {res && (
-          <button onClick={reset}
-            className="text-xs text-[#64748B] hover:text-[#0F172A] border border-[#E2E8F0] rounded-lg px-3 py-2 hover:bg-[#F8FAFC] transition-colors">
-            Nuevo extracto
-          </button>
+      </div>
+
+      {/* Selector de mes/año + cuenta */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 mb-5 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-[#64748B] mb-1.5 flex items-center gap-1"><Calendar size={12} /> Mes</label>
+          <select value={flowMonth} onChange={e => { setFlowMonth(parseInt(e.target.value)); setResult(null) }}
+            disabled={!!res}
+            className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white text-[#0F172A] disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]">
+            {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Año</label>
+          <select value={flowYear} onChange={e => { setFlowYear(parseInt(e.target.value)); setResult(null) }}
+            disabled={!!res}
+            className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white text-[#0F172A] disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]">
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        {accounts.length > 1 && (
+          <div>
+            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Cuenta</label>
+            <select value={accountId} onChange={e => setAccountId(e.target.value)} disabled={!!res}
+              className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white text-[#0F172A] disabled:bg-[#F8FAFC]">
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.bank_name}{a.account_number ? ` — ****${a.account_number.slice(-4)}` : ''}</option>)}
+            </select>
+          </div>
+        )}
+        {reconFor(flowYear, flowMonth)?.status === 'CONCILIADO' && (
+          <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-2.5 py-2 inline-flex items-center gap-1">
+            <Lock size={11} /> Mes ya conciliado
+          </span>
         )}
       </div>
 
-      {/* ── Dropzone (shown until we have results) ── */}
+      {/* Dropzone */}
       {!res && (
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
@@ -234,231 +441,115 @@ export default function ConciliacionClient({
           onDrop={onDrop}
           onClick={() => fileInputRef.current?.click()}
           className={`border-2 border-dashed rounded-2xl p-10 cursor-pointer text-center transition-all mb-5 ${
-            dragging
-              ? 'border-blue-400 bg-blue-50'
-              : file
-              ? 'border-green-400 bg-green-50'
-              : 'border-[#E2E8F0] hover:border-blue-300 hover:bg-[#F8FAFC]'
+            dragging ? 'border-blue-400 bg-blue-50' : file ? 'border-green-400 bg-green-50' : 'border-[#E2E8F0] hover:border-blue-300 hover:bg-[#F8FAFC]'
           }`}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-          />
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
           {file ? (
             <div className="flex flex-col items-center gap-2">
               <FileSpreadsheet size={36} className="text-green-600" />
               <p className="text-sm font-semibold text-green-700">{file.name}</p>
-              <p className="text-xs text-green-600">{(file.size / 1024).toFixed(0)} KB</p>
               <p className="text-xs text-[#64748B] mt-1">Haz clic para cambiar el archivo</p>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2 text-[#94A3B8]">
               <Upload size={36} />
-              <p className="text-sm font-medium text-[#64748B]">Arrastra el Excel aquí o haz clic para seleccionar</p>
-              <p className="text-xs">Extracto Bancolombia (.xlsx o .xls)</p>
+              <p className="text-sm font-medium text-[#64748B]">Arrastra el extracto de Bancolombia aquí o haz clic</p>
+              <p className="text-xs">Extracto del mes seleccionado (.xlsx o .xls)</p>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Error ── */}
+      {/* Error */}
       {result && !result.ok && !(result as any).needsAccount && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 mb-4">
           <p className="text-sm font-semibold text-red-700 mb-1">Error al procesar el archivo</p>
           <p className="text-sm text-red-600">{(result as any).error}</p>
-          <button onClick={() => setResult(null)}
-            className="mt-2 text-xs text-red-600 underline hover:no-underline">
-            Intentar con otro archivo
-          </button>
+          <button onClick={() => setResult(null)} className="mt-2 text-xs text-red-600 underline hover:no-underline">Intentar de nuevo</button>
         </div>
       )}
 
-      {/* ── Account picker (ambiguous) ── */}
+      {/* Cuenta ambigua */}
       {needsAccounts && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-5 py-4 mb-4 space-y-3">
           <p className="text-sm font-semibold text-yellow-800">No se identificó la cuenta automáticamente</p>
-          <p className="text-xs text-yellow-700">
-            Número en el extracto: <span className="font-mono font-bold">{acctRaw || '(no encontrado)'}</span>.
-            Selecciona la cuenta manualmente:
-          </p>
+          <p className="text-xs text-yellow-700">Número en el extracto: <span className="font-mono font-bold">{acctRaw || '(no encontrado)'}</span>.</p>
           <div className="flex items-center gap-3 flex-wrap">
-            <select
-              value={selectedAccount}
-              onChange={e => setSelectedAccount(e.target.value)}
-              className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
+            <select value={accountId} onChange={e => setAccountId(e.target.value)}
+              className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white text-[#0F172A]">
               <option value="">Seleccionar cuenta…</option>
-              {needsAccounts.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.bank_name}{a.account_number ? ` — ****${a.account_number.slice(-4)}` : ''}
-                </option>
-              ))}
+              {needsAccounts.map(a => <option key={a.id} value={a.id}>{a.bank_name}{a.account_number ? ` — ****${a.account_number.slice(-4)}` : ''}</option>)}
             </select>
-            <button
-              onClick={() => run(selectedAccount)}
-              disabled={!selectedAccount || processing}
-              className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            >
+            <button onClick={() => run(accountId)} disabled={!accountId || processing}
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
               {processing ? 'Procesando…' : 'Conciliar'}
             </button>
           </div>
         </div>
       )}
 
-      {/* ── Process button ── */}
+      {/* Botón procesar */}
       {file && !res && !needsAccounts && (
-        <button
-          onClick={() => run()}
-          disabled={processing}
-          className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors mb-6"
-        >
+        <button onClick={() => run()} disabled={processing}
+          className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors mb-6">
           <GitMerge size={15} />
-          {processing ? 'Procesando extracto…' : 'Conciliar extracto'}
+          {processing ? 'Procesando extracto…' : `Conciliar ${mesLabel(flowMonth)} ${flowYear}`}
         </button>
       )}
 
-      {/* ── Results ── */}
+      {/* Resultados */}
       {res && (
         <div className="space-y-4">
-
-          {/* Account + period banner */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-2">
               <CheckCircle2 size={15} className="text-blue-600 shrink-0" />
-              <p className="text-sm font-semibold text-blue-800">{res.accountName}</p>
+              <p className="text-sm font-semibold text-blue-800">{res.accountName} · {mesLabel(res.month)} {res.year}</p>
             </div>
-            <p className="text-xs text-blue-600 font-mono">
-              {formatDate(res.periodo.desde)} → {formatDate(res.periodo.hasta)}
-            </p>
+            <p className="text-xs text-blue-600 font-mono">{formatDate(res.periodo.desde)} → {formatDate(res.periodo.hasta)}</p>
           </div>
 
-          {/* KPI cards */}
+          {/* KPIs */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              {
-                icon: CheckCircle2, label: 'Conciliados', count: res.conciliados.length,
-                bg: 'bg-green-50 border-green-200', iconCls: 'text-green-600',
-                textCls: 'text-green-700', note: 'en banco y app',
-                onClick: () => setShowConciliados(v => !v),
-              },
-              {
-                icon: AlertTriangle, label: 'Sin registrar', count: sinReg.length,
-                bg: sinReg.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-[#F8FAFC] border-[#E2E8F0]',
-                iconCls: sinReg.length > 0 ? 'text-yellow-600' : 'text-[#94A3B8]',
-                textCls: sinReg.length > 0 ? 'text-yellow-700' : 'text-[#64748B]',
-                note: 'en banco, no en app',
-                onClick: undefined,
-              },
-              {
-                icon: XCircle, label: 'Sin confirmar', count: res.sinConfirmar.length,
-                bg: res.sinConfirmar.length > 0 ? 'bg-red-50 border-red-200' : 'bg-[#F8FAFC] border-[#E2E8F0]',
-                iconCls: res.sinConfirmar.length > 0 ? 'text-red-500' : 'text-[#94A3B8]',
-                textCls: res.sinConfirmar.length > 0 ? 'text-red-600' : 'text-[#64748B]',
-                note: 'en app, no en banco',
-                onClick: undefined,
-              },
-            ].map(({ icon: Icon, label, count, bg, iconCls, textCls, note, onClick }) => (
-              <div
-                key={label}
-                onClick={onClick}
-                className={`border rounded-xl p-4 ${bg} ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon size={14} className={iconCls} />
-                  <span className={`text-[10px] font-semibold uppercase tracking-wider ${textCls}`}>{label}</span>
-                </div>
+              { icon: CheckCircle2, label: 'Conciliadas', count: res.conciliados.length, bg: 'bg-green-50 border-green-200', textCls: 'text-green-700', note: 'en banco y app', onClick: () => setShowConciliados(v => !v) },
+              { icon: AlertTriangle, label: 'Sin registrar', count: res.sinRegistrar.length, bg: res.sinRegistrar.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-[#F8FAFC] border-[#E2E8F0]', textCls: res.sinRegistrar.length > 0 ? 'text-yellow-700' : 'text-[#64748B]', note: 'en banco, no en app', onClick: undefined },
+              { icon: XCircle, label: 'Sin confirmar', count: res.sinConfirmar.length, bg: res.sinConfirmar.length > 0 ? 'bg-red-50 border-red-200' : 'bg-[#F8FAFC] border-[#E2E8F0]', textCls: res.sinConfirmar.length > 0 ? 'text-red-600' : 'text-[#64748B]', note: 'en app, no en banco', onClick: undefined },
+            ].map(({ icon: Icon, label, count, bg, textCls, note, onClick }) => (
+              <div key={label} onClick={onClick} className={`border rounded-xl p-4 ${bg} ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}>
+                <div className="flex items-center gap-2 mb-1"><Icon size={14} className={textCls} /><span className={`text-[10px] font-semibold uppercase tracking-wider ${textCls}`}>{label}</span></div>
                 <p className={`text-2xl font-bold ${textCls}`}>{count}</p>
                 <p className={`text-[10px] mt-0.5 ${textCls} opacity-80`}>{note}</p>
               </div>
             ))}
           </div>
 
-          {/* Saldo comparison */}
-          <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-            <p className="text-[10px] font-semibold text-[#64748B] uppercase tracking-wider mb-3">
-              Comparación de saldos al {formatDate(res.periodo.hasta)}
-            </p>
-            <div className="grid grid-cols-3 gap-4">
-              {[
-                { label: 'Según extracto banco', value: res.saldoExtracto, cls: 'text-[#0F172A]' },
-                { label: 'Según app',            value: res.saldoApp,       cls: 'text-[#0F172A]' },
-                {
-                  label: 'Diferencia',
-                  value: diff,
-                  cls:   diffColor,
-                  prefix: absDiff === 0 ? undefined : diff > 0 ? '+' : '',
-                },
-              ].map(({ label, value, cls, prefix }) => (
-                <div key={label}>
-                  <p className="text-[10px] text-[#94A3B8] mb-0.5">{label}</p>
-                  <p className={`text-base md:text-lg font-bold tabular-nums ${cls}`}>
-                    {absDiff === 0 && label === 'Diferencia'
-                      ? '—'
-                      : `${prefix ?? ''}${formatCOP(Math.abs(value))}`}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <p className={`text-xs font-medium mt-3 ${diffColor}`}>
-              {absDiff === 0
-                ? '✅ Saldo cuadrado perfectamente'
-                : absDiff <= 10000
-                ? '⚠️ Diferencia menor — posible redondeo'
-                : '🔴 Diferencia significativa — revisar transacciones'}
-            </p>
-          </div>
+          <SaldoResumen saldoFinal={res.saldoFinal} saldoApp={res.saldoApp} />
 
-          {/* ── SIN REGISTRAR ── */}
-          {sinReg.length > 0 && (
+          {/* Sin registrar */}
+          {res.sinRegistrar.length > 0 && (
             <div className="bg-white border border-yellow-200 rounded-xl overflow-hidden">
-              <SectionHeader
-                icon="⚠️"
-                count={sinReg.length}
-                title="Sin registrar"
-                note="En el banco pero no en la app — haz clic en Registrar para agregar"
-                bg="bg-yellow-50 border-b-yellow-200"
-                textCls="text-yellow-800"
-              />
+              <div className="px-4 py-2.5 border-b bg-yellow-50 border-b-yellow-200">
+                <p className="text-xs font-semibold text-yellow-800">⚠️ Sin registrar ({res.sinRegistrar.length})<span className="ml-2 font-normal opacity-80">En el banco pero no en la app</span></p>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[#E2E8F0] bg-yellow-50/30">
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Descripción</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Tipo</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Monto</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
+                  <thead><tr className="border-b border-[#E2E8F0] bg-yellow-50/30">
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Fecha</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Descripción</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Tipo</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Monto</th>
+                    <th className="px-3 py-2" />
+                  </tr></thead>
                   <tbody className="divide-y divide-[#F1F5F9]">
-                    {sinReg.map((row, i) => (
+                    {res.sinRegistrar.map((row, i) => (
                       <tr key={i} className="hover:bg-yellow-50/30 transition-colors">
                         <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{formatDate(row.fecha)}</td>
                         <td className="px-3 py-2 text-xs text-[#0F172A] max-w-xs truncate">{row.descripcion}</td>
-                        <td className="px-3 py-2">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                            row.tipo === 'INGRESO' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
-                          }`}>
-                            {row.tipo}
-                          </span>
-                        </td>
-                        <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${
-                          row.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'
-                        }`}>
-                          {row.tipo === 'EGRESO' ? '−' : '+'}{formatCOP(row.monto)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            onClick={() => setRegistrarRow(row)}
-                            className="text-xs bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
-                          >
-                            Registrar
-                          </button>
-                        </td>
+                        <td className="px-3 py-2"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${row.tipo === 'INGRESO' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{row.tipo}</span></td>
+                        <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${row.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{row.tipo === 'EGRESO' ? '−' : '+'}{formatCOP(row.monto)}</td>
+                        <td className="px-3 py-2"><button onClick={() => setRegistrarRow(row)} className="text-xs bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">Registrar</button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -467,44 +558,27 @@ export default function ConciliacionClient({
             </div>
           )}
 
-          {/* ── SIN CONFIRMAR ── */}
+          {/* Sin confirmar */}
           {res.sinConfirmar.length > 0 && (
             <div className="bg-white border border-red-200 rounded-xl overflow-hidden">
-              <SectionHeader
-                icon="🔴"
-                count={res.sinConfirmar.length}
-                title="Sin confirmar"
-                note="En la app pero no en el extracto — verifica si son correctas"
-                bg="bg-red-50 border-b-red-200"
-                textCls="text-red-700"
-              />
+              <div className="px-4 py-2.5 border-b bg-red-50 border-b-red-200">
+                <p className="text-xs font-semibold text-red-700">🔴 Sin confirmar ({res.sinConfirmar.length})<span className="ml-2 font-normal opacity-80">En la app pero no en el extracto</span></p>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[#E2E8F0] bg-red-50/20">
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Descripción</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Tipo</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Monto</th>
-                    </tr>
-                  </thead>
+                  <thead><tr className="border-b border-[#E2E8F0] bg-red-50/20">
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Fecha</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Descripción</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Tipo</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Monto</th>
+                  </tr></thead>
                   <tbody className="divide-y divide-[#F1F5F9]">
                     {res.sinConfirmar.map(t => (
                       <tr key={t.id} className="hover:bg-red-50/20 transition-colors">
                         <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{formatDate(t.date)}</td>
                         <td className="px-3 py-2 text-xs text-[#0F172A] max-w-xs truncate">{t.description}</td>
-                        <td className="px-3 py-2">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                            t.type === 'INGRESO' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
-                          }`}>
-                            {t.type}
-                          </span>
-                        </td>
-                        <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${
-                          t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'
-                        }`}>
-                          {t.type === 'EGRESO' ? '−' : '+'}{formatCOP(t.amount)}
-                        </td>
+                        <td className="px-3 py-2"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${t.type === 'INGRESO' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{t.type}</span></td>
+                        <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{t.type === 'EGRESO' ? '−' : '+'}{formatCOP(t.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -513,43 +587,27 @@ export default function ConciliacionClient({
             </div>
           )}
 
-          {/* ── CONCILIADOS (collapsible) ── */}
+          {/* Conciliadas (colapsable) */}
           <div className="bg-white border border-green-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setShowConciliados(v => !v)}
-              className="w-full bg-green-50 px-4 py-2.5 border-b border-green-200 flex items-center justify-between hover:bg-green-100 transition-colors"
-            >
-              <p className="text-xs font-semibold text-green-800">
-                ✅ Conciliados ({res.conciliados.length})
-                <span className="ml-2 font-normal text-green-700">coinciden en banco y app</span>
-              </p>
-              {showConciliados
-                ? <ChevronDown size={14} className="text-green-600" />
-                : <ChevronRight size={14} className="text-green-600" />}
+            <button onClick={() => setShowConciliados(v => !v)} className="w-full bg-green-50 px-4 py-2.5 border-b border-green-200 flex items-center justify-between hover:bg-green-100 transition-colors">
+              <p className="text-xs font-semibold text-green-800">✅ Conciliadas ({res.conciliados.length})<span className="ml-2 font-normal text-green-700">coinciden en banco y app</span></p>
+              {showConciliados ? <ChevronDown size={14} className="text-green-600" /> : <ChevronRight size={14} className="text-green-600" />}
             </button>
             {showConciliados && res.conciliados.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[#E2E8F0] bg-green-50/20">
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha banco</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Descripción banco</th>
-                      <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Monto</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Fecha app</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Descripción app</th>
-                    </tr>
-                  </thead>
+                  <thead><tr className="border-b border-[#E2E8F0] bg-green-50/20">
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Fecha banco</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Descripción banco</th>
+                    <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Monto</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase">Descripción app</th>
+                  </tr></thead>
                   <tbody className="divide-y divide-[#F1F5F9]">
                     {res.conciliados.map((item, i) => (
                       <tr key={i} className="hover:bg-green-50/20 transition-colors">
                         <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{formatDate(item.extracto.fecha)}</td>
                         <td className="px-3 py-2 text-xs text-[#0F172A] max-w-[180px] truncate">{item.extracto.descripcion}</td>
-                        <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${
-                          item.extracto.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'
-                        }`}>
-                          {item.extracto.tipo === 'EGRESO' ? '−' : '+'}{formatCOP(item.extracto.monto)}
-                        </td>
-                        <td className="px-3 py-2 text-xs font-mono text-[#64748B]">{formatDate(item.app.date)}</td>
+                        <td className={`px-3 py-2 text-xs font-semibold text-right tabular-nums ${item.extracto.tipo === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>{item.extracto.tipo === 'EGRESO' ? '−' : '+'}{formatCOP(item.extracto.monto)}</td>
                         <td className="px-3 py-2 text-xs text-[#0F172A] max-w-[180px] truncate">{item.app.description}</td>
                       </tr>
                     ))}
@@ -559,25 +617,29 @@ export default function ConciliacionClient({
             )}
           </div>
 
-          {/* Footer actions */}
-          <div className="flex items-center gap-3 pt-2">
-            <Link
-              href={`/bancos/${res.accountId}`}
-              className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
-            >
-              Ver cuenta
-            </Link>
-            <button
-              onClick={reset}
-              className="border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] text-xs font-medium px-4 py-2 rounded-xl transition-colors"
-            >
-              Conciliar otro extracto
-            </button>
+          {/* Cerrar mes */}
+          <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
+            {Math.abs(diff) !== 0 && (
+              <label className="flex items-start gap-2 mb-3 cursor-pointer">
+                <input type="checkbox" checked={acepta} onChange={e => setAcepta(e.target.checked)} className="mt-0.5" />
+                <span className="text-xs text-[#64748B]">
+                  Hay una diferencia de <span className="font-semibold text-red-600">{formatCOP(Math.abs(diff))}</span>. Estoy de acuerdo con la diferencia y quiero cerrar el mes de todos modos.
+                </span>
+              </label>
+            )}
+            <div className="flex items-center gap-3">
+              <button onClick={handleCerrar} disabled={!puedeCerrar || closing}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors">
+                <Lock size={15} /> {closing ? 'Cerrando…' : 'Cerrar mes'}
+              </button>
+              <button onClick={backToList} className="border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] text-xs font-medium px-4 py-2 rounded-xl transition-colors">Volver</button>
+              {Math.abs(diff) === 0 && <span className="text-xs text-green-600 font-medium">✅ Saldo cuadrado — listo para cerrar</span>}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Registrar modal */}
+      {/* Modal registrar */}
       {registrarRow && res && (
         <RegistrarModal
           row={registrarRow}
@@ -585,7 +647,7 @@ export default function ConciliacionClient({
           categories={categories}
           pucAccounts={pucAccounts}
           onClose={() => setRegistrarRow(null)}
-          onDone={row => { setSinReg(prev => prev.filter(r => r !== row)); setRegistrarRow(null) }}
+          onDone={() => { setRegistrarRow(null); run(res.accountId) }}
         />
       )}
     </div>

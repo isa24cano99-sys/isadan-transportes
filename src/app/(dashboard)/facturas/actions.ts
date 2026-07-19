@@ -155,5 +155,6 @@ export async function importarFacturasExcelAction(file: File): Promise<ExcelImpo
   }
 
   revalidatePath('/facturas')
+  revalidatePath('/facturas/clientes')
   return { ok: true, procesadas: facturas.length, nuevas, actualizadas }
 }

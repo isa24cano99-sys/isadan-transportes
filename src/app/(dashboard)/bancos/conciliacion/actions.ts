@@ -1,6 +1,7 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import { revalidatePath } from 'next/cache'
 import * as XLSX from 'xlsx'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -29,29 +30,17 @@ function isoDate(dateCell: string | number, year: number): string | null {
   return null
 }
 
-function inferYear(rows: (string | number | null)[][]): number {
-  for (const row of rows.slice(0, 15)) {
-    for (const cell of row ?? []) {
-      const m = String(cell ?? '').match(/(\d{4})[\/\-]\d{1,2}[\/\-]\d{1,2}/)
-      if (m) {
-        const y = parseInt(m[1])
-        if (y >= 2020 && y <= 2035) return y
-      }
-    }
-  }
-  return new Date().getFullYear()
-}
-
-function adjustDate(iso: string, days: number): string {
-  const d = new Date(iso + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
-}
-
 function daysBetween(a: string, b: string): number {
   return Math.round(
     (new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000,
   )
+}
+
+/** Primer y último día del mes (YYYY-MM-DD). */
+function monthBounds(year: number, month: number): { desde: string; hasta: string } {
+  const mm = String(month).padStart(2, '0')
+  const last = new Date(year, month, 0).getDate() // día 0 del mes siguiente = último del actual
+  return { desde: `${year}-${mm}-01`, hasta: `${year}-${mm}-${String(last).padStart(2, '0')}` }
 }
 
 // ── exported types ────────────────────────────────────────────────────────────
@@ -82,15 +71,22 @@ export type ConciliacionResult =
       ok: true
       accountId: string
       accountName: string
+      year: number
+      month: number
       periodo: { desde: string; hasta: string }
-      saldoExtracto: number
+      // Resumen del extracto
+      saldoInicial: number
+      totalIngresos: number
+      totalEgresos: number
+      saldoFinal: number      // saldo del extracto al cierre del mes
+      // Saldo de la app al cierre del mes
       saldoApp: number
       conciliados: ConciliadoItem[]
       sinRegistrar: ExtractoRow[]
       sinConfirmar: AppTxn[]
     }
 
-// ── main action ───────────────────────────────────────────────────────────────
+// ── cruce de conciliación por mes ──────────────────────────────────────────────
 
 export async function conciliarAction(
   formData: FormData,
@@ -98,6 +94,8 @@ export async function conciliarAction(
   const file = formData.get('file') as File | null
   if (!file || file.size === 0) return { ok: false, error: 'No se adjuntó archivo' }
 
+  const year  = parseInt(formData.get('year') as string)  || new Date().getFullYear()
+  const month = parseInt(formData.get('month') as string) || (new Date().getMonth() + 1)
   const overrideAccountId = (formData.get('account_id') as string | null) || null
 
   const buffer = Buffer.from(await file.arrayBuffer())
@@ -110,61 +108,44 @@ export async function conciliarAction(
   const ws   = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true }) as (string | number | null)[][]
 
-  const year = inferYear(rows)
-
-  // ── Account number: row 8 (index 7), col D (index 3) ──────────────────────
-  const acctCell  = ((rows[7] ?? []) as (string | number | null)[])[3]
+  // ── Número de cuenta: fila 8 (idx 7), col D (idx 3) ───────────────────────
+  const acctCell   = ((rows[7] ?? []) as (string | number | null)[])[3]
   const acctNumRaw = acctCell ? String(acctCell).trim().replace(/\D/g, '') : ''
 
-  // ── Saldo extracto: row 11 (index 10), col D (index 3) ────────────────────
-  const saldoExtracto = parseAmt(((rows[10] ?? []) as (string | number | null)[])[3])
+  // ── Saldo final del extracto: fila 11 (idx 10), col D (idx 3) ──────────────
+  const saldoFinal = parseAmt(((rows[10] ?? []) as (string | number | null)[])[3])
 
-  // ── Period: try several candidate rows ────────────────────────────────────
-  let desde = `${year}-01-01`
-  let hasta  = `${year}-12-31`
-  for (let i = 4; i <= 9; i++) {
-    const row = (rows[i] ?? []) as (string | number | null)[]
-    for (let c = 0; c < row.length; c++) {
-      const cell = row[c]
-      if (!cell) continue
-      const s = String(cell).trim()
-      if (s.includes('/') || /\d{4}-\d{2}-\d{2}/.test(s)) {
-        const d0 = isoDate(cell as string | number, year)
-        const d1 = row[c + 1] ? isoDate(row[c + 1] as string | number, year) : null
-        if (d0 && d1 && d1 > d0) { desde = d0; hasta = d1; break }
-        if (d0 && !hasta.includes(String(year).slice(0, 3))) { desde = d0 }
-      }
-    }
-  }
-
-  // ── Movements: row 16 (index 15) onwards ──────────────────────────────────
+  // ── Movimientos: fila 16 (idx 15) en adelante ─────────────────────────────
+  const { desde, hasta } = monthBounds(year, month)
   const extractoRows: ExtractoRow[] = []
   for (let i = 15; i < rows.length; i++) {
     const row      = (rows[i] ?? []) as (string | number | null)[]
     const dateCell = row[0]
     const desc     = String(row[1] ?? '').trim()
-    const rawAmt   = parseAmt(row[4])   // col E = net amount (+ ingreso, - egreso)
+    const rawAmt   = parseAmt(row[4])   // col E = neto (+ ingreso, - egreso)
 
     if (!dateCell || !desc || rawAmt === 0) continue
     const fullDate = isoDate(dateCell as string | number, year)
     if (!fullDate) continue
+    // Solo movimientos dentro del mes seleccionado
+    if (fullDate < desde || fullDate > hasta) continue
 
     extractoRows.push({
-      fecha:     fullDate,
+      fecha:       fullDate,
       descripcion: desc,
-      monto:     Math.abs(rawAmt),
-      tipo:      rawAmt >= 0 ? 'INGRESO' : 'EGRESO',
+      monto:       Math.abs(rawAmt),
+      tipo:        rawAmt >= 0 ? 'INGRESO' : 'EGRESO',
     })
   }
 
   if (extractoRows.length === 0) {
     return {
       ok: false,
-      error: 'No se encontraron movimientos. Verifica que el archivo sea el extracto de Bancolombia correcto.',
+      error: `No se encontraron movimientos del mes seleccionado en el extracto. Verifica que el archivo corresponda a ${desde} → ${hasta}.`,
     }
   }
 
-  // ── Identify bank account ─────────────────────────────────────────────────
+  // ── Identificar la cuenta ─────────────────────────────────────────────────
   let accountId: string | null = overrideAccountId
   let accountName = ''
 
@@ -188,20 +169,17 @@ export async function conciliarAction(
 
   if (!accountName) {
     const { data: acc } = await supabase
-      .from('bank_accounts')
-      .select('bank_name')
-      .eq('id', accountId!)
-      .single()
+      .from('bank_accounts').select('bank_name').eq('id', accountId!).single()
     accountName = acc?.bank_name ?? ''
   }
 
-  // ── Fetch app transactions for the period ─────────────────────────────────
+  // ── Transacciones de la app SOLO del mes (primer–último día) ───────────────
   const { data: appRaw } = await supabase
     .from('bank_transactions')
     .select('id, date, amount, type, description')
     .eq('account_id', accountId!)
-    .gte('date', adjustDate(desde, -1))
-    .lte('date', adjustDate(hasta,  1))
+    .gte('date', desde)
+    .lte('date', hasta)
 
   const appTxns: AppTxn[] = (appRaw ?? []).map(t => ({
     id:          t.id as string,
@@ -211,7 +189,7 @@ export async function conciliarAction(
     description: t.description as string,
   }))
 
-  // ── Greedy matching: extracto ↔ app ───────────────────────────────────────
+  // ── Cruce greedy: extracto ↔ app (mismo tipo, monto ±1, fecha ±1 día) ──────
   const matchedAppIds       = new Set<string>()
   const matchedExtractoIdxs = new Set<number>()
   const conciliados: ConciliadoItem[] = []
@@ -222,11 +200,11 @@ export async function conciliarAction(
     let bestDays = Infinity
 
     for (const app of appTxns) {
-      if (matchedAppIds.has(app.id))       continue
-      if (ex.tipo !== app.type)             continue
+      if (matchedAppIds.has(app.id))           continue
+      if (ex.tipo !== app.type)                continue
       if (Math.abs(ex.monto - app.amount) > 1) continue
       const days = Math.abs(daysBetween(ex.fecha, app.date))
-      if (days > 1) continue
+      if (days > 2) continue
       if (days < bestDays) { bestDays = days; best = app }
     }
 
@@ -240,29 +218,107 @@ export async function conciliarAction(
   const sinRegistrar = extractoRows.filter((_, i) => !matchedExtractoIdxs.has(i))
   const sinConfirmar = appTxns.filter(t => !matchedAppIds.has(t.id))
 
-  // ── Saldo app at period end ───────────────────────────────────────────────
-  const [{ data: accData }, { data: allTxns }] = await Promise.all([
-    supabase.from('bank_accounts').select('initial_balance').eq('id', accountId!).single(),
-    supabase
-      .from('bank_transactions')
-      .select('type, amount')
-      .eq('account_id', accountId!)
-      .lte('date', hasta),
-  ])
-  const initial  = Number(accData?.initial_balance ?? 0)
-  const ing      = (allTxns ?? []).filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0)
-  const egr      = (allTxns ?? []).filter(t => t.type === 'EGRESO' ).reduce((s, t) => s + Number(t.amount), 0)
-  const saldoApp = initial + ing - egr
+  // ── Resumen del extracto ──────────────────────────────────────────────────
+  const totalIngresos = extractoRows.filter(r => r.tipo === 'INGRESO').reduce((s, r) => s + r.monto, 0)
+  const totalEgresos  = extractoRows.filter(r => r.tipo === 'EGRESO').reduce((s, r) => s + r.monto, 0)
+  const saldoInicial  = saldoFinal - totalIngresos + totalEgresos
+
+  // ── Saldo de la app al cierre del mes ─────────────────────────────────────
+  const saldoApp = await computeSaldoApp(accountId!, hasta)
 
   return {
     ok: true,
     accountId: accountId!,
     accountName,
+    year, month,
     periodo: { desde, hasta },
-    saldoExtracto,
+    saldoInicial,
+    totalIngresos,
+    totalEgresos,
+    saldoFinal,
     saldoApp,
     conciliados,
     sinRegistrar,
     sinConfirmar,
   }
+}
+
+/** Saldo de la app = saldo inicial de la cuenta + ingresos − egresos hasta la fecha. */
+async function computeSaldoApp(accountId: string, hasta: string): Promise<number> {
+  const [{ data: accData }, { data: allTxns }] = await Promise.all([
+    supabase.from('bank_accounts').select('initial_balance').eq('id', accountId).single(),
+    supabase.from('bank_transactions').select('type, amount').eq('account_id', accountId).lte('date', hasta),
+  ])
+  const initial = Number(accData?.initial_balance ?? 0)
+  const ing = (allTxns ?? []).filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0)
+  const egr = (allTxns ?? []).filter(t => t.type === 'EGRESO' ).reduce((s, t) => s + Number(t.amount), 0)
+  return initial + ing - egr
+}
+
+// ── Cerrar mes ─────────────────────────────────────────────────────────────────
+
+export type CerrarMesInput = {
+  accountId: string
+  year: number
+  month: number
+  saldoInicial: number
+  totalIngresos: number
+  totalEgresos: number
+  saldoFinal: number
+  conciliadas: number
+  sinRegistrar: number
+  sinConfirmar: number
+}
+
+/**
+ * Cierra el mes: recalcula el saldo de la app y la diferencia con datos frescos,
+ * y guarda el resumen en `bank_reconciliations` con status='CONCILIADO'.
+ * No se puede reabrir un mes ya cerrado.
+ */
+export async function cerrarMesAction(
+  input: CerrarMesInput,
+): Promise<{ ok: boolean; error?: string }> {
+  const { accountId, year, month } = input
+  if (!accountId || !year || !month) return { ok: false, error: 'Datos incompletos.' }
+
+  // No permitir re-cerrar un mes ya conciliado
+  const { data: existing } = await supabase
+    .from('bank_reconciliations')
+    .select('id, status')
+    .eq('account_id', accountId).eq('year', year).eq('month', month)
+    .maybeSingle()
+  if (existing?.status === 'CONCILIADO') {
+    return { ok: false, error: 'Este mes ya está conciliado y no puede reabrirse.' }
+  }
+
+  const { hasta } = monthBounds(year, month)
+  const appSaldoFinal = await computeSaldoApp(accountId, hasta)
+  const diferencia    = Math.round((input.saldoFinal - appSaldoFinal) * 100) / 100
+
+  const row = {
+    account_id:                  accountId,
+    year, month,
+    status:                      'CONCILIADO',
+    extracto_saldo_inicial:      Math.round(input.saldoInicial),
+    extracto_total_ingresos:     Math.round(input.totalIngresos),
+    extracto_total_egresos:      Math.round(input.totalEgresos),
+    extracto_saldo_final:        Math.round(input.saldoFinal),
+    app_saldo_final:             Math.round(appSaldoFinal),
+    diferencia:                  Math.round(diferencia),
+    transacciones_conciliadas:   input.conciliadas,
+    transacciones_sin_registrar: input.sinRegistrar,
+    transacciones_sin_confirmar: input.sinConfirmar,
+    closed_at:                   new Date().toISOString(),
+  }
+
+  const { error } = await supabase
+    .from('bank_reconciliations')
+    .upsert(row, { onConflict: 'account_id,year,month' })
+  if (error) {
+    console.error('[cerrarMes] error:', error.message)
+    return { ok: false, error: error.message }
+  }
+
+  revalidatePath('/bancos/conciliacion')
+  return { ok: true }
 }

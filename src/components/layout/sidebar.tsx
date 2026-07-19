@@ -9,7 +9,7 @@ const links = [
   { href: '/legalizaciones',      label: 'Legalizaciones' },
   { href: '/bancos',              label: 'Bancos' },
   { href: '/bancos/conciliacion', label: 'Conciliación' },
-  { href: '/facturas',            label: 'Facturación DIAN' },
+  { href: '/facturas',            label: 'Facturación' },
   { href: '/proveedores',         label: 'Proveedores' },
   { href: '/prestamos',           label: 'Préstamos' },
   { href: '/prestaciones',        label: 'Prestaciones' },

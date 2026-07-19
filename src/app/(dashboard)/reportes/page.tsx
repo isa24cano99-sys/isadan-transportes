@@ -12,6 +12,10 @@ const PERSONAL_OWNER_CATS  = ['52959510','52959511','52959505','52959507','52959
 const ANTICIPO_CATS        = ['28050510']
 const ANTICIPO_NO_LEG_CATS = ['13301510']
 const FINANCIAL_INC_CATS   = ['42100510']
+// Los peajes se toman de `toll_transactions` (agrupados por placa, ver `tolls`).
+// Las transacciones bancarias con esta categoría NO se suman en el P&L para evitar
+// doble conteo — por eso 61450575 no está en ningún set de arriba y se filtra en extractBankTx.
+const PEAJE_PUC_EXCLUIDO   = '61450575'
 
 export type RawInvoice = {
   month: number
@@ -141,7 +145,8 @@ export default async function ReportesPage({
     return (bankTxRes.data ?? [])
       .filter((t: any) => {
         const puc = pickPuc(t)
-        if (!puc || !cats.includes(puc)) return false
+        if (!puc || puc === PEAJE_PUC_EXCLUIDO) return false // peajes → toll_transactions, no banco
+        if (!cats.includes(puc)) return false
         if (txType && t.type !== txType) return false
         return true
       })

@@ -1,103 +1,107 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
-import FacturasDataicoClient, { type FacturaRow, type ViajeSinFactura } from './FacturasDataicoClient'
-import PeajesFlypassClient from './PeajesFlypassClient'
-import PeajesImportadosClient, { type TollLite } from './PeajesImportadosClient'
+import { FileText, Receipt, Inbox, ArrowRight } from 'lucide-react'
+import { formatCOP } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
-async function getFacturacionData(): Promise<{
-  facturas: FacturaRow[]
-  viajesSinFactura: ViajeSinFactura[]
-  tolls: TollLite[]
-}> {
-  const [invRes, tripsRes, tollsRes] = await Promise.all([
-    // Facturas emitidas — select('*') para tolerar columnas que aún no existan.
-    supabase.from('invoices').select('*').eq('invoice_type', 'EMITIDA'),
-    supabase
-      .from('trips')
-      .select('id, trip_number, origin, destination, load_date, freight_value, clients(name)')
-      .eq('status', 'FINALIZADO')
-      .is('dataico_invoice_id', null)
-      .order('load_date', { ascending: false }),
-    supabase
-      .from('toll_transactions')
-      .select('id, plate, pass_date, total')
-      .order('pass_date', { ascending: false }),
+async function getStats() {
+  const year = new Date().getFullYear()
+  const from = `${year}-01-01T00:00:00`
+  const to   = `${year}-12-31T23:59:59`
+
+  const [invRes, tollRes, dianRes] = await Promise.all([
+    supabase.from('invoices').select('total_amount').eq('invoice_type', 'EMITIDA'),
+    supabase.from('toll_transactions').select('total').gte('pass_date', from).lte('pass_date', to).limit(10000),
+    supabase.from('dian_invoices_import').select('id', { count: 'exact', head: true }),
   ])
 
-  const facturas: FacturaRow[] = ((invRes.data ?? []) as any[])
-    .map(r => ({
-      id:             r.id,
-      invoice_number: r.invoice_number ?? null,
-      issue_date:     r.issue_date ?? null,
-      client_name:    r.client_name ?? null,
-      total_amount:   r.total_amount ?? null,
-      pdf_url:        r.pdf_url ?? null,
-    }))
-    .sort((a, b) => (b.issue_date ?? '').localeCompare(a.issue_date ?? ''))
+  const facturas = (invRes.data ?? []) as { total_amount: number | null }[]
+  const totalFacturado = facturas.reduce((s, f) => s + Number(f.total_amount ?? 0), 0)
 
-  const viajesSinFactura: ViajeSinFactura[] = ((tripsRes.data ?? []) as any[]).map(t => ({
-    id:            t.id,
-    trip_number:   t.trip_number ?? null,
-    origin:        t.origin ?? null,
-    destination:   t.destination ?? null,
-    load_date:     t.load_date ?? null,
-    freight_value: t.freight_value ?? null,
-    client_name:   t.clients?.name ?? null,
-  }))
+  const tolls = (tollRes.data ?? []) as { total: number | null }[]
+  const totalPeajes = tolls.reduce((s, t) => s + Number(t.total ?? 0), 0)
 
-  const tolls: TollLite[] = ((tollsRes.data ?? []) as any[]).map(t => ({
-    id:        t.id,
-    plate:     t.plate ?? null,
-    pass_date: t.pass_date ?? null,
-    total:     Number(t.total ?? 0),
-  }))
-
-  return { facturas, viajesSinFactura, tolls }
+  return {
+    year,
+    facturasCount:  facturas.length,
+    totalFacturado,
+    peajesCount:    tolls.length,
+    totalPeajes,
+    dianCount:      dianRes.count ?? 0,
+  }
 }
 
-export default async function FacturasPage() {
-  const { facturas, viajesSinFactura, tolls } = await getFacturacionData()
-  const now = new Date()
-  const defaultMes  = String(now.getMonth() + 1)
-  const defaultAnio = String(now.getFullYear())
+export default async function FacturacionPage() {
+  const s = await getStats()
+
+  const cards = [
+    {
+      href: '/facturas/clientes',
+      icon: FileText,
+      accent: 'bg-blue-50 text-blue-600',
+      title: 'Facturas clientes',
+      desc: 'Facturas FEIT emitidas · importar Excel Dataico',
+      stats: [
+        { label: 'Total facturado', value: formatCOP(s.totalFacturado) },
+        { label: 'Facturas', value: String(s.facturasCount) },
+      ],
+    },
+    {
+      href: '/facturas/peajes',
+      icon: Receipt,
+      accent: 'bg-emerald-50 text-emerald-600',
+      title: 'Peajes Flypass',
+      desc: `Peajes importados · ${s.year}`,
+      stats: [
+        { label: 'Total peajes', value: formatCOP(s.totalPeajes) },
+        { label: 'Movimientos', value: String(s.peajesCount) },
+      ],
+    },
+    {
+      href: '/facturas/importar',
+      icon: Inbox,
+      accent: 'bg-amber-50 text-amber-600',
+      title: 'Facturas DIAN recibidas',
+      desc: 'Importar facturas de proveedores (cruce CUFE)',
+      stats: [
+        { label: 'En sistema', value: String(s.dianCount) },
+      ],
+    },
+  ]
 
   return (
-    <div className="p-4 md:p-6 space-y-10">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-[#0F172A]">Facturación</h1>
-          <p className="text-sm text-[#64748B] mt-0.5">
-            Ingresos facturados y peajes Flypass.
-          </p>
-        </div>
-        <Link
-          href="/facturas/importar"
-          className="group inline-flex items-center gap-2 text-sm font-medium text-[#2563EB] hover:underline"
-        >
-          Cruce DIAN / CUFE
-          <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-        </Link>
+    <div className="p-4 md:p-6 space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-[#0F172A]">Facturación</h1>
+        <p className="text-sm text-[#64748B] mt-0.5">Facturas de clientes, peajes Flypass y facturas DIAN recibidas.</p>
       </div>
 
-      {/* Sección 1: Ingresos Facturados */}
-      <FacturasDataicoClient
-        facturas={facturas}
-        viajesSinFactura={viajesSinFactura}
-        defaultMes={defaultMes}
-        defaultAnio={defaultAnio}
-      />
-
-      {/* Sección 2: Peajes Flypass → bancos */}
-      <div className="pt-8 border-t border-[#E2E8F0]">
-        <PeajesFlypassClient />
-      </div>
-
-      {/* Sección 3: Peajes ya importados */}
-      <div className="pt-8 border-t border-[#E2E8F0]">
-        <PeajesImportadosClient tolls={tolls} />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {cards.map(({ href, icon: Icon, accent, title, desc, stats }) => (
+          <Link
+            key={href}
+            href={href}
+            className="group bg-white border border-[#E2E8F0] rounded-xl p-5 hover:border-[#2563EB]/40 hover:shadow-sm transition-all flex flex-col"
+          >
+            <div className="flex items-start justify-between">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${accent}`}>
+                <Icon size={19} />
+              </div>
+              <ArrowRight size={16} className="text-[#CBD5E1] group-hover:text-[#2563EB] group-hover:translate-x-0.5 transition-all" />
+            </div>
+            <h2 className="text-base font-semibold text-[#0F172A] mt-4">{title}</h2>
+            <p className="text-xs text-[#64748B] mt-0.5 flex-1">{desc}</p>
+            <div className="flex gap-4 mt-4 pt-4 border-t border-[#F1F5F9]">
+              {stats.map(st => (
+                <div key={st.label}>
+                  <p className="text-sm font-bold text-[#0F172A] tabular-nums">{st.value}</p>
+                  <p className="text-[11px] text-[#94A3B8]">{st.label}</p>
+                </div>
+              ))}
+            </div>
+          </Link>
+        ))}
       </div>
     </div>
   )
