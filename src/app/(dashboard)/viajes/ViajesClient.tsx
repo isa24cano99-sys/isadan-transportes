@@ -6,7 +6,7 @@ import { formatCOP, formatDate, formatInvoiceNumber } from '@/lib/utils'
 import Link from 'next/link'
 import {
   TruckIcon, Pencil, Eye, Search, X,
-  FileText, Loader2, CheckCircle,
+  FileText, Loader2, CheckCircle, Filter,
 } from 'lucide-react'
 import { generarFacturaAction } from './[id]/actions'
 
@@ -46,6 +46,13 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
 
   const [plateBuscar, setPlateBuscar] = useState('')
   const [manifBuscar, setManifBuscar] = useState('')
+  const [rutaBuscar,  setRutaBuscar]  = useState('')
+  const [desde,       setDesde]       = useState('')
+  const [hasta,       setHasta]       = useState('')
+  const [clienteId,   setClienteId]   = useState('')
+  const [conductorId, setConductorId] = useState('')
+  const [estado,      setEstado]      = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [tab, setTab]                 = useState<Tab>('todos')
   const [invoicing,  setInvoicing]    = useState<Set<string>>(new Set())
   const [invoiceErr, setInvoiceErr]   = useState<Record<string, string>>({})
@@ -64,9 +71,22 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                  : tab === 'facturados'   ? facturados
                  : trips
 
+  // Clientes y conductores únicos presentes en los viajes
+  const clientesUnicos = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of trips) if (t.clients) m.set(t.clients.id, t.clients.name)
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [trips])
+  const conductoresUnicos = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of trips) if (t.drivers) m.set(t.drivers.id, t.drivers.full_name)
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [trips])
+
   const filtered = useMemo(() => {
     const pl = plateBuscar.trim().toLowerCase()
     const mn = manifBuscar.trim().toLowerCase()
+    const rt = rutaBuscar.trim().toLowerCase()
     return baseList.filter(t => {
       if (pl && !(t.vehicles?.plate ?? '').toLowerCase().includes(pl)) return false
       if (mn) {
@@ -74,11 +94,22 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
         const inNum  = (t.manifest_number ?? '').toLowerCase().includes(mn)
         if (!inAuth && !inNum) return false
       }
+      if (rt && !`${t.origin} ${t.destination}`.toLowerCase().includes(rt)) return false
+      if (desde && (t.load_date ?? '') < desde) return false
+      if (hasta && (t.load_date ?? '') > hasta) return false
+      if (clienteId   && t.clients?.id !== clienteId)   return false
+      if (conductorId && t.drivers?.id !== conductorId) return false
+      if (estado      && t.status !== estado)           return false
       return true
     })
-  }, [baseList, plateBuscar, manifBuscar])
+  }, [baseList, plateBuscar, manifBuscar, rutaBuscar, desde, hasta, clienteId, conductorId, estado])
 
-  const hasFilters = plateBuscar || manifBuscar
+  const activeCount = [plateBuscar, manifBuscar, rutaBuscar, desde, hasta, clienteId, conductorId, estado].filter(Boolean).length
+  const hasFilters = activeCount > 0
+  const clearFilters = () => {
+    setPlateBuscar(''); setManifBuscar(''); setRutaBuscar(''); setDesde(''); setHasta('')
+    setClienteId(''); setConductorId(''); setEstado('')
+  }
 
   const handleFacturar = async (tripId: string) => {
     setInvoicing(s => { const n = new Set(s); n.add(tripId); return n })
@@ -119,33 +150,66 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
         ))}
       </div>
 
-      {/* ── Search row ── */}
-      <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
-        <div className="relative w-full sm:w-40">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-          <input
-            type="text" placeholder="Buscar placa..."
-            value={plateBuscar} onChange={e => setPlateBuscar(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-          />
-        </div>
-        <div className="relative flex-1 sm:w-48 sm:flex-none">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-          <input
-            type="text" placeholder="Buscar manifiesto..."
-            value={manifBuscar} onChange={e => setManifBuscar(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-          />
-        </div>
-        {hasFilters && (
-          <>
-            <button onClick={() => { setPlateBuscar(''); setManifBuscar('') }}
+      {/* ── Filtros ── */}
+      {/* Botón móvil */}
+      <button onClick={() => setFiltersOpen(o => !o)}
+        className="md:hidden flex items-center gap-2 w-full justify-center px-3 py-2.5 mb-3 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#374151]">
+        <Filter size={15} /> Filtrar
+        {activeCount > 0 && <span className="text-[10px] font-bold bg-[#2563EB] text-white px-1.5 py-0.5 rounded-full">{activeCount}</span>}
+      </button>
+
+      <div className={`${filtersOpen ? 'block' : 'hidden'} md:block mb-4`}>
+        <div className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-2 bg-white md:bg-transparent border md:border-0 border-[#E2E8F0] rounded-xl p-3 md:p-0">
+          <div className="relative md:w-36">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input type="text" placeholder="Placa..." value={plateBuscar} onChange={e => setPlateBuscar(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+          </div>
+          <div className="relative md:w-44">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input type="text" placeholder="Manifiesto..." value={manifBuscar} onChange={e => setManifBuscar(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+          </div>
+          <div className="relative md:w-44">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input type="text" placeholder="Origen / destino..." value={rutaBuscar} onChange={e => setRutaBuscar(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+          </div>
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="block text-[10px] font-semibold text-[#94A3B8] mb-0.5 ml-0.5">Desde</label>
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+                className="px-2.5 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-[#94A3B8] mb-0.5 ml-0.5">Hasta</label>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+                className="px-2.5 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+            </div>
+          </div>
+          <select value={clienteId} onChange={e => setClienteId(e.target.value)}
+            className="px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] md:max-w-[180px]">
+            <option value="">Todos los clientes</option>
+            {clientesUnicos.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={conductorId} onChange={e => setConductorId(e.target.value)}
+            className="px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] md:max-w-[180px]">
+            <option value="">Todos los conductores</option>
+            {conductoresUnicos.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={estado} onChange={e => setEstado(e.target.value)}
+            className="px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]">
+            <option value="">Todos los estados</option>
+            {Object.entries(statusConfig).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          {hasFilters && (
+            <button onClick={clearFilters}
               className="flex items-center gap-1 px-3 py-2 text-xs text-[#64748B] hover:text-[#0F172A] transition-colors">
-              <X size={12} /> Limpiar
+              <X size={12} /> Limpiar ({activeCount})
             </button>
-            <span className="text-xs text-[#94A3B8]">{filtered.length} de {baseList.length}</span>
-          </>
-        )}
+          )}
+          <span className="text-xs text-[#94A3B8] md:ml-auto md:self-center">{filtered.length} de {baseList.length}</span>
+        </div>
       </div>
 
       {/* ══════════════════════════════════════════════

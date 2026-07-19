@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { formatCOP, formatDate, legalizacionBalance, tripManifiesto } from '@/lib/utils'
 import Link from 'next/link'
-import { FileText, Search, Pencil, Trash2 } from 'lucide-react'
+import { FileText, Search, Pencil, Trash2, Filter, X } from 'lucide-react'
 import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction } from './actions'
 import { ExportComprobanteButton } from './ExportComprobanteButton'
 
@@ -39,8 +39,10 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
   const [plateFilter,    setPlateFilter]    = useState('')
   const [manifestFilter, setManifestFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | Status>('')
-  const [monthFilter,  setMonthFilter]  = useState('')
-  const [yearFilter,   setYearFilter]   = useState('')
+  const [desde,        setDesde]        = useState('')
+  const [hasta,        setHasta]        = useState('')
+  const [conductor,    setConductor]    = useState('')
+  const [filtersOpen,  setFiltersOpen]  = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Legalizacion | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [changingStatus, setChangingStatus] = useState<string | null>(null)
@@ -53,6 +55,13 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
     }
     setChangingStatus(null)
   }
+
+  // Conductores únicos presentes en las legalizaciones
+  const conductoresUnicos = useMemo(() => {
+    const s = new Set<string>()
+    for (const l of legalizaciones) if (l.drivers?.full_name) s.add(l.drivers.full_name)
+    return [...s].sort((a, b) => a.localeCompare(b))
+  }, [legalizaciones])
 
   const filtered = useMemo(() => {
     return legalizaciones.filter(leg => {
@@ -67,19 +76,18 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
         if (!num.includes(q) && !auth.includes(q)) return false
       }
       if (statusFilter && leg.status !== statusFilter) return false
-      if (monthFilter && leg.date) {
-        const legMonth = parseInt(leg.date.slice(5, 7), 10)
-        if (legMonth !== parseInt(monthFilter, 10)) return false
-      }
-      if (yearFilter && leg.date) {
-        const legYear = parseInt(leg.date.slice(0, 4), 10)
-        if (legYear !== parseInt(yearFilter, 10)) return false
-      }
+      if (desde && (leg.date ?? '') < desde) return false
+      if (hasta && (leg.date ?? '') > hasta) return false
+      if (conductor && (leg.drivers?.full_name ?? '') !== conductor) return false
       return true
     })
-  }, [legalizaciones, plateFilter, manifestFilter, statusFilter, monthFilter, yearFilter])
+  }, [legalizaciones, plateFilter, manifestFilter, statusFilter, desde, hasta, conductor])
 
-  const hasFilters = plateFilter || manifestFilter || statusFilter || monthFilter || yearFilter
+  const activeCount = [plateFilter, manifestFilter, statusFilter, desde, hasta, conductor].filter(Boolean).length
+  const hasFilters = activeCount > 0
+  const clearFilters = () => {
+    setPlateFilter(''); setManifestFilter(''); setStatusFilter(''); setDesde(''); setHasta(''); setConductor('')
+  }
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -94,58 +102,55 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
 
   return (
     <div>
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
-        <div className="relative w-full sm:w-44">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-          <input
-            type="text"
-            placeholder="Buscar por placa..."
-            value={plateFilter}
-            onChange={e => setPlateFilter(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-          />
+      {/* Filtros */}
+      <button onClick={() => setFiltersOpen(o => !o)}
+        className="md:hidden flex items-center gap-2 w-full justify-center px-3 py-2.5 mb-3 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#374151]">
+        <Filter size={15} /> Filtrar
+        {activeCount > 0 && <span className="text-[10px] font-bold bg-[#2563EB] text-white px-1.5 py-0.5 rounded-full">{activeCount}</span>}
+      </button>
+
+      <div className={`${filtersOpen ? 'block' : 'hidden'} md:block mb-4`}>
+        <div className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-2 bg-white md:bg-transparent border md:border-0 border-[#E2E8F0] rounded-xl p-3 md:p-0">
+          <div className="relative md:w-44">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input type="text" placeholder="Placa..." value={plateFilter} onChange={e => setPlateFilter(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+          </div>
+          <div className="relative md:w-52">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input type="text" placeholder="Manifiesto..." value={manifestFilter} onChange={e => setManifestFilter(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+          </div>
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="block text-[10px] font-semibold text-[#94A3B8] mb-0.5 ml-0.5">Desde</label>
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+                className="px-2.5 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-[#94A3B8] mb-0.5 ml-0.5">Hasta</label>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+                className="px-2.5 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+            </div>
+          </div>
+          <select value={conductor} onChange={e => setConductor(e.target.value)}
+            className="px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] md:max-w-[180px]">
+            <option value="">Todos los conductores</option>
+            {conductoresUnicos.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as '' | Status)}
+            className="px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]">
+            <option value="">Todos los estados</option>
+            {STATUSES.map(s => <option key={s} value={s}>{statusConfig[s]?.label ?? s}</option>)}
+          </select>
+          {hasFilters && (
+            <button onClick={clearFilters}
+              className="flex items-center gap-1 px-3 py-2 text-xs text-[#64748B] hover:text-[#0F172A] transition-colors">
+              <X size={12} /> Limpiar ({activeCount})
+            </button>
+          )}
+          <span className="text-xs text-[#94A3B8] md:ml-auto md:self-center">{filtered.length} de {legalizaciones.length}</span>
         </div>
-        <div className="relative w-full sm:w-52">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
-          <input
-            type="text"
-            placeholder="Buscar por manifiesto..."
-            value={manifestFilter}
-            onChange={e => setManifestFilter(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-          />
-        </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as '' | Status)}
-          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
-          <option value="">Todos los estados</option>
-          {STATUSES.map(s => (
-            <option key={s} value={s}>{statusConfig[s]?.label ?? s}</option>
-          ))}
-        </select>
-        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
-          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
-          <option value="">Todos los meses</option>
-          {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => (
-            <option key={i+1} value={String(i+1)}>{m}</option>
-          ))}
-        </select>
-        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}
-          className="flex-1 sm:flex-none px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] text-[#64748B]">
-          <option value="">Todos los años</option>
-          {[2025, 2026, 2027].map(y => (
-            <option key={y} value={String(y)}>{y}</option>
-          ))}
-        </select>
-        {hasFilters && (
-          <button onClick={() => { setPlateFilter(''); setManifestFilter(''); setStatusFilter(''); setMonthFilter(''); setYearFilter('') }}
-            className="px-3 py-2 text-xs text-[#64748B] hover:text-[#0F172A] transition-colors">
-            Limpiar
-          </button>
-        )}
-        {hasFilters && (
-          <span className="text-xs text-[#94A3B8]">{filtered.length} de {legalizaciones.length}</span>
-        )}
       </div>
 
       {/* Desktop table */}
