@@ -23,6 +23,7 @@ export default function SupplierSelector({
   const [creating,  setCreating]  = useState(false)
   const [newNit,    setNewNit]    = useState('')
   const [newNombre, setNewNombre] = useState('')
+  const [newTipo,   setNewTipo]   = useState<'CLIENTE' | 'PROVEEDOR'>('PROVEEDOR')
   const [saving,    setSaving]    = useState(false)
   const debRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -73,6 +74,7 @@ export default function SupplierSelector({
     setSaving(true)
     const fd = new FormData()
     fd.set('nombre', newNombre.trim())
+    fd.set('tipo', newTipo)
     if (newNit.trim()) fd.set('nit', newNit.trim())
     const res = await crearProveedorAction(fd)
     if (res.ok && res.supplier) {
@@ -107,28 +109,18 @@ export default function SupplierSelector({
       {open && (
         <div className="absolute z-50 w-full mt-1 bg-white border border-[#E2E8F0] rounded-xl shadow-lg overflow-hidden">
           <div className="max-h-48 overflow-y-auto">
-            {results.length > 0 ? (
-              <>
-                {(['CLIENTE', 'PROVEEDOR'] as const).map(tipo => {
-                  const items = results.filter(s => s.tipo === tipo)
-                  if (items.length === 0) return null
-                  return (
-                    <div key={tipo}>
-                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider bg-[#F8FAFC] border-b border-[#E2E8F0] sticky top-0 text-[#94A3B8]">
-                        {tipo === 'CLIENTE' ? 'Clientes' : 'Proveedores'}
-                      </div>
-                      {items.map(s => (
-                        <button key={`${s.tipo}-${s.id}`} type="button" onClick={() => select(s)}
-                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-[#F1F5F9] transition-colors border-b border-[#E2E8F0] last:border-0">
-                          <span className="text-[#0F172A] font-medium">{s.nombre}</span>
-                          {s.nit && <span className="ml-2 text-[10px] text-[#94A3B8]">NIT {s.nit}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )
-                })}
-              </>
-            ) : (
+            {results.length > 0 ? results.map(s => (
+              <button key={`${s.tipo}-${s.id}`} type="button" onClick={() => select(s)}
+                className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-sm hover:bg-[#F1F5F9] transition-colors border-b border-[#E2E8F0] last:border-0">
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                  s.tipo === 'CLIENTE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                }`}>
+                  {s.tipo === 'CLIENTE' ? 'Cliente' : 'Proveedor'}
+                </span>
+                <span className="text-[#0F172A] font-medium flex-1 min-w-0 truncate">{s.nombre}</span>
+                {s.nit && <span className="text-[10px] text-[#94A3B8] shrink-0">NIT {s.nit}</span>}
+              </button>
+            )) : (
               <p className="text-xs text-[#94A3B8] text-center py-4">Sin resultados para &ldquo;{search}&rdquo;</p>
             )}
           </div>
@@ -141,6 +133,19 @@ export default function SupplierSelector({
             ) : (
               <div className="p-3 space-y-2 bg-[#F8FAFC]">
                 <p className="text-xs font-semibold text-[#64748B]">Nuevo tercero</p>
+                {/* Categorizar: cliente o proveedor */}
+                <div className="flex rounded-lg border border-[#E2E8F0] overflow-hidden">
+                  {(['CLIENTE', 'PROVEEDOR'] as const).map((tp, i) => (
+                    <button key={tp} type="button" onClick={() => setNewTipo(tp)}
+                      className={`flex-1 py-1.5 text-xs font-semibold transition-colors ${i > 0 ? 'border-l border-[#E2E8F0]' : ''} ${
+                        newTipo === tp
+                          ? tp === 'CLIENTE' ? 'bg-emerald-600 text-white' : 'bg-[#2563EB] text-white'
+                          : 'bg-white text-[#64748B] hover:bg-[#F1F5F9]'
+                      }`}>
+                      {tp === 'CLIENTE' ? 'Cliente' : 'Proveedor'}
+                    </button>
+                  ))}
+                </div>
                 <input autoFocus type="text" value={newNombre} onChange={e => setNewNombre(e.target.value)}
                   placeholder="Nombre *" className={miniInputCls} />
                 <input type="text" value={newNit} onChange={e => setNewNit(e.target.value)}

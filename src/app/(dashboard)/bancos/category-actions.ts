@@ -44,19 +44,35 @@ export async function buscarProveedoresAction(query: string): Promise<SupplierRe
   return [...clientes, ...proveedores]
 }
 
+/**
+ * Crea un tercero nuevo. Según `tipo` lo guarda en la tabla correcta:
+ * CLIENTE → `clients`; PROVEEDOR → `supplier_catalog`.
+ */
 export async function crearProveedorAction(
   formData: FormData,
 ): Promise<{ ok: boolean; supplier?: SupplierResult; error?: string }> {
   const nit    = (formData.get('nit') as string)?.trim() || null
   const nombre = (formData.get('nombre') as string)?.trim()
+  const tipo   = (formData.get('tipo') as 'CLIENTE' | 'PROVEEDOR') || 'PROVEEDOR'
   if (!nombre) return { ok: false, error: 'Nombre requerido' }
+
+  if (tipo === 'CLIENTE') {
+    const { data, error } = await supabase
+      .from('clients')
+      .insert({ name: nombre, nit, active: true })
+      .select('id, nit, name')
+      .single()
+    if (error) return { ok: false, error: error.message }
+    return { ok: true, supplier: { id: data.id, nit: data.nit ?? null, nombre: data.name, tipo: 'CLIENTE' } }
+  }
+
   const { data, error } = await supabase
     .from('supplier_catalog')
     .insert({ nit, nombre })
     .select('id, nit, nombre')
     .single()
   if (error) return { ok: false, error: error.message }
-  return { ok: true, supplier: { ...(data as any), tipo: 'PROVEEDOR' as const } }
+  return { ok: true, supplier: { id: data.id, nit: data.nit ?? null, nombre: data.nombre, tipo: 'PROVEEDOR' } }
 }
 
 export async function crearCategoriaAction(

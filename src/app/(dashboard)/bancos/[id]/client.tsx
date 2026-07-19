@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useMemo, useRef } from 'react'
-import { formatCOP, formatDate } from '@/lib/utils'
+import { formatCOP, formatDate, formatTripOption, tripMatchesQuery } from '@/lib/utils'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
   X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap,
@@ -49,6 +49,8 @@ interface Transaction {
   source?: string
   supplier_nit?: string | null
   supplier_name?: string | null
+  reference_type?: string | null
+  reference_id?: string | null
   transaction_categories?: TxCategory | null
 }
 
@@ -58,6 +60,7 @@ type SortCol    = 'date' | 'type' | 'category' | 'description' | 'amount'
 interface EditForm {
   type: string; amount: string; date: string; category_id: string
   description: string; supplier_nit: string; supplier_name: string
+  trip_id: string
 }
 
 interface Props {
@@ -97,6 +100,7 @@ export default function BankDetailClient({
   const [sortDir,        setSortDir]        = useState<'asc' | 'desc'>('desc')
   const [editTxn,        setEditTxn]        = useState<Transaction | null>(null)
   const [editForm,       setEditForm]       = useState<EditForm | null>(null)
+  const [editTripSearch, setEditTripSearch] = useState('')
   const [saving,         setSaving]         = useState(false)
   const [editError,      setEditError]      = useState('')
   const [editSuggestion, setEditSuggestion] = useState<SugerirResult | null>(null)
@@ -167,7 +171,9 @@ export default function BankDetailClient({
       type: t.type, amount: String(t.amount), date: t.date,
       category_id: t.category_id ?? '', description: t.description,
       supplier_nit: t.supplier_nit ?? '', supplier_name: t.supplier_name ?? '',
+      trip_id: t.reference_type === 'TRIP' ? (t.reference_id ?? '') : '',
     })
+    setEditTripSearch('')
     setEditError('')
     setEditSuggestion(null)
     if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
@@ -194,6 +200,10 @@ export default function BankDetailClient({
     fd.set('type', editForm.type); fd.set('amount', editForm.amount); fd.set('date', editForm.date)
     fd.set('category_id', editForm.category_id); fd.set('description', editForm.description)
     fd.set('supplier_nit', editForm.supplier_nit); fd.set('supplier_name', editForm.supplier_name)
+    if (editForm.trip_id) {
+      fd.set('reference_type', 'TRIP')
+      fd.set('reference_id',   editForm.trip_id)
+    }
     const result = await actualizarTransaccionAction(editTxn.id, fd)
     if (result.ok) { closeEdit(); window.location.reload() }
     else { setEditError(result.error ?? 'Error al guardar'); setSaving(false) }
@@ -654,6 +664,28 @@ export default function BankDetailClient({
                 <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
                   onChange={(nit, name) => setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name }))} />
               </div>
+              {trips.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Viaje asociado (opcional)</label>
+                  <input
+                    type="text"
+                    value={editTripSearch}
+                    onChange={e => setEditTripSearch(e.target.value)}
+                    placeholder="Buscar por manifiesto, placa o ruta…"
+                    className={`${inpCls} mb-2`}
+                  />
+                  <select value={editForm.trip_id}
+                    onChange={e => setEditForm(p => p && ({ ...p, trip_id: e.target.value }))}
+                    className={inpCls}>
+                    <option value="">Sin viaje asociado</option>
+                    {trips
+                      .filter(t => t.id === editForm.trip_id || tripMatchesQuery(t, editTripSearch))
+                      .map(t => (
+                        <option key={t.id} value={t.id}>{formatTripOption(t)}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción</label>
                 <textarea rows={3} value={editForm.description}

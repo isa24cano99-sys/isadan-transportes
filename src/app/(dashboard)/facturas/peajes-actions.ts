@@ -48,18 +48,27 @@ type TollRow = {
 }
 
 function mapFlypass(raw: Record<string, unknown>): TollRow {
-  const dateRaw = raw['F.Paso'] ?? raw['F. Paso'] ?? raw['f.paso'] ?? raw['F.PASO']
+  // Soporta el reporte "movimientos" (Fecha/Valor/Documento contable/Tipo de movimiento)
+  // y el reporte antiguo (F.Paso/Total/Documento) como fallback.
+  const dateRaw = raw['Fecha'] ?? raw['F.Paso'] ?? raw['F. Paso'] ?? raw['f.paso'] ?? raw['F.PASO']
+  // En el reporte "movimientos" el Valor viene firmado: negativo = cobro (gasto),
+  // positivo = ajuste/reversa. Lo invertimos para que costo sea positivo y la reversa
+  // negativa; así la suma por placa+día da el neto real. El formato antiguo usa "Total" (positivo).
+  const rawNorm: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(raw)) rawNorm[norm(k)] = v
+  const tieneValor = norm('Valor') in rawNorm
+  const total = tieneValor ? -getNum(raw, 'Valor') : getNum(raw, 'Total')
   return {
     status:    getCol(raw, 'Estado'),
-    type:      getCol(raw, 'Tipo'),
-    document:  getCol(raw, 'Documento'),
+    type:      getCol(raw, 'Tipo de movimiento', 'Tipo'),
+    document:  getCol(raw, 'Documento contable', 'Documento'),
     plate:     getCol(raw, 'Placa'),
     toll_name: getCol(raw, 'Peaje'),
     category:  getCol(raw, 'Categoria', 'Categoría'),
     pass_date: parseFlypassDate(dateRaw),
-    subtotal:  getNum(raw, 'Subtotal'),
-    tax:       getNum(raw, 'Impuesto'),
-    total:     getNum(raw, 'Total'),
+    subtotal:  0,
+    tax:       0,
+    total,
     cufe:      getCol(raw, 'CUFE', 'Cufe'),
     nit:       getCol(raw, 'NIT', 'Nit'),
   }
@@ -117,7 +126,9 @@ export async function importarFlypassPeajesAction(
     const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const json = XLSX.utils.sheet_to_json(ws, { defval: '' }) as Record<string, unknown>[]
-    rows = json.map(mapFlypass).filter(r => r.plate) // descartar filas sin placa
+    // Solo movimientos de peaje (COBRO/AJUSTE PEAJE). Excluye RECARGA, PARQUEADERO, etc.
+    // Si no hay columna "Tipo de movimiento" (formato antiguo), se aceptan todas.
+    rows = json.map(mapFlypass).filter(r => r.plate && (!r.type || /peaje/i.test(r.type)))
   } catch (e: any) {
     console.error('[importarFlypassPeajes] error leyendo Excel:', e.message)
     return emptyResult({ error: `No se pudo leer el Excel: ${e.message}` })
@@ -152,15 +163,18 @@ export async function importarFlypassPeajesAction(
     const plate = r.plate.trim().toUpperCase().replace(/\s+/g, '')
     const key = `${plate}_${fecha}`
     const g = groups.get(key) ?? { plate, fecha, total: 0, count: 0 }
-    g.total += Number(r.total ?? 0)
+    g.total += Number(r.total ?? 0)   // costo positivo, reversa negativa → neto real
     g.count += 1
     groups.set(key, g)
   }
   const allGroups = Array.from(groups.values())
+    // Descartar grupos con neto ≈ 0 o negativo (cobros totalmente revertidos)
+    .map(g => ({ ...g, total: Math.round(g.total) }))
+    .filter(g => g.total >= 1)
     .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.plate.localeCompare(b.plate))
 
-  // Resumen de lo importado (todos los peajes del archivo)
-  const totalCOP    = rows.reduce((s, r) => s + Number(r.total ?? 0), 0)
+  // Resumen de lo importado (neto positivo de todos los peajes agrupados)
+  const totalCOP    = allGroups.reduce((s, g) => s + g.total, 0)
   const fechasValidas = allGroups.map(g => g.fecha)
   const periodoInicio = fechasValidas.length ? fechasValidas[0] : null
   const periodoFin    = fechasValidas.length ? fechasValidas[fechasValidas.length - 1] : null
