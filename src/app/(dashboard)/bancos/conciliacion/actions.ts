@@ -176,35 +176,73 @@ export async function conciliarAction(
   // ── Transacciones de la app SOLO del mes (primer–último día) ───────────────
   const { data: appRaw } = await supabase
     .from('bank_transactions')
-    .select('id, date, amount, type, description')
+    .select('id, date, amount, type, description, category')
     .eq('account_id', accountId!)
     .gte('date', desde)
     .lte('date', hasta)
 
-  const appTxns: AppTxn[] = (appRaw ?? []).map(t => ({
+  type AppTxnExt = AppTxn & { category: string | null }
+  const appTxns: AppTxnExt[] = (appRaw ?? []).map(t => ({
     id:          t.id as string,
     date:        t.date as string,
     amount:      Number(t.amount),
     type:        t.type as 'INGRESO' | 'EGRESO',
-    description: t.description as string,
+    description: (t.description as string) ?? '',
+    category:    (t.category as string | null) ?? null,
   }))
 
-  // ── Cruce greedy: extracto ↔ app (mismo tipo, monto ±1, fecha ±1 día) ──────
+  // ── Clasificación Flypass ──────────────────────────────────────────────────
+  const PEAJE_PUC = '61450575'
+  const isFlyDesc = (s: string) => /flypass/i.test(s)
+  const isFlyApp  = (t: AppTxnExt) => isFlyDesc(t.description) || t.category === PEAJE_PUC
+
   const matchedAppIds       = new Set<string>()
   const matchedExtractoIdxs = new Set<number>()
   const conciliados: ConciliadoItem[] = []
 
+  // ── 1. Flypass agrupado por día: suma extracto vs suma app (±100) ──────────
+  const flyExByDay = new Map<string, number[]>()          // día → índices de extracto
+  extractoRows.forEach((r, i) => {
+    if (!isFlyDesc(r.descripcion)) return
+    const arr = flyExByDay.get(r.fecha) ?? []
+    arr.push(i); flyExByDay.set(r.fecha, arr)
+  })
+  const flyAppByDay = new Map<string, AppTxnExt[]>()       // día → transacciones app
+  for (const t of appTxns) {
+    if (!isFlyApp(t)) continue
+    const arr = flyAppByDay.get(t.date) ?? []
+    arr.push(t); flyAppByDay.set(t.date, arr)
+  }
+  for (const [day, exIdxs] of flyExByDay) {
+    const appList = flyAppByDay.get(day) ?? []
+    if (appList.length === 0) continue
+    const sumEx  = exIdxs.reduce((s, i) => s + extractoRows[i].monto, 0)
+    const sumApp = appList.reduce((s, t) => s + t.amount, 0)
+    if (Math.abs(sumEx - sumApp) <= 100) {
+      exIdxs.forEach(i => matchedExtractoIdxs.add(i))
+      appList.forEach(t => matchedAppIds.add(t.id))
+      conciliados.push({
+        extracto: { fecha: day, descripcion: `Flypass — ${exIdxs.length} mov. extracto`, monto: sumEx, tipo: 'EGRESO' },
+        app:      { id: `flypass_${day}`, date: day, amount: sumApp, type: 'EGRESO', description: `Pago Flypass — ${appList.length} mov. app` },
+      })
+    }
+  }
+
+  // ── 2. Resto: match individual (mismo tipo, monto ±10, fecha ±1 día) ────────
   for (let i = 0; i < extractoRows.length; i++) {
+    if (matchedExtractoIdxs.has(i)) continue
     const ex = extractoRows[i]
-    let best: AppTxn | null = null
+    if (isFlyDesc(ex.descripcion)) continue   // Flypass solo se concilia por día (paso 1)
+    let best: AppTxnExt | null = null
     let bestDays = Infinity
 
     for (const app of appTxns) {
-      if (matchedAppIds.has(app.id))           continue
-      if (ex.tipo !== app.type)                continue
-      if (Math.abs(ex.monto - app.amount) > 1) continue
+      if (matchedAppIds.has(app.id))            continue
+      if (isFlyApp(app))                        continue   // no mezclar Flypass en match individual
+      if (ex.tipo !== app.type)                 continue
+      if (Math.abs(ex.monto - app.amount) > 10) continue   // ±10 pesos (redondeos del banco)
       const days = Math.abs(daysBetween(ex.fecha, app.date))
-      if (days > 2) continue
+      if (days > 1) continue
       if (days < bestDays) { bestDays = days; best = app }
     }
 
@@ -216,7 +254,9 @@ export async function conciliarAction(
   }
 
   const sinRegistrar = extractoRows.filter((_, i) => !matchedExtractoIdxs.has(i))
-  const sinConfirmar = appTxns.filter(t => !matchedAppIds.has(t.id))
+  const sinConfirmar: AppTxn[] = appTxns
+    .filter(t => !matchedAppIds.has(t.id))
+    .map(t => ({ id: t.id, date: t.date, amount: t.amount, type: t.type, description: t.description }))
 
   // ── Resumen del extracto ──────────────────────────────────────────────────
   const totalIngresos = extractoRows.filter(r => r.tipo === 'INGRESO').reduce((s, r) => s + r.monto, 0)
