@@ -211,13 +211,14 @@ async function cruzarExtracto(
   const GMF_PUC     = '53050505'
   const INTERES_PUC = '42100510'
   const isFlyDesc     = (s: string) => /flypass/i.test(s)
-  const isInteresDesc = (s: string) => /interes/i.test(s)                          // 'ABONO INTERESES AHORROS', 'INTERESES'
-  const isGmfDesc     = (s: string) => /4\s?x\s?1000|impto\.?\s*gobierno/i.test(s)  // 'IMPTO GOBIERNO 4X1000'
+  const isInteresDesc = (s: string) => /interes/i.test(s)                                // 'ABONO INTERESES AHORROS', 'INTERESES'
+  const isGmfDesc     = (s: string) => /4\s?x\s?1000|impto\.?\s*gobierno|gmf/i.test(s)    // 'IMPTO GOBIERNO 4X1000', 'GMF'
   const isFlyApp      = (t: AppTxnExt) => isFlyDesc(t.description) || t.category === PEAJE_PUC
   const isInteresApp  = (t: AppTxnExt) => isInteresDesc(t.description) || t.category === INTERES_PUC
-  const isGmfApp      = (t: AppTxnExt) => isGmfDesc(t.description) || /gmf/i.test(t.description) || t.category === GMF_PUC
-  const isEspecialEx  = (r: ExtractoRow) => isFlyDesc(r.descripcion) || isInteresDesc(r.descripcion) || isGmfDesc(r.descripcion)
-  const isEspecialApp = (t: AppTxnExt) => isFlyApp(t) || isInteresApp(t) || isGmfApp(t)
+  const isGmfApp      = (t: AppTxnExt) => isGmfDesc(t.description) || t.category === GMF_PUC
+  // Flypass e intereses solo se concilian por grupo; GMF puede además emparejar individual (±50)
+  const isGroupOnlyEx  = (r: ExtractoRow) => isFlyDesc(r.descripcion) || isInteresDesc(r.descripcion)
+  const isGroupOnlyApp = (t: AppTxnExt) => isFlyApp(t) || isInteresApp(t)
 
   const matchedAppIds       = new Set<string>()
   const matchedExtractoIdxs = new Set<number>()
@@ -282,15 +283,18 @@ async function cruzarExtracto(
   for (let i = 0; i < extractoRows.length; i++) {
     if (matchedExtractoIdxs.has(i)) continue
     const ex = extractoRows[i]
-    if (isEspecialEx(ex)) continue   // Flypass/intereses/GMF solo se concilian por grupo
+    if (isGroupOnlyEx(ex)) continue   // Flypass/intereses solo se concilian por grupo
+    const exIsGmf = isGmfDesc(ex.descripcion)
     let best: AppTxnExt | null = null
     let bestDays = Infinity
 
     for (const app of appTxns) {
-      if (matchedAppIds.has(app.id))            continue
-      if (isEspecialApp(app))                   continue   // no mezclar grupos especiales en individual
-      if (ex.tipo !== app.type)                 continue
-      if (Math.abs(ex.monto - app.amount) > 10) continue   // ±10 pesos (redondeos del banco)
+      if (matchedAppIds.has(app.id))             continue
+      if (isGroupOnlyApp(app))                   continue   // no mezclar Flypass/intereses en individual
+      if (ex.tipo !== app.type)                  continue
+      if (exIsGmf !== isGmfApp(app))             continue   // GMF solo empareja con GMF
+      const tol = exIsGmf ? 50 : 10              // GMF ±50 (decimales del banco, ej. $4.452,38); resto ±10
+      if (Math.abs(ex.monto - app.amount) > tol) continue
       const days = Math.abs(daysBetween(ex.fecha, app.date))
       if (days > 1) continue
       if (days < bestDays) { bestDays = days; best = app }
