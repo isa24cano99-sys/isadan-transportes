@@ -366,11 +366,14 @@ export async function asignarConductorAction(tripId: string, driverId: string): 
   if (error) return { ok: false, error: error.message }
 
   // Sincronizar la legalización en BORRADOR con el nuevo conductor (solo el campo que cambió)
-  const { error: legErr } = await supabase
+  console.log('Actualizando legalización con driver_id:', driverId, 'para trip_id:', tripId)
+  const { data: legData, error: legErr } = await supabase
     .from('legalizations')
     .update({ driver_id: driverId })
     .eq('trip_id', tripId)
     .eq('status', 'BORRADOR')
+    .select()
+  console.log('Legalización actualizada:', legData, 'Error:', legErr)
   if (legErr) console.error('[asignarConductor] sync legalización BORRADOR:', legErr.message)
 
   revalidatePath(`/viajes/${tripId}`)
