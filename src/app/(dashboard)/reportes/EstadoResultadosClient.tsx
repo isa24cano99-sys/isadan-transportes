@@ -117,17 +117,34 @@ export default function EstadoResultadosClient({
 
     // INGRESOS
     const facturados = groupBy(invoices, i => i.clientNit ?? i.clientName, i => i.clientName)
-    const antNodes   = groupBy(anticipos, a => a.supplierName ?? a.description ?? '(sin proveedor)',
-                                          a => a.supplierName ?? a.description ?? '(sin proveedor)')
+    // Anticipos agrupados por cliente → descripciones individuales.
+    // Clave normalizada por nombre (fusiona variantes tipo "S.A.S" vs "S.A.S.").
+    const normKey = (s: string) => s.trim().replace(/\.+$/, '').replace(/\s+/g, ' ').toUpperCase()
+    const antMap = new Map<string, { name: string; nit: string | null; vals: Vals; descs: Map<string, Vals> }>()
+    for (const a of anticipos) {
+      const key = normKey(a.clientName)
+      let g = antMap.get(key)
+      if (!g) { g = { name: a.clientName, nit: a.clientNit, vals: zeros(), descs: new Map() }; antMap.set(key, g) }
+      if (!g.nit && a.clientNit) g.nit = a.clientNit    // captura el NIT si alguna transacción lo trae
+      g.vals[a.month] += a.amount
+      const dk = (a.description ?? 'Sin descripción').trim() || 'Sin descripción'
+      let dv = g.descs.get(dk); if (!dv) { dv = zeros(); g.descs.set(dk, dv) }
+      dv[a.month] += a.amount
+    }
+    const antClients = [...antMap.values()].sort((x, y) => sumVals(y.vals) - sumVals(x.vals))
     const facVals = facturados.reduce((s, n) => addV(s, n.vals), zeros())
-    const antVals = antNodes.reduce((s, n) => addV(s, n.vals), zeros())
+    const antVals = antClients.reduce((s, n) => addV(s, n.vals), zeros())
     const ingresosVals = addV(facVals, antVals)
 
     push({ key: 'sec_inc', label: 'INGRESOS', level: 0, kind: 'section', vals: zeros(), noValues: true })
     push({ key: 'g_fact', label: 'Ingresos Facturados', puc: '41450510', level: 1, kind: 'group', vals: facVals, collapsible: true })
     facturados.forEach((n, i) => push({ key: `fact_${i}`, parent: 'g_fact', label: n.label, level: 2, kind: 'child', vals: n.vals }))
     push({ key: 'g_ant', label: 'Anticipos No Facturados', puc: '28050510', level: 1, kind: 'group', vals: antVals, collapsible: true })
-    antNodes.forEach((n, i) => push({ key: `ant_${i}`, parent: 'g_ant', label: n.label, level: 2, kind: 'child', vals: n.vals }))
+    antClients.forEach((c, i) => {
+      push({ key: `ant_${i}`, parent: 'g_ant', label: c.nit ? `${c.name} (NIT ${c.nit})` : c.name, level: 2, kind: 'child', vals: c.vals, collapsible: true })
+      const descs = [...c.descs.entries()].sort((a, b) => sumVals(b[1]) - sumVals(a[1]))
+      descs.forEach(([d, dv], j) => push({ key: `ant_${i}_${j}`, parent: `ant_${i}`, label: d, level: 3, kind: 'leaf', vals: dv }))
+    })
     push({ key: 't_inc', label: 'TOTAL INGRESOS', level: 0, kind: 'total', vals: ingresosVals })
 
     // COSTOS OPERACIONALES

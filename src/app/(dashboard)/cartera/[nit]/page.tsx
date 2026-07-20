@@ -20,6 +20,14 @@ export type CarteraEntry = {
   notes: string | null
 }
 
+export type UnappliedAnticipo = {
+  id: string
+  description: string | null
+  amount: number
+  date: string | null
+  hasTrip: boolean
+}
+
 export default async function CarteraDetailPage({
   params,
 }: {
@@ -28,10 +36,10 @@ export default async function CarteraDetailPage({
   const { nit: rawNit } = await params
   const nit = decodeURIComponent(rawNit)
 
-  const [{ data: entries, error }, { data: paymentsData }] = await Promise.all([
+  const [{ data: entries, error }, { data: paymentsData }, { data: invRows }, { data: antRows }] = await Promise.all([
     supabase
       .from('accounts_receivable_entries')
-      .select('id, client_name, client_nit, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status, paid_date, notes')
+      .select('id, client_name, client_nit, invoice_id, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status, paid_date, notes')
       .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
       .order('invoice_date', { ascending: true }),
     supabase
@@ -39,6 +47,19 @@ export default async function CarteraDetailPage({
       .select('id, amount, payment_date, description, covered_invoices, saldo_a_favor, created_at')
       .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
       .order('payment_date', { ascending: false }),
+    // Facturas del cliente → trip_id (para cruzar anticipos por viaje)
+    supabase
+      .from('invoices')
+      .select('id, trip_id')
+      .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
+      .eq('invoice_type', 'EMITIDA'),
+    // Anticipos de clientes en bancos (28050510 · INGRESO)
+    supabase
+      .from('bank_transactions')
+      .select('id, amount, supplier_nit, supplier_name, reference_type, reference_id, description, date')
+      .eq('category', '28050510')
+      .eq('type', 'INGRESO')
+      .limit(5000),
   ])
 
   const payments = (paymentsData ?? []) as ClientPayment[]
@@ -56,25 +77,73 @@ export default async function CarteraDetailPage({
   const clientName = rows[0]?.client_name ?? nit
   const clientNit  = rows[0]?.client_nit  ?? null
 
-  const totalFacturado = rows.reduce((s, e) => s + Number(e.invoice_amount ?? 0), 0)
-  const totalAnticipos = rows.reduce((s, e) => s + Number(e.advance_amount ?? 0), 0)
-  const totalPendiente = rows
-    .filter(e => e.status !== 'PAGADA')
-    .reduce((s, e) => s + Number(e.balance ?? 0), 0)
+  // ── Cruce de anticipos por viaje ────────────────────────────────────────────
+  const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
+  const cNit = digits(clientNit)
 
-  const carteraEntries: CarteraEntry[] = rows.map(e => ({
-    id:            e.id,
-    clientName:    e.client_name  ?? '—',
-    clientNit:     e.client_nit   ?? null,
-    invoiceNumber: e.invoice_number ?? null,
-    invoiceAmount: Number(e.invoice_amount ?? 0),
-    invoiceDate:   e.invoice_date  ?? null,
-    advanceAmount: Number(e.advance_amount ?? 0),
-    balance:       Number(e.balance ?? 0),
-    status:        e.status as 'PENDIENTE' | 'ABONADA' | 'PAGADA',
-    paidDate:      e.paid_date ?? null,
-    notes:         e.notes ?? null,
-  }))
+  const invTrip = new Map<string, string>()   // invoice_id → trip_id
+  for (const i of (invRows ?? []) as any[]) if (i.trip_id) invTrip.set(i.id, i.trip_id)
+  const clientTripSet = new Set(invTrip.values())
+
+  // Un NIT coincide aunque el anticipo traiga el dígito de verificación (900941508 vs 9009415081)
+  const nitMatch = (a: string | null | undefined) => {
+    const x = digits(a)
+    if (!cNit || !x || Math.min(x.length, cNit.length) < 8) return false
+    return x === cNit || x.startsWith(cNit) || cNit.startsWith(x)
+  }
+  // Anticipos de este cliente: por NIT, por NIT en la descripción, o cuyo viaje sea de una factura del cliente
+  const clientAnticipos = ((antRows ?? []) as any[]).filter(a =>
+    nitMatch(a.supplier_nit) ||
+    (!!cNit && digits(a.description).includes(cNit)) ||
+    (a.reference_type === 'TRIP' && a.reference_id && clientTripSet.has(a.reference_id)),
+  )
+
+  // trip_id → entry.id (vía invoice_id de la entry)
+  const tripToEntry = new Map<string, string>()
+  for (const e of rows) { const tr = e.invoice_id ? invTrip.get(e.invoice_id) : null; if (tr) tripToEntry.set(tr, e.id) }
+
+  const crossByEntry = new Map<string, number>()
+  const appliedIds   = new Set<string>()
+  for (const a of clientAnticipos) {
+    const tr  = a.reference_type === 'TRIP' ? a.reference_id : null
+    const eid = tr ? tripToEntry.get(tr) : null
+    if (eid) { crossByEntry.set(eid, (crossByEntry.get(eid) ?? 0) + Number(a.amount ?? 0)); appliedIds.add(a.id) }
+  }
+  const unappliedAnticipos: UnappliedAnticipo[] = clientAnticipos
+    .filter(a => !appliedIds.has(a.id))
+    .map(a => ({
+      id: a.id, description: a.description ?? null, amount: Number(a.amount ?? 0),
+      date: a.date ?? null, hasTrip: a.reference_type === 'TRIP' && !!a.reference_id,
+    }))
+    .sort((x, y) => (y.date ?? '').localeCompare(x.date ?? ''))
+
+  const carteraEntries: CarteraEntry[] = rows.map(e => {
+    const invoiceAmount = Number(e.invoice_amount ?? 0)
+    const crossed       = crossByEntry.get(e.id) ?? 0
+    // Prioriza el anticipo cruzado por viaje; si no hay, conserva el anticipo existente
+    const advanceAmount = crossed > 0 ? crossed : Number(e.advance_amount ?? 0)
+    const balance       = invoiceAmount - advanceAmount
+    const stored        = e.status as 'PENDIENTE' | 'ABONADA' | 'PAGADA'
+    const status: 'PENDIENTE' | 'ABONADA' | 'PAGADA' =
+      stored === 'PAGADA' ? 'PAGADA' : balance <= 0 ? 'PAGADA' : advanceAmount > 0 ? 'ABONADA' : 'PENDIENTE'
+    return {
+      id:            e.id,
+      clientName:    e.client_name  ?? '—',
+      clientNit:     e.client_nit   ?? null,
+      invoiceNumber: e.invoice_number ?? null,
+      invoiceAmount,
+      invoiceDate:   e.invoice_date  ?? null,
+      advanceAmount,
+      balance,
+      status,
+      paidDate:      e.paid_date ?? null,
+      notes:         e.notes ?? null,
+    }
+  })
+
+  const totalFacturado = carteraEntries.reduce((s, e) => s + e.invoiceAmount, 0)
+  const totalAnticipos = carteraEntries.reduce((s, e) => s + e.advanceAmount, 0)
+  const totalPendiente = carteraEntries.filter(e => e.status !== 'PAGADA').reduce((s, e) => s + Math.max(0, e.balance), 0)
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -113,6 +182,7 @@ export default async function CarteraDetailPage({
       <CarteraDetailClient
         entries={carteraEntries}
         payments={payments}
+        unapplied={unappliedAnticipos}
         clientName={clientName}
         clientNit={clientNit}
       />

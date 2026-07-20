@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2, Clock, Loader2, Minus, Trash2, ChevronDown, Wallet } from 'lucide-react'
 import { marcarPagadaAction, aplicarAbonoAction, eliminarEntradaAction, registrarPagoMultipleAction, type ClientPayment } from '../actions'
-import type { CarteraEntry } from './page'
+import type { CarteraEntry, UnappliedAnticipo } from './page'
 import { formatInvoiceNumber } from '@/lib/utils'
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
@@ -12,7 +12,7 @@ const fmt = (v: number) => COP.format(v)
 
 const STATUS_CONFIG: Record<CarteraEntry['status'], { label: string; cls: string; icon: React.ElementType }> = {
   PENDIENTE: { label: 'Pendiente', cls: 'bg-yellow-100 text-yellow-800 border border-yellow-200', icon: Clock },
-  ABONADA:   { label: 'Abonada',   cls: 'bg-blue-100 text-blue-800 border border-blue-200',     icon: Minus },
+  ABONADA:   { label: 'Parcial',   cls: 'bg-blue-100 text-blue-800 border border-blue-200',     icon: Minus },
   PAGADA:    { label: 'Pagada',    cls: 'bg-green-100 text-green-800 border border-green-200',  icon: CheckCircle2 },
 }
 
@@ -232,8 +232,8 @@ function MultiPayModal({ entries, clientName, clientNit, onClose }: {
   )
 }
 
-export default function CarteraDetailClient({ entries, payments, clientName, clientNit }: {
-  entries: CarteraEntry[]; payments: ClientPayment[]; clientName: string; clientNit: string | null
+export default function CarteraDetailClient({ entries, payments, unapplied, clientName, clientNit }: {
+  entries: CarteraEntry[]; payments: ClientPayment[]; unapplied: UnappliedAnticipo[]; clientName: string; clientNit: string | null
 }) {
   const router = useRouter()
   const [payModal, setPayModal]     = useState<CarteraEntry | null>(null)
@@ -253,13 +253,15 @@ export default function CarteraDetailClient({ entries, payments, clientName, cli
     router.refresh()
   }
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && unapplied.length === 0) {
     return (
       <div className="bg-white border border-[#E2E8F0] rounded-xl p-8 text-center">
         <p className="text-sm text-[#64748B]">No hay entradas de cartera para este cliente.</p>
       </div>
     )
   }
+
+  const totalUnapplied = unapplied.reduce((s, a) => s + a.amount, 0)
 
   return (
     <>
@@ -280,6 +282,7 @@ export default function CarteraDetailClient({ entries, payments, clientName, cli
         />
       )}
 
+      {entries.length > 0 && <>
       {/* Acción principal */}
       <div className="flex justify-end">
         <button
@@ -373,6 +376,50 @@ export default function CarteraDetailClient({ entries, payments, clientName, cli
           </table>
         </div>
       </div>
+      </>}
+
+      {/* Anticipos sin aplicar */}
+      {unapplied.length > 0 && (
+        <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
+            <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+              Anticipos sin aplicar ({unapplied.length})
+            </span>
+            <span className="text-xs font-bold text-amber-800 tabular-nums">{fmt(totalUnapplied)}</span>
+          </div>
+          <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50/40 border-b border-amber-100">
+            Consignaciones de anticipo recibidas que aún no están cruzadas contra una factura (sin viaje asignado o cuyo viaje no tiene factura).
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9]">
+                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Fecha</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Descripción</th>
+                  <th className="text-center py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Viaje</th>
+                  <th className="text-right py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Monto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F1F5F9]">
+                {unapplied.map(a => (
+                  <tr key={a.id} className="hover:bg-[#F8FAFC] transition-colors">
+                    <td className="py-2.5 px-4 text-sm text-[#64748B] whitespace-nowrap">{fmtDate(a.date)}</td>
+                    <td className="py-2.5 px-4 text-sm text-[#0F172A] max-w-[280px] truncate">{a.description ?? '—'}</td>
+                    <td className="py-2.5 px-4 text-center">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                        a.hasTrip ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {a.hasTrip ? 'Con viaje' : 'Sin viaje'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-[#0F172A]">{fmt(a.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Historial de pagos */}
       {payments.length > 0 && (
