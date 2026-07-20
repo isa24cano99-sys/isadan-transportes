@@ -27,6 +27,7 @@ export type RawInvoice = {
 
 export type RawTx = {
   month: number
+  date: string | null
   pucCode: string
   description: string | null
   supplierName: string | null
@@ -171,6 +172,7 @@ export default async function ReportesPage({
         if (!month) return null
         return {
           month,
+          date:         (t.date as string) ?? null,
           pucCode:      pickPuc(t)!,
           description:  t.description ?? null,
           supplierName: t.supplier_name ?? null,
