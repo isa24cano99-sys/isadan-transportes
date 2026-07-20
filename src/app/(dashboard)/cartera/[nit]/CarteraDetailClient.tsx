@@ -318,7 +318,8 @@ export default function CarteraDetailClient({ entries, payments, unapplied, clie
                 <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Factura</th>
                 <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Fecha</th>
                 <th className="text-right py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Valor</th>
-                <th className="text-right py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Anticipo</th>
+                <th className="text-right py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Ant. manifiesto</th>
+                <th className="text-right py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Ant. recibido</th>
                 <th className="text-right py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Saldo</th>
                 <th className="text-center py-2.5 px-4 text-xs font-semibold text-[#374151] uppercase tracking-wide">Estado</th>
                 <th className="py-2.5 px-4" />
@@ -336,8 +337,11 @@ export default function CarteraDetailClient({ entries, payments, unapplied, clie
                     </td>
                     <td className="py-2.5 px-4 text-sm text-[#64748B]">{fmtDate(entry.invoiceDate)}</td>
                     <td className="py-2.5 px-4 text-right tabular-nums text-[#0F172A]">{fmt(entry.invoiceAmount)}</td>
+                    <td className="py-2.5 px-4 text-right tabular-nums text-[#94A3B8]">
+                      {entry.advanceManifiesto > 0 ? fmt(entry.advanceManifiesto) : '—'}
+                    </td>
                     <td className="py-2.5 px-4 text-right tabular-nums text-[#64748B]">
-                      {entry.advanceAmount > 0 ? fmt(entry.advanceAmount) : '—'}
+                      {entry.advanceReceived > 0 ? fmt(entry.advanceReceived) : '—'}
                     </td>
                     <td className={`py-2.5 px-4 text-right tabular-nums font-semibold ${
                       entry.balance <= 0 ? 'text-green-600' : 'text-yellow-700'

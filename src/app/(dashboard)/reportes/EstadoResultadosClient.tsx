@@ -44,6 +44,9 @@ function expToPuc(t: string): string {
   return EXP_TYPE_TO_PUC[t.toLowerCase()] ?? '61450585'
 }
 const pucName = (c: string) => PUC_NAMES[c] ?? c
+// Agrupa por el nombre real de la categoría (varias categorías comparten un mismo PUC,
+// p. ej. Supermercado / Alimentación / Otros gastos personales bajo 52959510).
+const catKey = (t: RawTx) => (t.categoryName ?? '').trim() || pucName(t.pucCode)
 
 // ── Vectores por mes (índice 1..12) ───────────────────────────────────────────
 
@@ -174,8 +177,8 @@ export default function EstadoResultadosClient({
     push({ key: 'r_bruta', label: 'UTILIDAD BRUTA', level: 0, kind: 'result', vals: utilBruta })
 
     // GASTOS OPERACIONALES
-    const pers = groupBy(personalCosts, t => t.pucCode, t => pucName(t.pucCode), t => t.pucCode)
-    const gen  = groupBy(generalCosts,  t => t.pucCode, t => pucName(t.pucCode), t => t.pucCode)
+    const pers = groupBy(personalCosts, catKey, catKey, t => t.pucCode)
+    const gen  = groupBy(generalCosts,  catKey, catKey, t => t.pucCode)
     const persVals = pers.reduce((s, n) => addV(s, n.vals), zeros())
     const genVals  = gen.reduce((s, n) => addV(s, n.vals), zeros())
     const gastosVals = addV(persVals, genVals)
@@ -192,7 +195,7 @@ export default function EstadoResultadosClient({
     push({ key: 'r_op', label: 'UTILIDAD OPERACIONAL', level: 0, kind: 'result', vals: utilOp })
 
     // GASTOS FINANCIEROS
-    const finExp = groupBy(financialExps, t => t.pucCode, t => pucName(t.pucCode), t => t.pucCode)
+    const finExp = groupBy(financialExps, catKey, catKey, t => t.pucCode)
     const finExpVals = finExp.reduce((s, n) => addV(s, n.vals), zeros())
     const finIncVals = financialIncs.reduce((v, t) => { v[t.month] += t.amount; return v }, zeros())
     const netoFin = subV(finIncVals, finExpVals)
@@ -211,10 +214,11 @@ export default function EstadoResultadosClient({
     push({ key: 'r_neta', label: 'UTILIDAD NETA', level: 0, kind: 'result', vals: utilNeta })
 
     // GASTOS PERSONALES (fuera del resultado)
-    const own = groupBy(personalOwner, t => t.pucCode, t => pucName(t.pucCode), t => t.pucCode)
+    const own = groupBy(personalOwner, catKey, catKey, t => t.pucCode)
     const ownVals = own.reduce((s, n) => addV(s, n.vals), zeros())
     push({ key: 'sec_own', label: 'GASTOS PERSONALES (fuera del resultado)', level: 0, kind: 'section', vals: zeros(), noValues: true })
-    own.forEach((n, i) => push({ key: `own_${i}`, label: n.label, puc: n.puc, level: 1, kind: 'leaf', vals: n.vals }))
+    push({ key: 'g_own', label: 'Gastos personales propietario', level: 1, kind: 'group', vals: ownVals, collapsible: true })
+    own.forEach((n, i) => push({ key: `own_${i}`, parent: 'g_own', label: n.label, puc: n.puc, level: 2, kind: 'leaf', vals: n.vals }))
     push({ key: 't_own', label: 'Total gastos personales', level: 0, kind: 'total', vals: ownVals })
 
     return L

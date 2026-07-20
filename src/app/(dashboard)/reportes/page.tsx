@@ -30,6 +30,7 @@ export type RawTx = {
   pucCode: string
   description: string | null
   supplierName: string | null
+  categoryName: string | null
   amount: number
 }
 
@@ -173,6 +174,7 @@ export default async function ReportesPage({
           pucCode:      pickPuc(t)!,
           description:  t.description ?? null,
           supplierName: t.supplier_name ?? null,
+          categoryName: (t.transaction_categories as any)?.name ?? null,
           amount:       Number(t.amount ?? 0),
         }
       })
