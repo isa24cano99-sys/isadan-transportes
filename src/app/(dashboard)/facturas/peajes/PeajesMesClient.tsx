@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Upload, RefreshCw, Minus, CheckCircle2 } from 'lucide-react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import { importarFlypassAction, type FlypassImportResult } from '../peajes-actions'
+import { useUrlState } from '@/lib/useUrlState'
 
 export type TollRow = {
   id:        string
@@ -23,8 +24,8 @@ export default function PeajesMesClient({ tolls }: { tolls: TollRow[] }) {
   const [fileName, setFileName] = useState('')
   const [loading, setLoading]   = useState(false)
   const [msg, setMsg]           = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [mes,  setMes]  = useState(String(now.getMonth() + 1))
-  const [anio, setAnio] = useState(String(now.getFullYear()))
+  const [mes,  setMes]  = useUrlState('mes',  String(now.getMonth() + 1))
+  const [anio, setAnio] = useUrlState('anio', String(now.getFullYear()))
 
   const anios = useMemo(() => {
     const set = new Set<number>()

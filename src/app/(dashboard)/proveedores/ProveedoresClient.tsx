@@ -10,6 +10,7 @@ import {
   RefreshCw, CheckCircle, Truck, Search, Mail, Phone, Pencil, Trash2, X,
   AlertTriangle, UserPlus, Users,
 } from 'lucide-react'
+import { useUrlState } from '@/lib/useUrlState'
 
 const PARTY_LABELS: Record<string, string> = {
   PERSONA_JURIDICA: 'Jurídica',
@@ -23,8 +24,8 @@ type EditForm = { name: string; category: string; account_code: string }
 export default function ProveedoresClient({ initial }: { initial: MergedRow[] }) {
   const router = useRouter()
   const [rows,    setRows]    = useState<MergedRow[]>(initial)
-  const [filter,  setFilter]  = useState<Filter>('TODOS')
-  const [search,  setSearch]  = useState('')
+  const [filter,  setFilter]  = useUrlState('tipo', 'TODOS') as [Filter, (v: Filter) => void]
+  const [search,  setSearch]  = useUrlState('q')
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null)
 

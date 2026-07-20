@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, useMemo, useRef } from 'react'
 import { formatCOP, formatDate, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
+import { useUrlState } from '@/lib/useUrlState'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
   X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck,
@@ -91,13 +92,13 @@ function CategoryBadge({ cat }: { cat?: TxCategory | null }) {
 export default function BankDetailClient({
   account, transactions, ingresos, egresos, balance, categories, pucAccounts, trips,
 }: Props) {
-  const [dateFrom,       setDateFrom]       = useState('')
-  const [dateTo,         setDateTo]         = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [tipoFilter,     setTipoFilter]     = useState<TipoFilter>('TODOS')
-  const [searchDesc,     setSearchDesc]     = useState('')
-  const [sortCol,        setSortCol]        = useState<SortCol>('date')
-  const [sortDir,        setSortDir]        = useState<'asc' | 'desc'>('desc')
+  const [dateFrom,       setDateFrom]       = useUrlState('desde')
+  const [dateTo,         setDateTo]         = useUrlState('hasta')
+  const [categoryFilter, setCategoryFilter] = useUrlState('cat')
+  const [tipoFilter,     setTipoFilter]     = useUrlState('tipo', 'TODOS') as [TipoFilter, (v: TipoFilter) => void]
+  const [searchDesc,     setSearchDesc]     = useUrlState('q')
+  const [sortCol,        setSortCol]        = useUrlState('sort', 'date') as [SortCol, (v: SortCol) => void]
+  const [sortDir,        setSortDir]        = useUrlState('dir', 'desc') as ['asc' | 'desc', (v: 'asc' | 'desc') => void]
   const [editTxn,        setEditTxn]        = useState<Transaction | null>(null)
   const [editForm,       setEditForm]       = useState<EditForm | null>(null)
   const [editTripSearch, setEditTripSearch] = useState('')
@@ -117,7 +118,7 @@ export default function BankDetailClient({
   const [bulkAssigning,  setBulkAssigning]  = useState(false)
 
   const handleSort = (col: SortCol) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    if (sortCol === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir('asc') }
   }
 

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cruzarAnticiposAction } from './actions'
 import type { CarteraKPIs, ClienteSummary, EstadoCartera } from './page'
+import { useUrlState } from '@/lib/useUrlState'
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const fmt = (v: number) => COP.format(v)
@@ -29,7 +30,7 @@ export default function CarteraClient({
   const router        = useRouter()
   const [crossing, setCrossing] = useState(false)
   const [crossMsg, setCrossMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [filter, setFilter]     = useState<'TODOS' | EstadoCartera>('TODOS')
+  const [filter, setFilter]     = useUrlState('estado', 'TODOS') as ['TODOS' | EstadoCartera, (v: string) => void]
 
   const handleCruzar = async () => {
     setCrossing(true)

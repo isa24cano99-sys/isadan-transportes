@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Plus, Search, Truck, X, Trash2 } from 'lucide-react'
 import { crearVehiculoAction, actualizarVehiculoAction, eliminarVehiculoAction } from './actions'
+import { useUrlState } from '@/lib/useUrlState'
 
 interface Vehiculo {
   id: string
@@ -27,7 +28,7 @@ const statusConfig = {
 
 export default function VehiculosClient({ vehiculos: initial }: { vehiculos: Vehiculo[] }) {
   const [vehiculos, setVehiculos] = useState(initial)
-  const [search,    setSearch]    = useState('')
+  const [search,    setSearch]    = useUrlState('q')
   const [showForm,  setShowForm]  = useState(false)
   const [editing,   setEditing]   = useState<Vehiculo | null>(null)
   const [loading,   setLoading]   = useState(false)

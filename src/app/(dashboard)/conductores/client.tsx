@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import { Plus, Search, User, X, Trash2 } from 'lucide-react'
 import { crearConductorAction, actualizarConductorAction, eliminarConductorAction } from './actions'
+import { useUrlState } from '@/lib/useUrlState'
 
 interface Conductor {
   id: string
@@ -40,7 +41,7 @@ const LBL = 'block text-xs font-semibold text-[#64748B] mb-1.5'
 
 export default function ConductoresClient({ conductores: initial }: { conductores: Conductor[] }) {
   const [conductores, setConductores] = useState(initial)
-  const [search,    setSearch]    = useState('')
+  const [search,    setSearch]    = useUrlState('q')
   const [showForm,  setShowForm]  = useState(false)
   const [editing,   setEditing]   = useState<Conductor | null>(null)
   const [loading,   setLoading]   = useState(false)

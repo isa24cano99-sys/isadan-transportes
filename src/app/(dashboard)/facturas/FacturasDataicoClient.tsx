@@ -6,6 +6,7 @@ import { RefreshCw, FileText, Truck, ExternalLink, Minus, Upload, ChevronDown, C
 import { importarFacturasExcelAction } from './actions'
 import { generarFacturaAction } from '../viajes/[id]/actions'
 import { formatInvoiceNumber } from '@/lib/utils'
+import { useUrlState } from '@/lib/useUrlState'
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const fmt = (v: number) => COP.format(v)
@@ -51,8 +52,8 @@ export default function FacturasDataicoClient({
 
   // Filtro de período. El mes/año actual se calcula en el servidor (page.tsx) y
   // llega por props, así el render server/cliente coincide (sin setState en effect).
-  const [mes,  setMes]  = useState(defaultMes)
-  const [anio, setAnio] = useState(defaultAnio)
+  const [mes,  setMes]  = useUrlState('mes',  defaultMes)
+  const [anio, setAnio] = useUrlState('anio', defaultAnio)
   const [showDetail, setShowDetail] = useState(false)
 
   const anios = useMemo(() => {

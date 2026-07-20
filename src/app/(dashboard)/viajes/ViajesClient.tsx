@@ -9,6 +9,7 @@ import {
   FileText, Loader2, CheckCircle, Filter,
 } from 'lucide-react'
 import { generarFacturaAction } from './[id]/actions'
+import { useUrlState } from '@/lib/useUrlState'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   PLANEADO:   { label: 'Planeado',   className: 'bg-gray-100 text-gray-600' },
@@ -44,16 +45,16 @@ type Tab = 'todos' | 'por_facturar' | 'facturados'
 export default function ViajesClient({ trips }: { trips: Trip[] }) {
   const router = useRouter()
 
-  const [plateBuscar, setPlateBuscar] = useState('')
-  const [manifBuscar, setManifBuscar] = useState('')
-  const [rutaBuscar,  setRutaBuscar]  = useState('')
-  const [desde,       setDesde]       = useState('')
-  const [hasta,       setHasta]       = useState('')
-  const [clienteId,   setClienteId]   = useState('')
-  const [conductorId, setConductorId] = useState('')
-  const [estado,      setEstado]      = useState('')
+  const [plateBuscar, setPlateBuscar] = useUrlState('placa')
+  const [manifBuscar, setManifBuscar] = useUrlState('manif')
+  const [rutaBuscar,  setRutaBuscar]  = useUrlState('ruta')
+  const [desde,       setDesde]       = useUrlState('desde')
+  const [hasta,       setHasta]       = useUrlState('hasta')
+  const [clienteId,   setClienteId]   = useUrlState('cliente')
+  const [conductorId, setConductorId] = useUrlState('conductor')
+  const [estado,      setEstado]      = useUrlState('estado')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [tab, setTab]                 = useState<Tab>('todos')
+  const [tab,         setTab]         = useUrlState('tab', 'todos') as [Tab, (v: Tab) => void]
   const [invoicing,  setInvoicing]    = useState<Set<string>>(new Set())
   const [invoiceErr, setInvoiceErr]   = useState<Record<string, string>>({})
   const [invoiceOk,  setInvoiceOk]    = useState<Record<string, string>>({})

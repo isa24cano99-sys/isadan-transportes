@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { formatDate } from '@/lib/utils'
 import { Plus, Search, Building, X, RefreshCw, CheckCircle, Trash2 } from 'lucide-react'
 import { crearClienteAction, actualizarClienteAction, sincronizarDataicoAction, eliminarClienteAction } from './actions'
+import { useUrlState } from '@/lib/useUrlState'
 
 interface Cliente {
   id: string
@@ -28,7 +29,7 @@ const INP = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-base md:
 
 export default function ClientesClient({ clientes: initialClientes }: { clientes: Cliente[] }) {
   const [clientes, setClientes]   = useState(initialClientes)
-  const [search,   setSearch]     = useState('')
+  const [search,   setSearch]     = useUrlState('q')
   const [showForm, setShowForm]   = useState(false)
   const [editing,  setEditing]    = useState<Cliente | null>(null)
   const [loading,  setLoading]    = useState(false)

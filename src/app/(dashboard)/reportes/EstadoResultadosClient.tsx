@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
 import type { PYLData, RawTx, RawLegExp, RawToll, RawInvoice } from './page'
+import { useUrlState } from '@/lib/useUrlState'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,11 @@ export default function EstadoResultadosClient({
   taxes, personalOwner,
 }: PYLData) {
   const router = useRouter()
-  const [sel, setSel]           = useState<Set<number>>(new Set())   // vacío = año completo (solo TOTAL)
+  const [mesesStr, setMesesStr] = useUrlState('meses')   // CSV de meses; vacío = año completo (solo TOTAL)
+  const sel = useMemo(
+    () => new Set(mesesStr ? mesesStr.split(',').map(Number).filter(n => n >= 1 && n <= 12) : []),
+    [mesesStr],
+  )
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
 
@@ -106,7 +111,8 @@ export default function EstadoResultadosClient({
   }, [])
 
   const toggleMonth = (m: number) => {
-    setSel(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n })
+    const n = new Set(sel); n.has(m) ? n.delete(m) : n.add(m)
+    setMesesStr([...n].sort((a, b) => a - b).join(','))
   }
 
   // Meses mostrados como columnas y meses sumados en TOTAL
@@ -293,7 +299,7 @@ export default function EstadoResultadosClient({
 
       {/* Selector de meses */}
       <div className="flex flex-wrap gap-1 items-center">
-        <button onClick={() => setSel(new Set())}
+        <button onClick={() => setMesesStr('')}
           className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
             sel.size === 0 ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#374151] hover:bg-[#E2E8F0]'
           }`}>

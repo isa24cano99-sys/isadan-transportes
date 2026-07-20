@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { FileText, Search, Pencil, Trash2, Filter, X } from 'lucide-react'
 import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction } from './actions'
 import { ExportComprobanteButton } from './ExportComprobanteButton'
+import { useUrlState } from '@/lib/useUrlState'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   BORRADOR:  { label: 'Borrador',  className: 'bg-gray-100 text-gray-600' },
@@ -36,12 +37,12 @@ type Legalizacion = {
 
 export function LegalizacionesClient({ legalizaciones: initial }: { legalizaciones: Legalizacion[] }) {
   const [legalizaciones, setLegalizaciones] = useState(initial)
-  const [plateFilter,    setPlateFilter]    = useState('')
-  const [manifestFilter, setManifestFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'' | Status>('')
-  const [desde,        setDesde]        = useState('')
-  const [hasta,        setHasta]        = useState('')
-  const [conductor,    setConductor]    = useState('')
+  const [plateFilter,    setPlateFilter]    = useUrlState('placa')
+  const [manifestFilter, setManifestFilter] = useUrlState('manif')
+  const [statusFilter,   setStatusFilter]   = useUrlState('status')
+  const [desde,        setDesde]        = useUrlState('desde')
+  const [hasta,        setHasta]        = useUrlState('hasta')
+  const [conductor,    setConductor]    = useUrlState('conductor')
   const [filtersOpen,  setFiltersOpen]  = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Legalizacion | null>(null)
   const [deleting, setDeleting] = useState(false)
