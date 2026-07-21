@@ -9,6 +9,7 @@ import {
   createDataicoInvoice,
   createDataicoCreditNote,
   getLatestDataicoInvoiceNumber,
+  getDataicoInvoice,
   parseDateicoDate,
 } from '@/lib/dataico'
 
@@ -304,10 +305,43 @@ export async function crearNotaCreditoAction(params: {
   const reasonCode = REASON_CODES[params.motivo]
   if (!reasonCode) return { ok: false, error: 'Motivo inválido' }
 
+  // Resolver el UUID interno de Dataico (no el número de factura tipo 'FEIT12').
+  const isUuid = (s: string | null | undefined) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s ?? '')
+
+  let uuid = ''
+  const { data: inv } = await supabase
+    .from('invoices')
+    .select('dataico_id, invoice_number')
+    .eq('trip_id', params.tripId)
+    .maybeSingle()
+
+  // 1. UUID ya guardado en la factura (columna dataico_id)
+  if (isUuid(inv?.dataico_id)) {
+    uuid = inv!.dataico_id as string
+  } else if (inv?.invoice_number) {
+    // 2. Consultar Dataico por número: GET /invoices?number=FEIT12 → uuid
+    try {
+      const dataicoInv = await getDataicoInvoice(inv.invoice_number as string) as any
+      uuid = dataicoInv?.uuid ?? dataicoInv?.id ?? ''
+      // Cachear el UUID para no consultar de nuevo la próxima vez
+      if (isUuid(uuid)) await supabase.from('invoices').update({ dataico_id: uuid }).eq('trip_id', params.tripId)
+    } catch (e: any) {
+      return { ok: false, error: `No se pudo consultar la factura en Dataico: ${e.message}` }
+    }
+  }
+  // 3. Último recurso: el valor recibido, solo si es un UUID válido
+  if (!isUuid(uuid) && isUuid(params.invoiceUuid)) uuid = params.invoiceUuid
+
+  console.log('UUID Dataico de la factura:', uuid)
+  if (!isUuid(uuid)) {
+    return { ok: false, error: 'No se pudo obtener el UUID interno de Dataico de la factura.' }
+  }
+
   let cn
   try {
     cn = await createDataicoCreditNote({
-      invoiceUuid:  params.invoiceUuid,
+      invoiceUuid:  uuid,
       reasonCode,
       description:  params.descripcion || `Nota crédito — ${params.motivo}`,
       amount:       params.amount,

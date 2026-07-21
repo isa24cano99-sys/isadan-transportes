@@ -26,11 +26,13 @@ export type RawInvoice = {
 }
 
 export type RawTx = {
+  id: string
   month: number
   date: string | null
   pucCode: string
   description: string | null
   supplierName: string | null
+  categoryId: string | null
   categoryName: string | null
   amount: number
 }
@@ -105,7 +107,7 @@ export default async function ReportesPage({
     // 2. All bank transactions for the year (we filter server-side)
     supabase
       .from('bank_transactions')
-      .select('type, amount, date, description, supplier_name, supplier_nit, category, transaction_categories(puc_code, name)')
+      .select('id, type, amount, date, description, supplier_name, supplier_nit, category, category_id, transaction_categories(puc_code, name)')
       .gte('date', from)
       .lte('date', to)
       .limit(50000),
@@ -171,11 +173,13 @@ export default async function ReportesPage({
         const month = toMonth(t.date as string)
         if (!month) return null
         return {
+          id:           t.id as string,
           month,
           date:         (t.date as string) ?? null,
           pucCode:      pickPuc(t)!,
           description:  t.description ?? null,
           supplierName: t.supplier_name ?? null,
+          categoryId:   (t.category_id as string | null) ?? null,
           categoryName: (t.transaction_categories as any)?.name ?? null,
           amount:       Number(t.amount ?? 0),
         }
@@ -183,27 +187,29 @@ export default async function ReportesPage({
       .filter(Boolean) as RawTx[]
   }
 
-  // ── Anticipos: resolver el cliente de cada transacción ──────────────────────
-  const STOP = new Set(['transportes','transporte','trans','transcarga','carga','logistica','logistic',
-    'servicios','servicio','sas','sa','s','a','ltda','cia','compania','de','del','la','el','y','e','zomac','sociedad','anonima'])
-  const norm = (s: string | null) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  const known = [
-    ...((clientsRes.data ?? []) as any[]).map(c => ({ name: c.name as string, nit: (c.nit as string | null) ?? null })),
-    ...((supRes.data ?? []) as any[]).map(s => ({ name: s.nombre as string, nit: (s.nit as string | null) ?? null })),
-  ].filter(k => k.name)
-   .map(k => ({ ...k, keywords: [...new Set(norm(k.name).split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !STOP.has(w)))] }))
-   .filter(k => k.keywords.length > 0)
+  // ── Anticipos: agrupar SOLO por NIT (nombre desde clients/supplier_catalog) o
+  //    supplier_name exacto. Sin matching heurístico por descripción (falsos positivos). ──
+  const digitsNit = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
+  const knownByNit = new Map<string, string>()
+  for (const c of (clientsRes.data ?? []) as any[]) if (c.nit && c.name && !knownByNit.has(digitsNit(c.nit))) knownByNit.set(digitsNit(c.nit), c.name)
+  for (const s of (supRes.data ?? []) as any[]) if (s.nit && s.nombre && !knownByNit.has(digitsNit(s.nit))) knownByNit.set(digitsNit(s.nit), s.nombre)
 
-  function resolveCliente(supName: string | null, supNit: string | null, desc: string | null): { name: string; nit: string | null } {
-    if (supName && supName.trim()) return { name: supName.trim(), nit: supNit?.trim() || null }
-    const hay = norm(desc) + ' ' + norm(supName)
-    let best: { name: string; nit: string | null } | null = null
-    let bestScore = 0
-    for (const k of known) {
-      const score = k.keywords.filter(w => hay.includes(w)).length
-      if (score > bestScore) { bestScore = score; best = { name: k.name, nit: k.nit } }
+  // Busca el nombre por NIT, tolerando el dígito de verificación (900941508 vs 9009415081)
+  const lookupName = (nit: string): string | null => {
+    const x = digitsNit(nit)
+    if (!x) return null
+    if (knownByNit.has(x)) return knownByNit.get(x)!
+    for (const [k, name] of knownByNit) {
+      if (Math.min(k.length, x.length) >= 8 && (x.startsWith(k) || k.startsWith(x))) return name
     }
-    return best ?? { name: 'Sin cliente asignado', nit: null }
+    return null
+  }
+
+  function resolveCliente(supName: string | null, supNit: string | null): { name: string; nit: string | null } {
+    const nit = supNit?.trim() || null
+    if (nit) return { name: lookupName(nit) ?? (supName?.trim() || nit), nit }
+    if (supName && supName.trim()) return { name: supName.trim(), nit: null }
+    return { name: 'Sin cliente asignado', nit: null }
   }
 
   const anticipos: RawAnticipo[] = (bankTxRes.data ?? [])
@@ -211,7 +217,7 @@ export default async function ReportesPage({
     .map((t: any) => {
       const month = toMonth(t.date as string)
       if (!month) return null
-      const cli = resolveCliente(t.supplier_name ?? null, t.supplier_nit ?? null, t.description ?? null)
+      const cli = resolveCliente(t.supplier_name ?? null, t.supplier_nit ?? null)
       return { month, amount: Number(t.amount ?? 0), description: t.description ?? null, clientName: cli.name, clientNit: cli.nit }
     })
     .filter(Boolean) as RawAnticipo[]

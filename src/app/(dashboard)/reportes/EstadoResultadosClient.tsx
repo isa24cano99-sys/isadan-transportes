@@ -46,9 +46,6 @@ function expToPuc(t: string): string {
   return EXP_TYPE_TO_PUC[t.toLowerCase()] ?? '61450585'
 }
 const pucName = (c: string) => PUC_NAMES[c] ?? c
-// Agrupa por el nombre real de la categoría (varias categorías comparten un mismo PUC,
-// p. ej. Supermercado / Alimentación / Otros gastos personales bajo 52959510).
-const catKey = (t: RawTx) => (t.categoryName ?? '').trim() || pucName(t.pucCode)
 
 // ── Vectores por mes (índice 1..12) ───────────────────────────────────────────
 
@@ -73,18 +70,28 @@ function groupBy<T extends { month: number; amount: number }>(
   return [...m.values()].sort((a, b) => sumVals(b.vals) - sumVals(a.vals))
 }
 
-// Agrupa por nombre de categoría CONSERVANDO las transacciones individuales (3er nivel).
-type GrupoItems = Grupo & { items: RawTx[] }
-function groupWithItems(rows: RawTx[]): GrupoItems[] {
-  const m = new Map<string, GrupoItems>()
+// Jerarquía Cuenta PUC → Categoría (transaction_categories.name) → Transacción individual.
+// Sin category_id → categoría 'Sin categoría'.
+type CatNode = { name: string; vals: Vals; items: RawTx[] }
+type PucNode = { puc: string; label: string; vals: Vals; cats: CatNode[] }
+function groupByPucThenCat(rows: RawTx[]): PucNode[] {
+  const pucs = new Map<string, { vals: Vals; cats: Map<string, CatNode> }>()
   for (const r of rows) {
-    const k = catKey(r)
-    let g = m.get(k)
-    if (!g) { g = { label: k, puc: r.pucCode, vals: zeros(), items: [] }; m.set(k, g) }
-    g.vals[r.month] += r.amount
-    g.items.push(r)
+    let p = pucs.get(r.pucCode)
+    if (!p) { p = { vals: zeros(), cats: new Map() }; pucs.set(r.pucCode, p) }
+    p.vals[r.month] += r.amount
+    const ck = r.categoryId ? ((r.categoryName ?? '').trim() || 'Sin categoría') : 'Sin categoría'
+    let c = p.cats.get(ck)
+    if (!c) { c = { name: ck, vals: zeros(), items: [] }; p.cats.set(ck, c) }
+    c.vals[r.month] += r.amount
+    c.items.push(r)
   }
-  return [...m.values()].sort((a, b) => sumVals(b.vals) - sumVals(a.vals))
+  return [...pucs.entries()]
+    .map(([puc, p]) => ({
+      puc, label: pucName(puc), vals: p.vals,
+      cats: [...p.cats.values()].sort((a, b) => sumVals(b.vals) - sumVals(a.vals)),
+    }))
+    .sort((a, b) => sumVals(b.vals) - sumVals(a.vals))
 }
 
 const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
@@ -139,28 +146,31 @@ export default function EstadoResultadosClient({
     const L: Line[] = []
     const push = (l: Line) => L.push(l)
 
-    // Empuja cada categoría (colapsable) y, debajo, sus transacciones individuales (fecha · descripción · monto)
-    const pushCats = (cats: GrupoItems[], prefix: string, parent: string | undefined, catLevel: number) => {
-      cats.forEach((c, i) => {
-        const ck = `${prefix}_${i}`
-        push({ key: ck, parent, label: c.label, puc: c.puc, level: catLevel, kind: 'leaf', vals: c.vals, collapsible: c.items.length > 0 })
-        const items = [...c.items].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-        items.forEach((it, j) => {
-          const v = zeros(); if (it.month >= 1 && it.month <= 12) v[it.month] = it.amount
-          const label = `${it.date ? formatDate(it.date) : '—'} · ${it.description ?? '—'}`
-          push({ key: `${ck}_${j}`, parent: ck, label, level: catLevel + 1, kind: 'leaf', vals: v })
+    // Empuja: Cuenta PUC (colapsable) → Categoría (colapsable) → Transacción individual (hoja)
+    const pushPucCats = (pucs: PucNode[], prefix: string, parent: string | undefined, pucLevel: number) => {
+      pucs.forEach((p, i) => {
+        const pk = `${prefix}_${i}`
+        push({ key: pk, parent, label: p.label, puc: p.puc, level: pucLevel, kind: 'child', vals: p.vals, collapsible: true })
+        p.cats.forEach((c, j) => {
+          const ck = `${pk}_${j}`
+          push({ key: ck, parent: pk, label: c.name, level: pucLevel + 1, kind: 'leaf', vals: c.vals, collapsible: c.items.length > 0 })
+          const items = [...c.items].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+          items.forEach((it, k) => {
+            const v = zeros(); if (it.month >= 1 && it.month <= 12) v[it.month] = it.amount
+            const label = `${it.date ? formatDate(it.date) : '—'} · ${it.description ?? '—'}`
+            push({ key: `${ck}_${k}`, parent: ck, label, level: pucLevel + 2, kind: 'leaf', vals: v })
+          })
         })
       })
     }
 
     // INGRESOS
     const facturados = groupBy(invoices, i => i.clientNit ?? i.clientName, i => i.clientName)
-    // Anticipos agrupados por cliente → descripciones individuales.
-    // Clave normalizada por nombre (fusiona variantes tipo "S.A.S" vs "S.A.S.").
+    // Anticipos agrupados por NIT (o por nombre exacto si no hay NIT) → descripciones individuales.
     const normKey = (s: string) => s.trim().replace(/\.+$/, '').replace(/\s+/g, ' ').toUpperCase()
     const antMap = new Map<string, { name: string; nit: string | null; vals: Vals; descs: Map<string, Vals> }>()
     for (const a of anticipos) {
-      const key = normKey(a.clientName)
+      const key = (a.clientNit ?? '').replace(/\D/g, '') || normKey(a.clientName)
       let g = antMap.get(key)
       if (!g) { g = { name: a.clientName, nit: a.clientNit, vals: zeros(), descs: new Map() }; antMap.set(key, g) }
       if (!g.nit && a.clientNit) g.nit = a.clientNit    // captura el NIT si alguna transacción lo trae
@@ -212,17 +222,17 @@ export default function EstadoResultadosClient({
     push({ key: 'r_bruta', label: 'UTILIDAD BRUTA', level: 0, kind: 'result', vals: utilBruta })
 
     // GASTOS OPERACIONALES
-    const pers = groupWithItems(personalCosts)
-    const gen  = groupWithItems(generalCosts)
+    const pers = groupByPucThenCat(personalCosts)
+    const gen  = groupByPucThenCat(generalCosts)
     const persVals = pers.reduce((s, n) => addV(s, n.vals), zeros())
     const genVals  = gen.reduce((s, n) => addV(s, n.vals), zeros())
     const gastosVals = addV(persVals, genVals)
 
     push({ key: 'sec_gop', label: 'GASTOS OPERACIONALES', level: 0, kind: 'section', vals: zeros(), noValues: true })
     push({ key: 'g_pers', label: 'Costos de Personal', level: 1, kind: 'group', vals: persVals, collapsible: true })
-    pushCats(pers, 'pers', 'g_pers', 2)
+    pushPucCats(pers, 'pers', 'g_pers', 2)
     push({ key: 'g_gen', label: 'Gastos Generales', level: 1, kind: 'group', vals: genVals, collapsible: true })
-    pushCats(gen, 'gen', 'g_gen', 2)
+    pushPucCats(gen, 'gen', 'g_gen', 2)
     push({ key: 't_gop', label: 'TOTAL GASTOS', level: 0, kind: 'total', vals: gastosVals })
 
     // UTILIDAD OPERACIONAL
@@ -230,13 +240,13 @@ export default function EstadoResultadosClient({
     push({ key: 'r_op', label: 'UTILIDAD OPERACIONAL', level: 0, kind: 'result', vals: utilOp })
 
     // GASTOS FINANCIEROS
-    const finExp = groupWithItems(financialExps)
+    const finExp = groupByPucThenCat(financialExps)
     const finExpVals = finExp.reduce((s, n) => addV(s, n.vals), zeros())
     const finIncVals = financialIncs.reduce((v, t) => { v[t.month] += t.amount; return v }, zeros())
     const netoFin = subV(finIncVals, finExpVals)
 
     push({ key: 'sec_fin', label: 'GASTOS FINANCIEROS', level: 0, kind: 'section', vals: zeros(), noValues: true })
-    pushCats(finExp, 'fin', undefined, 1)
+    pushPucCats(finExp, 'fin', undefined, 1)
     if (sumVals(finIncVals) !== 0) push({ key: 'fin_inc', label: 'Ingresos financieros', puc: '42100510', level: 1, kind: 'leaf', vals: finIncVals })
     push({ key: 't_fin', label: 'NETO FINANCIERO', level: 0, kind: 'total', vals: netoFin })
 
@@ -249,11 +259,11 @@ export default function EstadoResultadosClient({
     push({ key: 'r_neta', label: 'UTILIDAD NETA', level: 0, kind: 'result', vals: utilNeta })
 
     // GASTOS PERSONALES (fuera del resultado)
-    const own = groupWithItems(personalOwner)
+    const own = groupByPucThenCat(personalOwner)
     const ownVals = own.reduce((s, n) => addV(s, n.vals), zeros())
     push({ key: 'sec_own', label: 'GASTOS PERSONALES (fuera del resultado)', level: 0, kind: 'section', vals: zeros(), noValues: true })
     push({ key: 'g_own', label: 'Gastos personales propietario', level: 1, kind: 'group', vals: ownVals, collapsible: true })
-    pushCats(own, 'own', 'g_own', 2)
+    pushPucCats(own, 'own', 'g_own', 2)
     push({ key: 't_own', label: 'Total gastos personales', level: 0, kind: 'total', vals: ownVals })
 
     return L
