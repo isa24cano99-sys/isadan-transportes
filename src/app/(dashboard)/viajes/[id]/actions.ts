@@ -8,7 +8,7 @@ import {
   createDataicoCustomer,
   createDataicoInvoice,
   createDataicoCreditNote,
-  getLatestDataicoInvoiceNumber,
+  findNextFreeDataicoNumber,
   getDataicoInvoice,
   parseDateicoDate,
 } from '@/lib/dataico'
@@ -101,7 +101,8 @@ export async function generarFacturaAction(tripId: string): Promise<
     // continue without Dataico customer sync
   }
 
-  // 5. Calculate next consecutive — Supabase first (more reliable), Dataico as fallback
+  // 5. Consecutivo: primer número LIBRE en Dataico a partir del max de Supabase.
+  //    Dataico manda (puede estar adelante si se crearon facturas manualmente).
   const { data: supabaseRows } = await supabase
     .from('invoices')
     .select('invoice_number')
@@ -112,17 +113,13 @@ export async function generarFacturaAction(tripId: string): Promise<
     .reduce((max, n) => (n > max ? n : max), 0)
 
   let nextConsecutive: number
-  if (supabaseMax > 0) {
-    nextConsecutive = supabaseMax + 1
-    console.log('ULTIMO EN SUPABASE:', supabaseMax, '— invoice_numbers:', (supabaseRows ?? []).map(r => r.invoice_number).join(', '))
-  } else {
-    // Supabase vacío — consultar Dataico
-    const latestNumber = await getLatestDataicoInvoiceNumber('FEIT')
-    const dataicoLast = latestNumber
-      ? parseInt((latestNumber.match(/(\d+)$/) ?? [])[1] ?? '0', 10)
-      : 0
-    nextConsecutive = dataicoLast > 0 ? dataicoLast + 1 : 13
-    console.log('ULTIMO EN SUPABASE: (vacío) — ULTIMO EN DATAICO:', latestNumber ?? '(ninguno)')
+  try {
+    nextConsecutive = await findNextFreeDataicoNumber('FEIT', supabaseMax > 0 ? supabaseMax + 1 : 1)
+    console.log('ULTIMO EN SUPABASE:', supabaseMax, '· PRIMER LIBRE EN DATAICO:', nextConsecutive)
+  } catch (e: any) {
+    // Si Dataico no responde, caer a Supabase+1 (mejor que fallar)
+    nextConsecutive = supabaseMax > 0 ? supabaseMax + 1 : 13
+    console.log('No se pudo verificar en Dataico, uso Supabase+1:', nextConsecutive, '·', e.message)
   }
   console.log('SIGUIENTE CONSECUTIVO:', nextConsecutive)
 
@@ -316,6 +313,9 @@ export async function crearNotaCreditoAction(params: {
     .eq('trip_id', params.tripId)
     .maybeSingle()
 
+  console.log('1. invoice_number recibido:', inv?.invoice_number)
+  console.log('2. dataico_id en DB:', inv?.dataico_id)
+
   // 1. UUID ya guardado en la factura (columna dataico_id)
   if (isUuid(inv?.dataico_id)) {
     uuid = inv!.dataico_id as string
@@ -323,17 +323,21 @@ export async function crearNotaCreditoAction(params: {
     // 2. Consultar Dataico por número: GET /invoices?number=FEIT12 → uuid
     try {
       const dataicoInv = await getDataicoInvoice(inv.invoice_number as string) as any
+      console.log('3. Resultado getDataicoInvoice:', JSON.stringify(dataicoInv))
       uuid = dataicoInv?.uuid ?? dataicoInv?.id ?? ''
       // Cachear el UUID para no consultar de nuevo la próxima vez
       if (isUuid(uuid)) await supabase.from('invoices').update({ dataico_id: uuid }).eq('trip_id', params.tripId)
     } catch (e: any) {
+      console.log('3. Resultado getDataicoInvoice: ERROR', e.message)
       return { ok: false, error: `No se pudo consultar la factura en Dataico: ${e.message}` }
     }
+  } else {
+    console.log('3. Resultado getDataicoInvoice: (no se consultó — sin invoice_number)')
   }
   // 3. Último recurso: el valor recibido, solo si es un UUID válido
   if (!isUuid(uuid) && isUuid(params.invoiceUuid)) uuid = params.invoiceUuid
 
-  console.log('UUID Dataico de la factura:', uuid)
+  console.log('4. UUID final que se enviará:', uuid)
   if (!isUuid(uuid)) {
     return { ok: false, error: 'No se pudo obtener el UUID interno de Dataico de la factura.' }
   }

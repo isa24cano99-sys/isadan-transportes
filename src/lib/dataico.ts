@@ -103,6 +103,24 @@ export async function getLatestDataicoInvoiceNumber(prefix: string): Promise<str
 }
 
 /**
+ * Encuentra el próximo número de factura LIBRE en Dataico sondeando por número
+ * (el listado por prefijo no es fiable). Empieza en `startFrom` y avanza hasta
+ * hallar un número que no exista (404 → null). Devuelve ese consecutivo.
+ * Se auto-repara si en Dataico se crearon facturas manualmente (queda adelante).
+ */
+export async function findNextFreeDataicoNumber(
+  prefix: string, startFrom: number, maxProbe = 200,
+): Promise<number> {
+  let n = Math.max(1, startFrom)
+  for (let i = 0; i < maxProbe; i++) {
+    const inv = await getDataicoInvoice(`${prefix}${n}`)
+    if (!inv) return n   // no existe → libre
+    n++
+  }
+  return n
+}
+
+/**
  * Fetch one invoice by its number (prefix + consecutive, no separator).
  * E.g. prefix "FEIT" + consecutive "10" → number "FEIT10"
  *
