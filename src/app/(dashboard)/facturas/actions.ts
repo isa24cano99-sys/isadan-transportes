@@ -16,6 +16,11 @@ update trips    set dataico_invoice_id = replace(dataico_invoice_id, '-', '') wh
 -- OJO: Postgres NO soporta "add constraint if not exists"; usar un índice único idempotente,
 -- que también sirve como target de ON CONFLICT (invoice_number):
 create unique index if not exists invoices_invoice_number_key on invoices (invoice_number);
+
+-- invoice_type es un ENUM (public.invoice_type) con valores EMITIDA/RECIBIDA.
+-- El importador del Libro Diario guarda las notas crédito como 'NOTA_CREDITO' → hay que
+-- agregar ese valor al enum ANTES de importar:
+alter type public.invoice_type add value if not exists 'NOTA_CREDITO';
 */
 
 import { supabase } from '@/lib/supabase'
@@ -156,7 +161,11 @@ export async function importarLibroDiarioDataicoAction(file: File): Promise<Libr
   // ── 1. Reemplazar todas las NOTA_CREDITO ──────────────────────────────────────
   const { error: delErr } = await supabase.from('invoices').delete().eq('invoice_type', 'NOTA_CREDITO')
   if (delErr) {
-    console.error('[libroDiario] error borrando notas crédito:', delErr.message)
+    console.error('[libroDiario] error borrando notas crédito:', delErr.message, '· code:', delErr.code)
+    // El enum invoice_type todavía no tiene el valor 'NOTA_CREDITO' (invalid input value for enum)
+    if (/enum invoice_type/i.test(delErr.message) || delErr.code === '22P02') {
+      return { ...empty, error: "Falta agregar 'NOTA_CREDITO' al enum. Corre en Supabase: alter type public.invoice_type add value if not exists 'NOTA_CREDITO';" }
+    }
     return { ...empty, error: `No se pudieron eliminar las notas crédito existentes: ${delErr.message}` }
   }
 
