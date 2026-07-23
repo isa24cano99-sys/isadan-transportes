@@ -41,13 +41,14 @@ export default async function CarteraPage() {
   // ── Total facturas emitidas (all-time, from invoices table) ──────────────
   const { data: invoicesData } = await supabase
     .from('invoices')
-    .select('total_amount, invoice_number, credit_note_number')
+    .select('total_amount, invoice_number, dian_status, credit_note_id, credit_note_number')
     .eq('invoice_type', 'EMITIDA')
 
-  // Facturas anuladas por nota crédito → no cuentan (neto $0)
-  const annulledInvNums = new Set(((invoicesData ?? []) as any[]).filter(i => i.credit_note_number).map(i => i.invoice_number))
+  // Facturas anuladas (dian_status ANULADA o con nota crédito) → no cuentan (neto $0)
+  const esAnul = (i: any) => i.dian_status === 'ANULADA' || i.credit_note_id || i.credit_note_number
+  const annulledInvNums = new Set(((invoicesData ?? []) as any[]).filter(esAnul).map(i => i.invoice_number))
   const totalFacturado = ((invoicesData ?? []) as any[])
-    .filter(i => !i.credit_note_number)
+    .filter(i => !esAnul(i))
     .reduce((s, i) => s + Number(i.total_amount ?? 0), 0)
 
   // ── Total anticipos from bank_transactions ────────────────────────────────

@@ -24,6 +24,7 @@ async function getData(): Promise<{ facturas: FacturaRow[]; viajesSinFactura: Vi
       client_name:    r.client_name ?? null,
       total_amount:   r.total_amount ?? null,
       pdf_url:        r.pdf_url ?? null,
+      anulada:        !!(r.dian_status === 'ANULADA' || r.credit_note_id || r.credit_note_number),
     }))
     .sort((a, b) => (b.issue_date ?? '').localeCompare(a.issue_date ?? ''))
 

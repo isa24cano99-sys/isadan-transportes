@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronDown, ChevronRight, Download, AlertTriangle } from 'lucide-react'
 import type { PYLData, RawTx, RawLegExp, RawToll, RawInvoice } from './page'
-import { useUrlState } from '@/lib/useUrlState'
 import { formatDate } from '@/lib/utils'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -121,12 +120,17 @@ export default function EstadoResultadosClient({
   taxes, personalOwner, sinClasificar, sinClasificarAccountId,
 }: PYLData) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [showSinClas, setShowSinClas] = useState(false)
-  const [mesesStr, setMesesStr] = useUrlState('meses')   // CSV de meses; vacío = año completo (solo TOTAL)
-  const sel = useMemo(
-    () => new Set(mesesStr ? mesesStr.split(',').map(Number).filter(n => n >= 1 && n <= 12) : []),
-    [mesesStr],
-  )
+
+  // Selección de meses en estado LOCAL → re-render inmediato al hacer click.
+  // La URL se sincroniza con replaceState solo para deep-link/refresh; replaceState
+  // NO notifica a useSearchParams, por eso la fuente de verdad es el estado local
+  // (derivar sel del query param dejaba el selector "pegado" sin responder a clicks).
+  const [sel, setSel] = useState<Set<number>>(() => {
+    const s = searchParams.get('meses')
+    return new Set(s ? s.split(',').map(Number).filter(n => n >= 1 && n <= 12) : [])
+  })
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
 
@@ -134,9 +138,20 @@ export default function EstadoResultadosClient({
     setExpanded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
   }, [])
 
+  // Actualiza el estado (nuevo Set → re-render) y persiste en la URL.
+  const setMeses = useCallback((next: Set<number>) => {
+    setSel(next)
+    const params = new URLSearchParams(window.location.search)
+    const csv = [...next].sort((a, b) => a - b).join(',')
+    if (csv) params.set('meses', csv); else params.delete('meses')
+    const qs = params.toString()
+    window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname)
+  }, [])
+
   const toggleMonth = (m: number) => {
-    const n = new Set(sel); n.has(m) ? n.delete(m) : n.add(m)
-    setMesesStr([...n].sort((a, b) => a - b).join(','))
+    const n = new Set(sel)
+    n.has(m) ? n.delete(m) : n.add(m)
+    setMeses(n)
   }
 
   // Meses mostrados como columnas y meses sumados en TOTAL
@@ -349,7 +364,7 @@ export default function EstadoResultadosClient({
 
       {/* Selector de meses */}
       <div className="flex flex-wrap gap-1 items-center">
-        <button onClick={() => setMesesStr('')}
+        <button onClick={() => setMeses(new Set())}
           className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
             sel.size === 0 ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#374151] hover:bg-[#E2E8F0]'
           }`}>

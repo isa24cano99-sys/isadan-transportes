@@ -110,7 +110,7 @@ export default async function ReportesPage({
     // 1. Invoices EMITIDA
     supabase
       .from('invoices')
-      .select('invoice_number, total_amount, issue_date, client_name, client_nit, credit_note_number, trips(freight_value, clients(name, nit))')
+      .select('invoice_number, total_amount, issue_date, client_name, client_nit, dian_status, credit_note_id, credit_note_number, trips(freight_value, clients(name, nit))')
       .eq('invoice_type', 'EMITIDA')
       .gte('issue_date', from)
       .lte('issue_date', to),
@@ -155,8 +155,8 @@ export default async function ReportesPage({
     .map((inv: any) => {
       const month = toMonth(inv.issue_date)
       if (!month) return null
-      // Factura anulada por nota crédito → no suma como ingreso (neto $0)
-      if (inv.credit_note_number) return null
+      // Factura anulada (dian_status ANULADA o con nota crédito) → no suma como ingreso (neto $0)
+      if (inv.dian_status === 'ANULADA' || inv.credit_note_id || inv.credit_note_number) return null
       const amount =
         Number(inv.total_amount ?? 0) ||
         Number(inv.trips?.freight_value ?? 0)
@@ -166,8 +166,9 @@ export default async function ReportesPage({
     })
     .filter(Boolean) as RawInvoice[]
 
+  const esAnulada = (i: any) => i.dian_status === 'ANULADA' || i.credit_note_id || i.credit_note_number
   console.log('Facturas EMITIDA leídas de la BD (año', year + '):', (invoicesRes.data ?? []).length,
-    ((invoicesRes.data ?? []) as any[]).map(i => `${i.invoice_number}${i.credit_note_number ? '(anulada)' : ''}`))
+    ((invoicesRes.data ?? []) as any[]).map(i => `${i.invoice_number}${esAnulada(i) ? '(anulada)' : ''}`))
   console.log('Facturas encontradas para Estado de Resultados:', invoices.length, invoices.map(f => f.invoiceNumber))
 
   // ── Pre-process bank transactions ─────────────────────────────────────────

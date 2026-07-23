@@ -12,7 +12,7 @@ alter table invoices add column if not exists xml_url text;
 update invoices set invoice_number = replace(invoice_number, '-', '') where invoice_number like 'FEIT-%';
 update trips    set dataico_invoice_id = replace(dataico_invoice_id, '-', '') where dataico_invoice_id like 'FEIT-%';
 
--- Para importarFacturasExcelAction (upsert por invoice_number).
+-- Para importarLibroDiarioDataicoAction (upsert por invoice_number).
 -- OJO: Postgres NO soporta "add constraint if not exists"; usar un índice único idempotente,
 -- que también sirve como target de ON CONFLICT (invoice_number):
 create unique index if not exists invoices_invoice_number_key on invoices (invoice_number);
@@ -23,16 +23,20 @@ import { revalidatePath } from 'next/cache'
 import * as XLSX from 'xlsx'
 import { parseDateicoDate } from '@/lib/dataico'
 
-// ── Importación desde el Excel "detallado" de Dataico ──────────────────────────
-// Nota: Dataico NO tiene endpoint de listado de facturas por API, así que el Excel
-// detallado (Ventas → Facturas → Exportar detallado) es la única vía para sincronizar
-// el historial completo de facturas emitidas.
+// ── Importación desde el "Libro Diario" de Dataico ─────────────────────────────
+// Nota: Dataico NO tiene endpoint de listado de facturas por API. El export de
+// "Libro Diario Contabilidad" es la vía para sincronizar facturas + notas crédito.
+// Estructura: título (fila 1), rango fechas (2), empresa (3), header (4):
+//   Fecha | No. Comp | Doc Ref | Categoria | Tercero | Valor
+// Solo procesamos dos categorías: "FEIT | Factura" y "NC | Nota Crédito".
 
-type ExcelImportResult = {
+type LibroDiarioResult = {
   ok: boolean
-  procesadas: number
-  nuevas: number
-  actualizadas: number
+  facturas: number            // EMITIDA insertadas/actualizadas
+  facturasNuevas: number
+  facturasActualizadas: number
+  notasCredito: number        // NOTA_CREDITO importadas
+  ignoradas: number           // filas de otras categorías
   error?: string
 }
 
@@ -56,134 +60,143 @@ function cleanClientName(v: unknown): string {
   return String(v ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim()
 }
 
+/** 'TRANSPORTES JAMAR S.A.S (900793588)' → '900793588' (NIT entre paréntesis final). */
+function extractNit(v: unknown): string | null {
+  const m = String(v ?? '').match(/\(([^)]*)\)\s*$/)
+  return m ? m[1].trim() || null : null
+}
+
 /**
- * Importa el Excel "detallado" de Dataico (Ventas → Facturas → Exportar detallado).
- * El Excel trae UNA FILA POR ÍTEM, así que se agrupan las filas por NUMERO y se
- * suma ITEM_TOTAL para obtener el total de cada factura. Upsert por invoice_number
- * (el Excel no incluye el UUID/dataico_id).
+ * Importa el "Libro Diario Contabilidad" de Dataico. Header en la fila 4:
+ *   Fecha | No. Comp | Doc Ref | Categoria | Tercero | Valor
+ *
+ * Solo procesa dos categorías, ignora el resto:
+ *  · "FEIT | Factura"       → invoices EMITIDA (upsert por invoice_number, preserva trip_id)
+ *  · "NC | Nota Crédito"    → invoices NOTA_CREDITO (Valor NEGATIVO, dian_status ANULADA)
+ *
+ * Antes de insertar elimina TODAS las NOTA_CREDITO y las reconstruye desde el archivo.
  */
-export async function importarFacturasExcelAction(file: File): Promise<ExcelImportResult> {
+export async function importarLibroDiarioDataicoAction(file: File): Promise<LibroDiarioResult> {
+  const empty = { ok: false, facturas: 0, facturasNuevas: 0, facturasActualizadas: 0, notasCredito: 0, ignoradas: 0 }
   if (!file || file.size === 0) {
-    return { ok: false, procesadas: 0, nuevas: 0, actualizadas: 0, error: 'No se adjuntó archivo.' }
+    return { ...empty, error: 'No se adjuntó archivo.' }
   }
 
-  let sheetRows: Record<string, any>[]
+  let matrix: any[][]
   try {
     const buffer = Buffer.from(await file.arrayBuffer())
-    const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true })
+    const wb = XLSX.read(buffer, { type: 'buffer' })
     const ws = wb.Sheets[wb.SheetNames[0]]
-    sheetRows = XLSX.utils.sheet_to_json(ws, { defval: '' }) as Record<string, any>[]
+    matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false }) as any[][]
   } catch (e: any) {
-    console.error('[importarFacturasExcel] error leyendo el Excel:', e.message)
-    return { ok: false, procesadas: 0, nuevas: 0, actualizadas: 0, error: `No se pudo leer el Excel: ${e.message}` }
+    console.error('[libroDiario] error leyendo el Excel:', e.message)
+    return { ...empty, error: `No se pudo leer el Excel: ${e.message}` }
   }
 
-  // Agrupar por NUMERO, sumando ITEM_TOTAL (una fila por ítem en el Excel).
-  const byNumber = new Map<string, {
-    invoice_number: string
-    issue_date:     string
-    client_name:    string
-    client_nit:     string | null
-    total_amount:   number
-  }>()
+  // Localizar el header (fila cuyo primer campo es "Fecha") — tolera filas extra arriba.
+  const headerIdx = matrix.findIndex(r => String(r?.[0] ?? '').trim().toLowerCase() === 'fecha')
+  if (headerIdx === -1) {
+    return { ...empty, error: 'No se encontró el encabezado (Fecha | No. Comp | Doc Ref | Categoria | Tercero | Valor). ¿Es el Libro Diario de Dataico?' }
+  }
 
-  for (const row of sheetRows) {
-    // Normaliza: quita guiones y ceros a la izquierda del consecutivo (FEIT-02 / FEIT02 → FEIT2).
-    const invoiceNumber = String(row['NUMERO'] ?? '').trim()
-      .replace(/-/g, '')
-      .replace(/^([A-Za-z]+)0+(?=\d)/, '$1')
-    if (!invoiceNumber) continue // fila sin número (encabezado extra / vacía)
+  // Columnas por índice: 0=Fecha, 1=No.Comp, 2=Doc Ref, 3=Categoria, 4=Tercero, 5=Valor
+  const emitidas: Record<string, any>[] = []
+  const notas:    Record<string, any>[] = []
+  let ignoradas = 0
 
-    const existing = byNumber.get(invoiceNumber)
-    const itemTotal = toNumber(row['ITEM_TOTAL'])
+  for (let i = headerIdx + 1; i < matrix.length; i++) {
+    const row = matrix[i]
+    if (!row || row.every(c => String(c).trim() === '')) continue
 
-    if (existing) {
-      existing.total_amount += itemTotal
-    } else {
-      byNumber.set(invoiceNumber, {
-        invoice_number: invoiceNumber,
-        issue_date:     excelDateToIso(row['FECHA_EXPEDICION']),
-        client_name:    cleanClientName(row['CLIENTE_NOMBRE']),
-        client_nit:     String(row['CLIENTE_IDENTIFICATION'] ?? '').trim() || null,
-        total_amount:   itemTotal,
+    const fecha    = row[0]
+    const docRef   = String(row[2] ?? '').trim()
+    const categoria = String(row[3] ?? '').trim()
+    const tercero  = row[4]
+    const valor    = toNumber(row[5])
+
+    const esFactura = /FEIT/i.test(categoria) || /\bFactura\b/i.test(categoria)
+    const esNota    = /\bNC\b/i.test(categoria) || /Nota\s*Cr[eé]dito/i.test(categoria)
+
+    if (esFactura) {
+      // Doc Ref: 'Factura FEIT22' → 'FEIT22'
+      const m = docRef.match(/FEIT\s*-?\s*(\d+)/i)
+      if (!m) { ignoradas++; continue }
+      emitidas.push({
+        invoice_number: `FEIT${m[1]}`,
+        issue_date:     excelDateToIso(fecha),
+        client_name:    cleanClientName(tercero),
+        client_nit:     extractNit(tercero),
+        total_amount:   valor,
+        invoice_type:   'EMITIDA',
       })
+    } else if (esNota) {
+      // Doc Ref: 'Nota Crédito NC3' → 'NC3'
+      const m = docRef.match(/NC\s*-?\s*(\d+)/i)
+      if (!m) { ignoradas++; continue }
+      notas.push({
+        invoice_number: `NC${m[1]}`,
+        issue_date:     excelDateToIso(fecha),
+        client_name:    cleanClientName(tercero),
+        client_nit:     extractNit(tercero),
+        total_amount:   -Math.abs(valor),   // las notas crédito restan
+        invoice_type:   'NOTA_CREDITO',
+        dian_status:    'ANULADA',
+      })
+    } else {
+      ignoradas++
     }
   }
 
-  const facturas = Array.from(byNumber.values())
-  for (const f of facturas) {
-    console.log('Procesando fila:', {
-      invoice_number: f.invoice_number,
-      issue_date:     f.issue_date,
-      client_name:    f.client_name,
-      total_amount:   f.total_amount,
-    })
-  }
-  if (facturas.length === 0) {
-    return { ok: true, procesadas: 0, nuevas: 0, actualizadas: 0 }
+  console.log(`[libroDiario] EMITIDA: ${emitidas.length} · NOTA_CREDITO: ${notas.length} · ignoradas: ${ignoradas}`)
+
+  if (emitidas.length === 0 && notas.length === 0) {
+    return { ...empty, ok: true, ignoradas, error: 'No se encontraron facturas FEIT ni notas crédito en el archivo.' }
   }
 
-  // Clasificar nuevas vs actualizadas antes del upsert.
-  const numbers = facturas.map(f => f.invoice_number)
-  const { data: existentes, error: selErr } = await supabase
-    .from('invoices')
-    .select('invoice_number')
-    .in('invoice_number', numbers)
-
-  if (selErr) {
-    console.error('[importarFacturasExcel] error consultando existentes:', selErr.message)
-    return { ok: false, procesadas: 0, nuevas: 0, actualizadas: 0, error: selErr.message }
+  // ── 1. Reemplazar todas las NOTA_CREDITO ──────────────────────────────────────
+  const { error: delErr } = await supabase.from('invoices').delete().eq('invoice_type', 'NOTA_CREDITO')
+  if (delErr) {
+    console.error('[libroDiario] error borrando notas crédito:', delErr.message)
+    return { ...empty, error: `No se pudieron eliminar las notas crédito existentes: ${delErr.message}` }
   }
 
-  const existingSet = new Set((existentes ?? []).map((e: any) => e.invoice_number))
-  const nuevas = facturas.filter(f => !existingSet.has(f.invoice_number)).length
-  const actualizadas = facturas.length - nuevas
+  // ── 2. Upsert de EMITIDAS (preserva trip_id y flags de anulación: no van en el payload) ──
+  let facturasNuevas = 0, facturasActualizadas = 0
+  if (emitidas.length) {
+    const numbers = emitidas.map(f => f.invoice_number)
+    const { data: existentes } = await supabase.from('invoices').select('invoice_number').in('invoice_number', numbers)
+    const existingSet = new Set((existentes ?? []).map((e: any) => e.invoice_number))
+    facturasNuevas = emitidas.filter(f => !existingSet.has(f.invoice_number)).length
+    facturasActualizadas = emitidas.length - facturasNuevas
 
-  const rows = facturas.map(f => ({
-    invoice_number: f.invoice_number,
-    issue_date:     f.issue_date,
-    client_name:    f.client_name,
-    client_nit:     f.client_nit,
-    total_amount:   f.total_amount,
-    tax_amount:     0,
-    invoice_type:   'EMITIDA',
-  }))
-
-  const { error: upsertErr } = await supabase
-    .from('invoices')
-    .upsert(rows, { onConflict: 'invoice_number' })
-
-  if (upsertErr) {
-    console.error('[importarFacturasExcel] error en upsert (lote):', upsertErr.message, '· code:', upsertErr.code, '· details:', upsertErr.details)
-
-    // Problema estructural (falta constraint UNIQUE o columna) → no tiene sentido reintentar
-    if (upsertErr.code === '42P10' || upsertErr.code === '42703' || upsertErr.code === 'PGRST204') {
-      return {
-        ok: false, procesadas: 0, nuevas: 0, actualizadas: 0,
-        error: `Falta la restricción UNIQUE sobre invoice_number (o una columna). Ejecuta el SQL de facturas/actions.ts. (${upsertErr.message})`,
+    const { error: upErr } = await supabase.from('invoices').upsert(emitidas, { onConflict: 'invoice_number' })
+    if (upErr) {
+      console.error('[libroDiario] error en upsert de facturas:', upErr.message, '· code:', upErr.code)
+      if (upErr.code === '42P10' || upErr.code === '42703' || upErr.code === 'PGRST204') {
+        return { ...empty, error: `Falta la restricción UNIQUE sobre invoice_number (o una columna). Ejecuta el SQL de facturas/actions.ts. (${upErr.message})` }
       }
+      return { ...empty, error: upErr.message }
     }
+  }
 
-    // Reintento fila por fila: aísla la(s) factura(s) problemática(s) sin tumbar el lote entero
-    let ok = 0
-    const fallidas: string[] = []
-    for (const r of rows) {
-      const { error: e } = await supabase.from('invoices').upsert(r, { onConflict: 'invoice_number' })
-      if (e) {
-        fallidas.push(r.invoice_number)
-        console.error(`  ✗ ${r.invoice_number} falló → ${e.message} · issue_date: ${r.issue_date} · total: ${r.total_amount}`)
-      } else ok++
-    }
-    revalidatePath('/facturas')
-    revalidatePath('/facturas/clientes')
-    if (ok === 0) return { ok: false, procesadas: 0, nuevas: 0, actualizadas: 0, error: upsertErr.message }
-    return {
-      ok: true, procesadas: ok, nuevas, actualizadas,
-      error: fallidas.length ? `No se importaron ${fallidas.length}: ${fallidas.join(', ')}` : undefined,
+  // ── 3. Insertar las NOTA_CREDITO reconstruidas ────────────────────────────────
+  if (notas.length) {
+    const { error: ncErr } = await supabase.from('invoices').upsert(notas, { onConflict: 'invoice_number' })
+    if (ncErr) {
+      console.error('[libroDiario] error insertando notas crédito:', ncErr.message)
+      return { ...empty, facturas: emitidas.length, facturasNuevas, facturasActualizadas, ignoradas, error: `Facturas ok, pero fallaron las notas crédito: ${ncErr.message}` }
     }
   }
 
   revalidatePath('/facturas')
   revalidatePath('/facturas/clientes')
-  return { ok: true, procesadas: facturas.length, nuevas, actualizadas }
+  revalidatePath('/reportes')
+  return {
+    ok: true,
+    facturas: emitidas.length,
+    facturasNuevas,
+    facturasActualizadas,
+    notasCredito: notas.length,
+    ignoradas,
+  }
 }

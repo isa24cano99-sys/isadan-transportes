@@ -3,7 +3,7 @@
 import { useRef, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { RefreshCw, FileText, Truck, ExternalLink, Minus, Upload, ChevronDown, ChevronRight, TrendingUp } from 'lucide-react'
-import { importarFacturasExcelAction } from './actions'
+import { importarLibroDiarioDataicoAction } from './actions'
 import { generarFacturaAction } from '../viajes/[id]/actions'
 import { formatInvoiceNumber } from '@/lib/utils'
 import { useUrlState } from '@/lib/useUrlState'
@@ -20,6 +20,7 @@ export type FacturaRow = {
   client_name:    string | null
   total_amount:   number | null
   pdf_url:        string | null
+  anulada:        boolean
 }
 
 export type ViajeSinFactura = {
@@ -72,7 +73,8 @@ export default function FacturasDataicoClient({
   }), [facturas, mes, anio])
 
   const totalPeriodo = useMemo(
-    () => facturasFiltradas.reduce((s, f) => s + Number(f.total_amount ?? 0), 0),
+    // Las facturas anuladas no suman al total facturado
+    () => facturasFiltradas.filter(f => !f.anulada).reduce((s, f) => s + Number(f.total_amount ?? 0), 0),
     [facturasFiltradas],
   )
   const periodoLabel = mes || anio
@@ -91,16 +93,25 @@ export default function FacturasDataicoClient({
       return
     }
 
+    const confirmar = window.confirm(
+      'Importar el Libro Diario de Dataico:\n\n' +
+      '• Actualiza/crea las facturas FEIT (conserva su viaje asociado).\n' +
+      '• Elimina y reconstruye TODAS las notas crédito desde el archivo.\n' +
+      '• Ignora el resto de movimientos contables.\n\n' +
+      '¿Continuar?'
+    )
+    if (!confirmar) return
+
     setImporting(true)
     setImportMsg(null)
-    const res = await importarFacturasExcelAction(file)
+    const res = await importarLibroDiarioDataicoAction(file)
     setImporting(false)
     if (!res.ok) {
-      setImportMsg({ type: 'err', text: res.error ?? 'Error al importar el Excel' })
+      setImportMsg({ type: 'err', text: res.error ?? 'Error al importar el Libro Diario' })
     } else {
       setImportMsg({
         type: 'ok',
-        text: `${res.procesadas} procesadas · ${res.nuevas} nuevas · ${res.actualizadas} actualizadas.`,
+        text: `${res.facturas} factura${res.facturas !== 1 ? 's' : ''} (${res.facturasNuevas} nuevas · ${res.facturasActualizadas} act.) · ${res.notasCredito} nota${res.notasCredito !== 1 ? 's' : ''} crédito · ${res.ignoradas} ignoradas.`,
       })
       setTimeout(() => router.refresh(), 800)
     }
@@ -151,7 +162,7 @@ export default function FacturasDataicoClient({
             className="flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors min-h-[44px]"
           >
             <Upload size={14} className={importing ? 'animate-pulse' : ''} />
-            {importing ? 'Importando…' : 'Importar Excel Dataico'}
+            {importing ? 'Importando…' : 'Importar Libro Diario Dataico'}
           </button>
         </div>
       </div>
@@ -211,11 +222,16 @@ export default function FacturasDataicoClient({
                 </thead>
                 <tbody className="divide-y divide-[#F1F5F9]">
                   {facturasFiltradas.map(f => (
-                    <tr key={f.id} className="hover:bg-[#F8FAFC] transition-colors">
-                      <td className="py-3 px-4 font-medium text-[#0F172A] font-mono text-xs">{formatInvoiceNumber(f.invoice_number)}</td>
-                      <td className="py-3 px-4 text-[#64748B]">{f.issue_date ?? '—'}</td>
-                      <td className="py-3 px-4 text-[#0F172A]">{f.client_name ?? '—'}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[#0F172A]">{fmt(Number(f.total_amount ?? 0))}</td>
+                    <tr key={f.id} className={`transition-colors ${f.anulada ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-[#F8FAFC]'}`}>
+                      <td className="py-3 px-4 font-mono text-xs">
+                        <span className={`font-medium ${f.anulada ? 'text-[#94A3B8] line-through' : 'text-[#0F172A]'}`}>{formatInvoiceNumber(f.invoice_number)}</span>
+                        {f.anulada && (
+                          <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 align-middle">Anulada</span>
+                        )}
+                      </td>
+                      <td className={`py-3 px-4 ${f.anulada ? 'text-[#94A3B8]' : 'text-[#64748B]'}`}>{f.issue_date ?? '—'}</td>
+                      <td className={`py-3 px-4 ${f.anulada ? 'text-[#94A3B8]' : 'text-[#0F172A]'}`}>{f.client_name ?? '—'}</td>
+                      <td className={`py-3 px-4 text-right tabular-nums ${f.anulada ? 'text-[#94A3B8] line-through' : 'text-[#0F172A]'}`}>{fmt(Number(f.total_amount ?? 0))}</td>
                       <td className="py-3 px-4 text-right">
                         {f.pdf_url ? (
                           <a href={f.pdf_url} target="_blank" rel="noopener noreferrer"
@@ -239,7 +255,7 @@ export default function FacturasDataicoClient({
             </div>
             <p className="text-sm font-medium text-[#0F172A]">No hay facturas en el período</p>
             <p className="text-xs text-[#64748B] mt-1">
-              Cambia el filtro o haz clic en <strong>Importar Excel Dataico</strong> para traer el historial.
+              Cambia el filtro o haz clic en <strong>Importar Libro Diario Dataico</strong> para traer el historial.
             </p>
           </div>
         )

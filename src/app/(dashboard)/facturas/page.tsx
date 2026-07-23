@@ -11,12 +11,14 @@ async function getStats() {
   const to   = `${year}-12-31T23:59:59`
 
   const [invRes, tollRes, dianRes] = await Promise.all([
-    supabase.from('invoices').select('total_amount').eq('invoice_type', 'EMITIDA'),
+    supabase.from('invoices').select('total_amount, dian_status, credit_note_id, credit_note_number').eq('invoice_type', 'EMITIDA'),
     supabase.from('toll_transactions').select('total').gte('pass_date', from).lte('pass_date', to).limit(10000),
     supabase.from('dian_invoices_import').select('id', { count: 'exact', head: true }),
   ])
 
-  const facturas = (invRes.data ?? []) as { total_amount: number | null }[]
+  // Excluir facturas anuladas (dian_status ANULADA o con nota crédito) del total facturado
+  const facturas = ((invRes.data ?? []) as any[])
+    .filter(f => !(f.dian_status === 'ANULADA' || f.credit_note_id || f.credit_note_number))
   const totalFacturado = facturas.reduce((s, f) => s + Number(f.total_amount ?? 0), 0)
 
   const tolls = (tollRes.data ?? []) as { total: number | null }[]
