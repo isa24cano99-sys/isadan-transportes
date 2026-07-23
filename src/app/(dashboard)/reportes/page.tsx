@@ -59,6 +59,15 @@ export type RawToll = {
   amount: number
 }
 
+export type SinClasificar = {
+  id: string
+  month: number
+  date: string | null
+  description: string | null
+  amount: number
+  type: 'INGRESO' | 'EGRESO'
+}
+
 export type PYLData = {
   year: number
   availableYears: number[]
@@ -73,6 +82,8 @@ export type PYLData = {
   taxes: RawTx[]
   personalOwner: RawTx[]
   anticiposNoLeg: RawTx[]
+  sinClasificar: SinClasificar[]
+  sinClasificarAccountId: string | null
 }
 
 function toMonth(dateStr: string | null | undefined): number | null {
@@ -107,7 +118,7 @@ export default async function ReportesPage({
     // 2. All bank transactions for the year (we filter server-side)
     supabase
       .from('bank_transactions')
-      .select('id, type, amount, date, description, supplier_name, supplier_nit, category, category_id, transaction_categories(puc_code, name)')
+      .select('id, type, amount, date, description, supplier_name, supplier_nit, category, category_id, account_id, transaction_categories(puc_code, name)')
       .gte('date', from)
       .lte('date', to)
       .limit(50000),
@@ -232,6 +243,27 @@ export default async function ReportesPage({
   const personalOwner  = extractBankTx(PERSONAL_OWNER_CATS, 'EGRESO')
   const anticiposNoLeg = extractBankTx(ANTICIPO_NO_LEG_CATS)
 
+  // ── Transacciones sin clasificar (category_id null) ────────────────────────
+  const sinClasificar: SinClasificar[] = (bankTxRes.data ?? [])
+    .filter((t: any) => !t.category_id)
+    .map((t: any) => {
+      const month = toMonth(t.date as string)
+      if (!month) return null
+      return {
+        id:          t.id as string,
+        month,
+        date:        (t.date as string) ?? null,
+        description: t.description ?? null,
+        amount:      Number(t.amount ?? 0),
+        type:        (t.type as 'INGRESO' | 'EGRESO'),
+      }
+    })
+    .filter(Boolean) as SinClasificar[]
+  // Cuenta con más transacciones sin clasificar (para el link "Ir a clasificar")
+  const accCount: Record<string, number> = {}
+  for (const t of (bankTxRes.data ?? []) as any[]) if (!t.category_id && t.account_id) accCount[t.account_id] = (accCount[t.account_id] ?? 0) + 1
+  const sinClasificarAccountId = Object.entries(accCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
   // ── Pre-process legalization expenses ─────────────────────────────────────
   const legExps: RawLegExp[] = (legExpRes.data ?? [])
     .map((e: any) => {
@@ -267,6 +299,7 @@ export default async function ReportesPage({
     invoices, anticipos, legExps, tolls,
     personalCosts, generalCosts, financialExps, financialIncs,
     taxes, personalOwner, anticiposNoLeg,
+    sinClasificar, sinClasificarAccountId,
   }
 
   return <EstadoResultadosClient {...pylData} />

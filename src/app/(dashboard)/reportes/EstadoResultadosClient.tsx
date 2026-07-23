@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, ChevronRight, Download } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronDown, ChevronRight, Download, AlertTriangle } from 'lucide-react'
 import type { PYLData, RawTx, RawLegExp, RawToll, RawInvoice } from './page'
 import { useUrlState } from '@/lib/useUrlState'
 import { formatDate } from '@/lib/utils'
@@ -117,9 +118,10 @@ export default function EstadoResultadosClient({
   year, availableYears,
   invoices, anticipos, legExps, tolls,
   personalCosts, generalCosts, financialExps, financialIncs,
-  taxes, personalOwner,
+  taxes, personalOwner, sinClasificar, sinClasificarAccountId,
 }: PYLData) {
   const router = useRouter()
+  const [showSinClas, setShowSinClas] = useState(false)
   const [mesesStr, setMesesStr] = useUrlState('meses')   // CSV de meses; vacío = año completo (solo TOTAL)
   const sel = useMemo(
     () => new Set(mesesStr ? mesesStr.split(',').map(Number).filter(n => n >= 1 && n <= 12) : []),
@@ -316,6 +318,15 @@ export default function EstadoResultadosClient({
 
   const nCols = monthsShown.length + 1
 
+  // Transacciones sin clasificar del período (respetan el filtro de meses)
+  const scFiltered = sinClasificar.filter(t => sel.size === 0 || sel.has(t.month))
+  const scIng = scFiltered.filter(t => t.type === 'INGRESO')
+  const scEgr = scFiltered.filter(t => t.type === 'EGRESO')
+  const scIngTot = scIng.reduce((s, t) => s + t.amount, 0)
+  const scEgrTot = scEgr.reduce((s, t) => s + t.amount, 0)
+  const scRows = [...scFiltered].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+  const clasifHref = sinClasificarAccountId ? `/bancos/${sinClasificarAccountId}?cat=__sin__` : '/bancos'
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       {/* Header */}
@@ -438,6 +449,61 @@ export default function EstadoResultadosClient({
           </table>
         </div>
       </div>
+
+      {/* Transacciones sin clasificar */}
+      {scFiltered.length > 0 && (
+        <div className="bg-white border border-red-200 rounded-xl overflow-hidden">
+          <button onClick={() => setShowSinClas(v => !v)}
+            className="w-full flex items-center gap-2 px-4 py-3 bg-red-50 hover:bg-red-100 transition-colors text-left">
+            {showSinClas ? <ChevronDown size={14} className="text-red-600 shrink-0" /> : <ChevronRight size={14} className="text-red-600 shrink-0" />}
+            <AlertTriangle size={15} className="text-red-600 shrink-0" />
+            <span className="text-sm font-semibold text-red-700">Transacciones sin clasificar ({scFiltered.length})</span>
+            <span className="ml-auto text-sm font-bold text-red-700 tabular-nums">{COP.format(scIngTot + scEgrTot)}</span>
+          </button>
+
+          {showSinClas && (
+            <div className="p-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                <span className="inline-flex items-center gap-1 text-green-700">
+                  <span className="font-semibold">Ingresos sin clasificar:</span> {scIng.length} · {COP.format(scIngTot)}
+                </span>
+                <span className="inline-flex items-center gap-1 text-red-600">
+                  <span className="font-semibold">Egresos sin clasificar:</span> {scEgr.length} · {COP.format(scEgrTot)}
+                </span>
+                <Link href={clasifHref}
+                  className="ml-auto inline-flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                  Ir a clasificar →
+                </Link>
+              </div>
+
+              <div className="border border-[#E2E8F0] rounded-lg overflow-hidden">
+                <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0">
+                      <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wide whitespace-nowrap">Fecha</th>
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wide">Descripción</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wide">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F1F5F9]">
+                      {scRows.map(t => (
+                        <tr key={t.id} className="hover:bg-[#F8FAFC] transition-colors">
+                          <td className="px-3 py-1.5 text-xs text-[#64748B] whitespace-nowrap">{t.date ? formatDate(t.date) : '—'}</td>
+                          <td className="px-3 py-1.5 text-xs text-[#0F172A] max-w-[360px] truncate">{t.description ?? '—'}</td>
+                          <td className={`px-3 py-1.5 text-xs text-right tabular-nums font-medium ${t.type === 'INGRESO' ? 'text-green-600' : 'text-red-500'}`}>
+                            {t.type === 'EGRESO' ? '−' : '+'}{COP.format(t.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -74,10 +74,27 @@ async function getPendingBilling() {
   }
 }
 
+async function getUnclassified() {
+  const { data } = await supabase
+    .from('bank_transactions')
+    .select('amount, account_id')
+    .is('category_id', null)
+    .limit(20000)
+  const rows = (data ?? []) as any[]
+  const accCount: Record<string, number> = {}
+  for (const t of rows) if (t.account_id) accCount[t.account_id] = (accCount[t.account_id] ?? 0) + 1
+  return {
+    count:     rows.length,
+    total:     rows.reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0),
+    accountId: Object.entries(accCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+  }
+}
+
 export default async function DashboardPage() {
-  const [expiringDocs, pendingBilling] = await Promise.all([
+  const [expiringDocs, pendingBilling, unclassified] = await Promise.all([
     getExpiringDocs(),
     getPendingBilling(),
+    getUnclassified(),
   ])
 
   const redDocs    = expiringDocs.filter((d: any) => d.daysLeft < 30)
@@ -124,6 +141,24 @@ export default async function DashboardPage() {
           pendingBilling.count > 0 ? 'text-yellow-700' : 'text-green-700'
         }`}>Ver →</span>
       </Link>
+
+      {/* Transacciones sin clasificar KPI */}
+      {unclassified.count > 0 && (
+        <Link href={unclassified.accountId ? `/bancos/${unclassified.accountId}?cat=__sin__` : '/bancos'}
+          className="flex items-center gap-4 rounded-2xl border p-4 md:p-5 transition-colors hover:shadow-sm bg-yellow-50 border-yellow-200 hover:bg-yellow-100/60"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-yellow-100">
+            <AlertTriangle size={18} className="text-yellow-700" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-yellow-900">
+              {unclassified.count} transacción{unclassified.count !== 1 ? 'es' : ''} sin clasificar — {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(unclassified.total)} pendientes
+            </p>
+            <p className="text-xs text-yellow-700 mt-0.5">Asigna una categoría para que entren al Estado de Resultados</p>
+          </div>
+          <span className="text-xs font-medium flex-shrink-0 text-yellow-700">Clasificar →</span>
+        </Link>
+      )}
 
       {expiringDocs.length > 0 && (
         <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 md:p-5">
