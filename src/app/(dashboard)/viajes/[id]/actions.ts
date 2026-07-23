@@ -123,6 +123,20 @@ export async function generarFacturaAction(tripId: string): Promise<
   }
   console.log('SIGUIENTE CONSECUTIVO:', nextConsecutive)
 
+  // Regla: si hay legalización APROBADA con flete distinto al manifiesto, facturar por ese flete.
+  const { data: legApr } = await supabase
+    .from('legalizations')
+    .select('freight_value')
+    .eq('trip_id', tripId)
+    .eq('status', 'APROBADA')
+    .maybeSingle()
+  const legFreight = legApr?.freight_value != null ? Number(legApr.freight_value) : null
+  const fleteAFacturar =
+    legFreight != null && legFreight > 0 && legFreight !== Number(trip.freight_value)
+      ? legFreight
+      : Number(trip.freight_value)
+  console.log('Flete manifiesto:', trip.freight_value, 'Flete legalización:', legApr?.freight_value, 'Usando:', fleteAFacturar)
+
   // 6. Create invoice in Dataico
   let invoice
   try {
@@ -133,7 +147,7 @@ export async function generarFacturaAction(tripId: string): Promise<
       customerEmail:   client.email ?? undefined,
       nextConsecutive,
       date:            new Date().toISOString().split('T')[0],
-      freightValue:  Number(trip.freight_value),
+      freightValue:  fleteAFacturar,
       plate:         vehicle?.plate ?? '',
       origin:        trip.origin,
       destination:   trip.destination,
@@ -164,7 +178,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     issue_date:     parseDateicoDate(invoice.issue_date),
     client_name:    client.name,
     client_nit:     client.nit,
-    total_amount:   trip.freight_value,
+    total_amount:   fleteAFacturar,
     tax_amount:     0,
     invoice_type:   'EMITIDA',
     dataico_id:     invoice.uuid,

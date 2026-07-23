@@ -88,8 +88,10 @@ export async function importarFacturasExcelAction(file: File): Promise<ExcelImpo
   }>()
 
   for (const row of sheetRows) {
-    // El Excel ya trae el número sin guion; se normaliza por si acaso (invariante: DB sin guion).
-    const invoiceNumber = String(row['NUMERO'] ?? '').trim().replace(/-/g, '')
+    // Normaliza: quita guiones y ceros a la izquierda del consecutivo (FEIT-02 / FEIT02 → FEIT2).
+    const invoiceNumber = String(row['NUMERO'] ?? '').trim()
+      .replace(/-/g, '')
+      .replace(/^([A-Za-z]+)0+(?=\d)/, '$1')
     if (!invoiceNumber) continue // fila sin número (encabezado extra / vacía)
 
     const existing = byNumber.get(invoiceNumber)
@@ -109,6 +111,14 @@ export async function importarFacturasExcelAction(file: File): Promise<ExcelImpo
   }
 
   const facturas = Array.from(byNumber.values())
+  for (const f of facturas) {
+    console.log('Procesando fila:', {
+      invoice_number: f.invoice_number,
+      issue_date:     f.issue_date,
+      client_name:    f.client_name,
+      total_amount:   f.total_amount,
+    })
+  }
   if (facturas.length === 0) {
     return { ok: true, procesadas: 0, nuevas: 0, actualizadas: 0 }
   }
@@ -144,14 +154,33 @@ export async function importarFacturasExcelAction(file: File): Promise<ExcelImpo
     .upsert(rows, { onConflict: 'invoice_number' })
 
   if (upsertErr) {
-    console.error('[importarFacturasExcel] error en upsert:', upsertErr.message)
+    console.error('[importarFacturasExcel] error en upsert (lote):', upsertErr.message, '· code:', upsertErr.code, '· details:', upsertErr.details)
+
+    // Problema estructural (falta constraint UNIQUE o columna) → no tiene sentido reintentar
     if (upsertErr.code === '42P10' || upsertErr.code === '42703' || upsertErr.code === 'PGRST204') {
       return {
         ok: false, procesadas: 0, nuevas: 0, actualizadas: 0,
         error: `Falta la restricción UNIQUE sobre invoice_number (o una columna). Ejecuta el SQL de facturas/actions.ts. (${upsertErr.message})`,
       }
     }
-    return { ok: false, procesadas: 0, nuevas: 0, actualizadas: 0, error: upsertErr.message }
+
+    // Reintento fila por fila: aísla la(s) factura(s) problemática(s) sin tumbar el lote entero
+    let ok = 0
+    const fallidas: string[] = []
+    for (const r of rows) {
+      const { error: e } = await supabase.from('invoices').upsert(r, { onConflict: 'invoice_number' })
+      if (e) {
+        fallidas.push(r.invoice_number)
+        console.error(`  ✗ ${r.invoice_number} falló → ${e.message} · issue_date: ${r.issue_date} · total: ${r.total_amount}`)
+      } else ok++
+    }
+    revalidatePath('/facturas')
+    revalidatePath('/facturas/clientes')
+    if (ok === 0) return { ok: false, procesadas: 0, nuevas: 0, actualizadas: 0, error: upsertErr.message }
+    return {
+      ok: true, procesadas: ok, nuevas, actualizadas,
+      error: fallidas.length ? `No se importaron ${fallidas.length}: ${fallidas.join(', ')}` : undefined,
+    }
   }
 
   revalidatePath('/facturas')

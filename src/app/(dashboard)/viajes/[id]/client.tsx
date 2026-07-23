@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, FileText, CheckCircle, ExternalLink, RefreshCw, Pencil, ScrollText, Trash2, X, ReceiptText, Loader2 } from 'lucide-react'
+import { ArrowLeft, FileText, CheckCircle, ExternalLink, RefreshCw, Pencil, ScrollText, Trash2, X, ReceiptText, Loader2, AlertTriangle } from 'lucide-react'
 import { cambiarEstadoAction, generarFacturaAction, asignarVehiculoAction, asignarConductorAction, eliminarViajeAction, crearNotaCreditoAction } from './actions'
 import type { TripDetail } from './actions'
 import { formatCOP, formatDate, formatInvoiceNumber } from '@/lib/utils'
@@ -170,6 +170,7 @@ export default function ViajeDetailClient({
   creditNoteId: initialCreditNoteId,
   creditNoteNumber: initialCreditNoteNumber,
   manifestPdfUrl,
+  fleteWarning,
   allVehicles,
   allDrivers,
 }: {
@@ -179,6 +180,7 @@ export default function ViajeDetailClient({
   creditNoteId: string | null
   creditNoteNumber: string | null
   manifestPdfUrl: string | null
+  fleteWarning: { legFreight: number; manifestFreight: number } | null
   allVehicles: VehicleOption[]
   allDrivers: DriverOption[]
 }) {
@@ -262,6 +264,18 @@ export default function ViajeDetailClient({
 
   return (
     <div className="p-4 md:p-6 max-w-4xl">
+      {/* Advertencia: flete de legalización distinto al manifiesto */}
+      {fleteWarning && (
+        <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800 leading-relaxed">
+            El flete de la legalización (<span className="font-semibold">{formatCOP(fleteWarning.legFreight)}</span>) difiere
+            del manifiesto (<span className="font-semibold">{formatCOP(fleteWarning.manifestFreight)}</span>).
+            La factura se generará por <span className="font-semibold">{formatCOP(fleteWarning.legFreight)}</span>.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5 md:mb-6">
         <div className="flex items-center gap-3">
@@ -442,6 +456,15 @@ export default function ViajeDetailClient({
           <Field label="Valor del flete">
             <span className="text-xl font-bold text-[#0F172A]">{formatCOP(trip.freight_value)}</span>
           </Field>
+          {fleteWarning && (
+            <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <div>
+                <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">Se facturará por</p>
+                <p className="text-sm font-bold text-amber-800 tabular-nums">{formatCOP(fleteWarning.legFreight)}</p>
+              </div>
+              <span className="text-[10px] text-amber-600 text-right leading-tight">viene de la<br />legalización</span>
+            </div>
+          )}
           {trip.advance_amount > 0 && (
             <Field label="Anticipo">{formatCOP(trip.advance_amount)}</Field>
           )}

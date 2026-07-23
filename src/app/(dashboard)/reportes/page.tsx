@@ -166,6 +166,10 @@ export default async function ReportesPage({
     })
     .filter(Boolean) as RawInvoice[]
 
+  console.log('Facturas EMITIDA leídas de la BD (año', year + '):', (invoicesRes.data ?? []).length,
+    ((invoicesRes.data ?? []) as any[]).map(i => `${i.invoice_number}${i.credit_note_number ? '(anulada)' : ''}`))
+  console.log('Facturas encontradas para Estado de Resultados:', invoices.length, invoices.map(f => f.invoiceNumber))
+
   // ── Pre-process bank transactions ─────────────────────────────────────────
   function pickPuc(tx: any): string | null {
     return (tx.category as string | null) ??
