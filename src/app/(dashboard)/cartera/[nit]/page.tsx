@@ -49,10 +49,10 @@ export default async function CarteraDetailPage({
       .select('id, amount, payment_date, description, covered_invoices, saldo_a_favor, created_at')
       .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
       .order('payment_date', { ascending: false }),
-    // Facturas del cliente → trip_id (para cruzar anticipos por viaje)
+    // Facturas del cliente → trip_id (para cruzar anticipos) + nota crédito (anuladas)
     supabase
       .from('invoices')
-      .select('id, trip_id')
+      .select('id, trip_id, invoice_number, credit_note_number')
       .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
       .eq('invoice_type', 'EMITIDA'),
     // Anticipos de clientes en bancos (28050510 · INGRESO)
@@ -74,10 +74,15 @@ export default async function CarteraDetailPage({
     )
   }
 
-  const rows = (entries ?? []) as any[]
+  const rowsRaw = (entries ?? []) as any[]
 
-  const clientName = rows[0]?.client_name ?? nit
-  const clientNit  = rows[0]?.client_nit  ?? null
+  // Excluir facturas anuladas por nota crédito (ya no son cuentas por cobrar)
+  const annulledIds  = new Set(((invRows ?? []) as any[]).filter(i => i.credit_note_number).map(i => i.id))
+  const annulledNums = new Set(((invRows ?? []) as any[]).filter(i => i.credit_note_number).map(i => i.invoice_number))
+  const rows = rowsRaw.filter(e => !(annulledIds.has(e.invoice_id) || annulledNums.has(e.invoice_number)))
+
+  const clientName = rowsRaw[0]?.client_name ?? nit
+  const clientNit  = rowsRaw[0]?.client_nit  ?? null
 
   // ── Cruce de anticipos por viaje ────────────────────────────────────────────
   const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')

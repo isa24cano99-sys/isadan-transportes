@@ -34,17 +34,21 @@ export default async function CarteraPage() {
   // ── Entries ─────────────────────────────────────────────────────────────
   const { data: entries, error: entErr } = await supabase
     .from('accounts_receivable_entries')
-    .select('id, client_id, client_name, client_nit, invoice_amount, invoice_date, advance_amount, balance, status')
+    .select('id, client_id, client_name, client_nit, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status')
 
   const tableExists = entErr?.code !== '42P01'
 
   // ── Total facturas emitidas (all-time, from invoices table) ──────────────
   const { data: invoicesData } = await supabase
     .from('invoices')
-    .select('total_amount')
+    .select('total_amount, invoice_number, credit_note_number')
     .eq('invoice_type', 'EMITIDA')
 
-  const totalFacturado = (invoicesData ?? []).reduce((s, i) => s + Number((i as any).total_amount ?? 0), 0)
+  // Facturas anuladas por nota crédito → no cuentan (neto $0)
+  const annulledInvNums = new Set(((invoicesData ?? []) as any[]).filter(i => i.credit_note_number).map(i => i.invoice_number))
+  const totalFacturado = ((invoicesData ?? []) as any[])
+    .filter(i => !i.credit_note_number)
+    .reduce((s, i) => s + Number(i.total_amount ?? 0), 0)
 
   // ── Total anticipos from bank_transactions ────────────────────────────────
   const { data: catRows } = await supabase
@@ -73,8 +77,8 @@ export default async function CarteraPage() {
     (directAntRes.data ?? []).reduce((s, t) => s + Number((t as any).amount ?? 0), 0) +
     ((catAntRes.data ?? []) as any[]).reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0)
 
-  // ── Build KPIs and client summaries from entries ──────────────────────────
-  const rows = (entries ?? []) as any[]
+  // ── Build KPIs and client summaries from entries (sin facturas anuladas) ──
+  const rows = ((entries ?? []) as any[]).filter(e => !annulledInvNums.has(e.invoice_number))
 
   const totalAplicados = rows.reduce((s, e) => s + Number(e.advance_amount ?? 0), 0)
   const totalCartera   = rows
