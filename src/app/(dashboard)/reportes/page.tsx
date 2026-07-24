@@ -246,6 +246,82 @@ export default async function ReportesPage({
     })
     .filter(Boolean) as RawAnticipo[]
 
+  // ── Reversión de anticipos contra facturación (por cliente y mes) ───────────
+  // Al facturar a un cliente, el anticipo que ya se contó como ingreso cuando se
+  // recibió se "revierte" (valor negativo) en el mes de la factura, para no duplicar
+  // el ingreso. El disponible de anticipos se acumula y se reduce mes a mes.
+  const stripAccents = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  const normName = (s: string | null | undefined) =>
+    stripAccents(String(s ?? '')).toUpperCase()
+      .replace(/[.,]/g, '')
+      .replace(/\b(SAS|SA|LTDA|EU|SCA|SENC|CIA)\b/g, '')
+      .replace(/\s+/g, ' ').trim()
+  const fmtInv = (n: string) => n.replace(/^([A-Za-z]+)-?0*(\d+)$/, '$1-$2')
+
+  // Facturas agrupadas por cliente (clave canónica: NIT en dígitos, sino nombre normalizado)
+  type FactRec = { name: string; nit: string | null; months: number[]; invNums: string[][] }
+  const factByClient = new Map<string, FactRec>()
+  const nitToKey  = new Map<string, string>()
+  const nameToKey = new Map<string, string>()
+  for (const inv of invoices) {
+    const d  = digitsNit(inv.clientNit)
+    const nm = normName(inv.clientName)
+    const key = d || nm || inv.clientName
+    let rec = factByClient.get(key)
+    if (!rec) {
+      rec = { name: inv.clientName, nit: inv.clientNit, months: Array(13).fill(0), invNums: Array.from({ length: 13 }, () => [] as string[]) }
+      factByClient.set(key, rec)
+    }
+    if (!rec.nit && inv.clientNit) rec.nit = inv.clientNit
+    rec.months[inv.month] += inv.amount
+    if (inv.invoiceNumber) rec.invNums[inv.month].push(inv.invoiceNumber)
+    if (d)  nitToKey.set(d, key)
+    if (nm) nameToKey.set(nm, key)
+  }
+
+  // Casar cada anticipo con un cliente facturado: por NIT (tolerando el dígito de
+  // verificación) y, si el anticipo no trae NIT, por nombre normalizado.
+  const findFactKey = (nit: string | null, name: string): string | null => {
+    const d = digitsNit(nit)
+    if (d && nitToKey.has(d)) return nitToKey.get(d)!
+    if (d) for (const [k, key] of nitToKey) if (Math.min(k.length, d.length) >= 8 && (d.startsWith(k) || k.startsWith(d))) return key
+    const nm = normName(name)
+    if (nm && nameToKey.has(nm)) return nameToKey.get(nm)!
+    return null
+  }
+  const antByClient = new Map<string, { arr: number[]; nit: string | null; name: string }>()
+  for (const a of anticipos) {
+    const key = findFactKey(a.clientNit, a.clientName)
+    if (!key) continue                       // anticipo de cliente sin facturas → no se revierte
+    let rec = antByClient.get(key)
+    if (!rec) { rec = { arr: Array(13).fill(0), nit: a.clientNit, name: a.clientName }; antByClient.set(key, rec) }
+    if (!rec.nit && a.clientNit) rec.nit = a.clientNit
+    rec.arr[a.month] += a.amount
+  }
+
+  // Aplicar en cascada mes a mes: revertir MIN(facturado_mes, anticipo_disponible_acumulado)
+  const reversas: RawAnticipo[] = []
+  for (const [key, rec] of factByClient) {
+    const ant = antByClient.get(key)
+    if (!ant) continue
+    let disponible = 0
+    for (let m = 1; m <= 12; m++) {
+      disponible += ant.arr[m]               // anticipos recibidos hasta este mes (acumulado)
+      const fact = rec.months[m]
+      if (fact > 0 && disponible > 0) {
+        const revert = Math.min(fact, disponible)
+        disponible -= revert
+        const nums = rec.invNums[m].map(fmtInv)
+        const label = nums.length ? `Aplicado a facturación ${nums.join(', ')}` : `Aplicado a facturación ${rec.name}`
+        // Se agrupa bajo el mismo cliente que los anticipos (clientNit/Name del anticipo)
+        reversas.push({ month: m, amount: -revert, description: label, clientName: ant.name, clientNit: ant.nit })
+      }
+    }
+  }
+  console.log('Reversas de anticipos aplicadas:', reversas.length,
+    reversas.map(r => `${r.clientName} m${r.month} ${r.amount.toLocaleString()}`))
+  const anticiposConReversas: RawAnticipo[] = [...anticipos, ...reversas]
+
   const personalCosts  = extractBankTx(PERSONAL_COST_CATS, 'EGRESO')
   const generalCosts   = extractBankTx(GENERAL_COST_CATS, 'EGRESO')
   const financialExps  = extractBankTx(FINANCIAL_EXP_CATS, 'EGRESO')
@@ -307,7 +383,7 @@ export default async function ReportesPage({
 
   const pylData: PYLData = {
     year, availableYears,
-    invoices, anticipos, legExps, tolls,
+    invoices, anticipos: anticiposConReversas, legExps, tolls,
     personalCosts, generalCosts, financialExps, financialIncs,
     taxes, personalOwner, anticiposNoLeg,
     sinClasificar, sinClasificarAccountId,

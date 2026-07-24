@@ -155,3 +155,25 @@ export async function asignarCategoriaMasivaAction(
   revalidatePath('/bancos', 'layout')
   return { ok: true, updated: ids.length }
 }
+
+/**
+ * Asigna un tercero (proveedor/cliente) a varias transacciones de golpe:
+ * un solo UPDATE sobre bank_transactions para todos los IDs.
+ */
+export async function asignarProveedorMasivoAction(
+  ids: string[],
+  supplierNit: string | null,
+  supplierName: string,
+): Promise<{ ok: boolean; error?: string; updated: number }> {
+  if (!ids.length || !supplierName?.trim()) return { ok: false, error: 'Datos incompletos', updated: 0 }
+
+  const { error } = await supabase
+    .from('bank_transactions')
+    .update({ supplier_nit: supplierNit?.trim() || null, supplier_name: supplierName.trim() })
+    .in('id', ids)
+
+  if (error) return { ok: false, error: error.message, updated: 0 }
+
+  revalidatePath('/bancos', 'layout')
+  return { ok: true, updated: ids.length }
+}

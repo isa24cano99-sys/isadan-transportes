@@ -1,14 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { formatCOP, formatDate, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
 import { useUrlState } from '@/lib/useUrlState'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
   X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck,
 } from 'lucide-react'
-import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, obtenerClienteViajeAction } from '../transaccion/actions'
+import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, asignarProveedorMasivoAction, obtenerClienteViajeAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
 import type { Trip } from '@/lib/types'
 
@@ -114,15 +114,25 @@ export default function BankDetailClient({
   const [showNewTxn,     setShowNewTxn]     = useState(false)
   const [showFilters,    setShowFilters]    = useState(false)
   const [selectedIds,    setSelectedIds]    = useState<Set<string>>(new Set())
+  const [bulkMode,       setBulkMode]       = useState<'categoria' | 'proveedor'>('categoria')
   const [bulkCategoryId, setBulkCategoryId] = useState('')
   const [bulkAssigning,  setBulkAssigning]  = useState(false)
+  const [bulkSupNit,     setBulkSupNit]     = useState('')
+  const [bulkSupName,    setBulkSupName]    = useState('')
+  const [bulkProvAssign, setBulkProvAssign] = useState(false)
+
+  // Copia local de las transacciones → permite actualizar la vista en tiempo real
+  // (p.ej. tras asignar proveedor masivo) sin recargar; se re-sincroniza cuando el
+  // servidor devuelve props nuevas (revalidatePath).
+  const [txns, setTxns] = useState<Transaction[]>(transactions)
+  useEffect(() => { setTxns(transactions) }, [transactions])
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir('asc') }
   }
 
-  const filteredBase = useMemo(() => transactions.filter(t => {
+  const filteredBase = useMemo(() => txns.filter(t => {
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo   && t.date > dateTo)   return false
     if (categoryFilter === '__sin__') {
@@ -134,7 +144,7 @@ export default function BankDetailClient({
     if (tipoFilter === 'CASA'    && t.transaction_categories?.type !== 'CASA')    return false
     if (searchDesc && !t.description.toLowerCase().includes(searchDesc.toLowerCase())) return false
     return true
-  }), [transactions, dateFrom, dateTo, categoryFilter, tipoFilter, searchDesc])
+  }), [txns, dateFrom, dateTo, categoryFilter, tipoFilter, searchDesc])
 
   const filteredIngresos = useMemo(
     () => filteredBase.filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0),
@@ -161,11 +171,11 @@ export default function BankDetailClient({
 
   const uniqueCategories = useMemo(() => {
     const seen = new Map<string, string>()
-    for (const t of transactions) {
+    for (const t of txns) {
       if (t.category_id && t.transaction_categories?.name) seen.set(t.category_id, t.transaction_categories.name)
     }
     return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
-  }, [transactions])
+  }, [txns])
 
   // Mapa viaje→datos para mostrar el manifiesto en las filas con viaje vinculado
   const tripById = useMemo(() => new Map(trips.map(t => [t.id, t])), [trips])
@@ -258,6 +268,22 @@ export default function BankDetailClient({
     } else {
       setBulkAssigning(false)
     }
+  }
+
+  const handleBulkAssignProvider = async () => {
+    if (!bulkSupName || selectedIds.size === 0) return
+    setBulkProvAssign(true)
+    const ids = [...selectedIds]
+    const res = await asignarProveedorMasivoAction(ids, bulkSupNit || null, bulkSupName)
+    if (res.ok) {
+      // Actualiza la vista en tiempo real sin recargar la página
+      const idSet = new Set(ids)
+      setTxns(prev => prev.map(t =>
+        idSet.has(t.id) ? { ...t, supplier_nit: bulkSupNit || null, supplier_name: bulkSupName } : t,
+      ))
+      setSelectedIds(new Set()); setBulkSupNit(''); setBulkSupName('')
+    }
+    setBulkProvAssign(false)
   }
 
   const tipoBtn = (v: TipoFilter, label: string) => (
@@ -430,26 +456,67 @@ export default function BankDetailClient({
       {/* Barra fija de acciones masivas — sticky, justo bajo los filtros */}
       {selectedIds.size > 0 && (
         <div className="sticky top-0 z-30 mb-3">
-          <div className="bg-[#0F172A] text-white rounded-2xl shadow-lg px-4 py-3 flex items-center gap-3">
-            <span className="text-xs font-semibold whitespace-nowrap shrink-0">
-              {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
-            </span>
-            <div className="flex-1 min-w-0">
-              <CategorySelector
-                value={bulkCategoryId}
-                onChange={setBulkCategoryId}
-                categories={categories}
-                pucAccounts={pucAccounts}
-              />
+          <div className="bg-[#0F172A] text-white rounded-2xl shadow-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-semibold whitespace-nowrap">
+                {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+              </span>
+              {/* Toggle: Asignar categoría / Asignar proveedor */}
+              <div className="flex rounded-lg overflow-hidden border border-white/15">
+                {([['categoria', 'Categoría'], ['proveedor', 'Proveedor']] as const).map(([m, label], i) => (
+                  <button key={m} onClick={() => setBulkMode(m)}
+                    className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${i > 0 ? 'border-l border-white/15' : ''} ${
+                      bulkMode === m ? 'bg-[#2563EB] text-white' : 'bg-white/5 text-[#94A3B8] hover:text-white'
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              {bulkMode === 'categoria' ? (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <CategorySelector
+                      value={bulkCategoryId}
+                      onChange={setBulkCategoryId}
+                      categories={categories}
+                      pucAccounts={pucAccounts}
+                    />
+                  </div>
+                  <button
+                    onClick={handleBulkAssign}
+                    disabled={!bulkCategoryId || bulkAssigning}
+                    className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    {bulkAssigning ? 'Asignando...' : 'Asignar'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <SupplierSelector
+                      nit={bulkSupNit}
+                      name={bulkSupName}
+                      onChange={(nit, name) => { setBulkSupNit(nit); setBulkSupName(name) }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleBulkAssignProvider}
+                    disabled={!bulkSupName || bulkProvAssign}
+                    className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    {bulkProvAssign ? 'Asignando...' : 'Asignar'}
+                  </button>
+                </>
+              )}
+            </div>
+
             <button
-              onClick={handleBulkAssign}
-              disabled={!bulkCategoryId || bulkAssigning}
-              className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+              onClick={() => { setSelectedIds(new Set()); setBulkCategoryId(''); setBulkSupNit(''); setBulkSupName('') }}
+              className="shrink-0 self-end sm:self-auto"
             >
-              {bulkAssigning ? 'Asignando...' : 'Asignar'}
-            </button>
-            <button onClick={() => { setSelectedIds(new Set()); setBulkCategoryId('') }} className="shrink-0">
               <X size={16} className="text-[#94A3B8] hover:text-white transition-colors" />
             </button>
           </div>
