@@ -172,10 +172,16 @@ export default async function ReportesPage({
   console.log('Facturas encontradas para Estado de Resultados:', invoices.length, invoices.map(f => f.invoiceNumber))
 
   // ── Pre-process bank transactions ─────────────────────────────────────────
+  // El PUC efectivo de una transacción sale del category_id (FK a transaction_categories),
+  // que es la clasificación AUTORITATIVA. El campo `category` (texto) está denormalizado y
+  // suele quedar como 'SIN_CLASIFICAR' o con un PUC viejo aunque el category_id ya apunte a
+  // la categoría correcta → priorizar el join evita perder esas transacciones (p.ej. 151
+  // registros con category='SIN_CLASIFICAR' pero category_id válido, incluidos ~49 anticipos).
   function pickPuc(tx: any): string | null {
-    return (tx.category as string | null) ??
-           (tx.transaction_categories as any)?.puc_code ??
-           null
+    const joined = (tx.transaction_categories as any)?.puc_code as string | null | undefined
+    if (joined) return joined
+    const text = (tx.category as string | null) ?? null
+    return text && text !== 'SIN_CLASIFICAR' ? text : null
   }
 
   function extractBankTx(cats: string[], txType?: 'INGRESO' | 'EGRESO'): RawTx[] {
