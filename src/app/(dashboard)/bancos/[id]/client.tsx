@@ -6,8 +6,9 @@ import { formatCOP, formatDate, formatTripOption, tripMatchesQuery, tripManifies
 import { useUrlState } from '@/lib/useUrlState'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
-  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck,
+  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck, Download,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, asignarProveedorMasivoAction, obtenerClienteViajeAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
 import type { Trip } from '@/lib/types'
@@ -184,6 +185,59 @@ export default function BankDetailClient({
       ? tripManifiesto(tripById.get(t.reference_id))
       : null
 
+  // ── Exportar a Excel las transacciones visibles (respeta filtros activos) ────
+  const pucNameByCode = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of pucAccounts) m.set(p.codigo, p.nombre)
+    return m
+  }, [pucAccounts])
+
+  const slug = (s: string) =>
+    s.normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  // Descriptor compacto de los filtros activos → parte del nombre del archivo
+  const filtroLabel = () => {
+    const parts: string[] = []
+    if (tipoFilter !== 'TODOS') parts.push(tipoFilter.toLowerCase())
+    if (categoryFilter === '__sin__') parts.push('sin-clasificar')
+    else if (categoryFilter) parts.push(uniqueCategories.find(c => c.id === categoryFilter)?.name ?? 'categoria')
+    if (searchDesc) parts.push(searchDesc)
+    if (dateFrom || dateTo) parts.push(`${dateFrom || 'inicio'}-a-${dateTo || 'fin'}`)
+    const joined = parts.map(slug).filter(Boolean).join('_')
+    return joined || 'todas'
+  }
+
+  const handleExportExcel = () => {
+    if (filtered.length === 0) return
+    const rows = filtered.map(t => {
+      const puc = t.transaction_categories?.puc_code ?? null
+      const pucNombre = puc ? pucNameByCode.get(puc) : null
+      const manifiesto = tripBadge(t)
+      return {
+        'Fecha':             formatDate(t.date),
+        'Tipo':              t.type,
+        'Categoría':         t.transaction_categories?.name ?? 'Sin clasificar',
+        'Cuenta PUC':        puc ? (pucNombre ? `${puc} · ${pucNombre}` : puc) : '—',
+        'Descripción':       t.description,
+        'Tercero/Proveedor': t.supplier_name
+          ? (t.supplier_nit ? `${t.supplier_name} (NIT ${t.supplier_nit})` : t.supplier_name)
+          : '—',
+        'Monto':             Number(t.amount),
+        'Origen':            t.source === 'EXTRACTO_BANCOLOMBIA' ? 'Extracto' : 'Manual',
+        'Viaje vinculado':   manifiesto ?? '—',
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 9 }, { wch: 26 }, { wch: 32 }, { wch: 42 },
+      { wch: 30 }, { wch: 15 }, { wch: 10 }, { wch: 16 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Transacciones')
+    XLSX.writeFile(wb, `transacciones_${slug(account.bank_name)}_${filtroLabel()}.xlsx`)
+  }
+
   const openEdit = (t: Transaction) => {
     setEditTxn(t)
     setEditForm({
@@ -345,6 +399,14 @@ export default function BankDetailClient({
             {recategorizing
               ? <><Loader2 size={13} className="animate-spin" /> <span className="hidden sm:inline">Categorizando...</span></>
               : <><Sparkles size={13} /> <span className="hidden sm:inline">Recategorizar</span></>}
+          </button>
+          <button
+            onClick={handleExportExcel}
+            disabled={filtered.length === 0}
+            title="Exportar a Excel las transacciones visibles"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors border border-emerald-200 min-h-[40px]"
+          >
+            <Download size={13} /> <span className="hidden sm:inline">Exportar Excel</span>
           </button>
         </div>
       </div>
