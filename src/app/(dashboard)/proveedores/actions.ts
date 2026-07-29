@@ -1,6 +1,9 @@
 'use server'
 
 /*
+  ⚠ HISTÓRICO — la fuente de verdad del esquema es supabase/migrations/ (ver README → Migraciones).
+     Se conserva solo como referencia; NO ejecutar a mano.
+
   SQL — run once in Supabase SQL Editor to enable keyword-based categorisation:
 
   ALTER TABLE supplier_catalog ADD COLUMN IF NOT EXISTS keywords text[] DEFAULT '{}';

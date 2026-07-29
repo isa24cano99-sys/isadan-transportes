@@ -1,4 +1,5 @@
-import { notFound } from 'next/navigation'
+import Link from 'next/link'
+import { ArrowLeft, PackageX } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import ViajeDetailClient from './client'
 import { getTripAction } from './actions'
@@ -6,21 +7,50 @@ import { getTripAction } from './actions'
 export default async function ViajeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const trip = await getTripAction(id)
-  if (!trip) notFound()
+
+  // Viaje inexistente (null o error de Supabase) → estado claro, no 404 (que rompe la navegación)
+  if (!trip) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center px-4 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-[#F1F5F9] flex items-center justify-center mb-4">
+          <PackageX size={26} className="text-[#94A3B8]" />
+        </div>
+        <h1 className="text-lg font-semibold text-[#0F172A]">Viaje no encontrado</h1>
+        <p className="text-sm text-[#64748B] mt-1 max-w-sm">
+          El viaje que buscas no existe o fue eliminado.
+        </p>
+        <Link
+          href="/viajes"
+          className="mt-5 inline-flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+        >
+          <ArrowLeft size={15} /> Volver a viajes
+        </Link>
+      </div>
+    )
+  }
 
   const [invoiceRes, vehiclesRes, driversRes, legRes] = await Promise.all([
-    trip.dataico_invoice_id
-      ? supabase.from('invoices').select('invoice_number, pdf_url, credit_note_id, credit_note_number').eq('trip_id', id).maybeSingle()
-      : Promise.resolve({ data: null }),
+    // Siempre por trip_id: la anulación manual limpia trip.dataico_invoice_id, pero la
+    // factura anulada sigue existiendo y hay que leerla para mostrar el badge y excluirla.
+    supabase.from('invoices')
+      .select('invoice_number, pdf_url, credit_note_id, credit_note_number')
+      .eq('trip_id', id)
+      .order('issue_date', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     supabase.from('vehicles').select('id, plate, brand, model').order('plate'),
     supabase.from('drivers').select('id, full_name').order('full_name'),
     supabase.from('legalizations').select('freight_value').eq('trip_id', id).eq('status', 'APROBADA').maybeSingle(),
   ])
 
-  const invoiceNumber    = invoiceRes.data?.invoice_number    ?? null
-  const invoicePdfUrl    = invoiceRes.data?.pdf_url           ?? null
-  const creditNoteId     = invoiceRes.data?.credit_note_id    ?? null
-  const creditNoteNumber = invoiceRes.data?.credit_note_number ?? null
+  // Factura anulada manualmente (credit_note_id='MANUAL') → no se trata como factura activa,
+  // para que el viaje quede refacturable; el badge "Anulada manualmente" se muestra igual.
+  const inv = invoiceRes.data as any
+  const anuladaManual    = inv?.credit_note_id === 'MANUAL'
+  const invoiceNumber    = anuladaManual ? null : (inv?.invoice_number ?? null)
+  const invoicePdfUrl    = anuladaManual ? null : (inv?.pdf_url ?? null)
+  const creditNoteId     = inv?.credit_note_id     ?? null
+  const creditNoteNumber = inv?.credit_note_number ?? null
 
   // Advertencia: legalización aprobada con flete distinto al manifiesto → se factura por ese flete
   const legFreight      = (legRes.data as any)?.freight_value != null ? Number((legRes.data as any).freight_value) : null

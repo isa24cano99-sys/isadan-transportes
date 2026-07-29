@@ -1,6 +1,9 @@
 'use server'
 
 /*
+⚠ HISTÓRICO — la fuente de verdad del esquema es supabase/migrations/ (ver README → Migraciones).
+   Este bloque se conserva solo como referencia de cómo se crearon estas tablas; NO ejecutar a mano.
+
 Run this SQL in Supabase before using this module:
 
 create table if not exists accounts_receivable_entries (

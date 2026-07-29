@@ -1,3 +1,5 @@
+import { hoyColombia } from '@/lib/fecha'
+
 const BASE = 'https://api.dataico.com/direct/dataico_api/v2'
 
 function authHeaders() {
@@ -16,12 +18,12 @@ function toDataicoDate(isoDate: string): string {
 
 /** Convert a Dataico date ('DD/MM/YYYY HH:mm:ss' or 'DD/MM/YYYY') → 'YYYY-MM-DD' for Supabase. */
 export function parseDateicoDate(dateStr: string): string {
-  if (!dateStr) return new Date().toISOString().split('T')[0]
+  if (!dateStr) return hoyColombia()
   const parts = dateStr.split(' ')[0].split('/')
   if (parts.length === 3) {
     return `${parts[2]}-${parts[1]}-${parts[0]}`
   }
-  return new Date().toISOString().split('T')[0]
+  return hoyColombia()
 }
 
 export type DataicoCustomer = {
@@ -209,10 +211,35 @@ export type DataicoCreditNote = {
 export async function createDataicoCreditNote(
   params: CreateCreditNoteParams,
 ): Promise<DataicoCreditNote> {
+  // Fecha de hoy (Colombia) en DD/MM/YYYY — mismo formato de las facturas.
+  const issueDate = toDataicoDate(hoyColombia())
+
+  // Consultar en Dataico una NC existente (NC3) para ver el formato del campo `number`
+  // y calcular el siguiente consecutivo. Diagnóstico: se loguea la respuesta completa.
+  let creditNoteNumber: string | undefined
+  try {
+    const ncRes  = await fetch(`${BASE}/credit_notes?number=NC3`, { headers: authHeaders(), cache: 'no-store' })
+    const ncText = await ncRes.text()
+    console.log('CREDIT NOTE GET STATUS:', ncRes.status)
+    console.log('CREDIT NOTE GET RESPONSE:', ncText)
+    const parsed     = JSON.parse(ncText)
+    const existing   = parsed?.credit_notes?.[0] ?? parsed?.credit_note ?? parsed
+    const lastNumber = existing?.number
+    if (lastNumber != null) {
+      const m = String(lastNumber).match(/^([A-Za-z]*)\s*-?\s*(\d+)$/)
+      if (m) creditNoteNumber = `${m[1]}${parseInt(m[2], 10) + 1}`
+    }
+  } catch (e: any) {
+    console.log('CREDIT NOTE GET: ERROR', e.message)
+  }
+  console.log('CREDIT NOTE NUMBER calculado:', creditNoteNumber)
+
   const payload = {
     credit_note: {
       dataico_account_id: process.env.DATAICO_ACCOUNT_ID,
-      invoice_uuid:       params.invoiceUuid,
+      invoice_id:         params.invoiceUuid,
+      number:             creditNoteNumber,
+      issue_date:         issueDate,
       send_dian:          false,
       reason_code:        params.reasonCode,
       items: [
@@ -229,6 +256,8 @@ export async function createDataicoCreditNote(
     },
   }
 
+  console.log('CREDIT NOTE PAYLOAD:', JSON.stringify(payload, null, 2))
+
   const res = await fetch(`${BASE}/credit_notes`, {
     method:  'POST',
     headers: authHeaders(),
@@ -237,6 +266,8 @@ export async function createDataicoCreditNote(
   })
 
   const text = await res.text()
+  console.log('CREDIT NOTE RESPONSE STATUS:', res.status)
+  console.log('CREDIT NOTE RESPONSE:', text)
   if (!res.ok) throw new Error(`Dataico createCreditNote ${res.status}: ${text}`)
 
   const data = JSON.parse(text)

@@ -1,26 +1,20 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
-
-function isValidToken(token: string | undefined): boolean {
-  if (!token) return false
-  try {
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString('utf8'))
-    return Date.now() < payload.exp
-  } catch {
-    return false
-  }
-}
+import { verifySession } from '@/lib/session'
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  // Misma validación de sesión que el middleware (única fuente de verdad):
+  // verifica la firma HMAC del token, no solo que la cookie exista.
   const cookieStore = await cookies()
   const token = cookieStore.get('tc_session')?.value
+  const secret = process.env.SESSION_SECRET
 
-  if (!isValidToken(token)) {
+  if (!secret || !(await verifySession(token, secret))) {
     redirect('/login')
   }
 

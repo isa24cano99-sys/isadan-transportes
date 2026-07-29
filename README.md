@@ -1,5 +1,58 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+---
+
+## Base de datos y migraciones
+
+**La fuente de verdad del esquema es `supabase/migrations/`.** No se aplican cambios
+de esquema a mano en el panel de Supabase. Los bloques SQL que quedan en comentarios
+dentro de algunos `actions.ts` están marcados como **HISTÓRICO** y no deben ejecutarse.
+
+La CLI se usa vía `npx` (no requiere instalación global):
+
+```bash
+npx supabase --version
+```
+
+### Generar el baseline (una sola vez)
+
+El baseline captura el esquema actual de producción (28 tablas, 8 enums, FKs, índices,
+columnas generadas como `accounts_receivable_entries.balance`). Requiere el **password de
+la base de datos** (Supabase → Project Settings → Database), que **queda solo en tu máquina**:
+
+```bash
+# 1. Autenticarse (abre el navegador, guarda un access token local)
+npx supabase login
+
+# 2. Linkear este repo con el proyecto (ref ya está en supabase/config.toml)
+npx supabase link --project-ref mykfkltwecslxqsxrkwn
+
+# 3. Traer el esquema de producción como migración baseline
+npx supabase db pull
+#    → crea supabase/migrations/<timestamp>_remote_schema.sql
+```
+
+### Verificar el baseline (reproduce producción en una base limpia)
+
+```bash
+npx supabase start                 # levanta Postgres local + aplica migraciones
+npx supabase db diff --linked      # debe salir VACÍO: local == producción
+```
+Si `db diff` reporta diferencias, el baseline no es fiel — revisar antes de continuar.
+
+### Cambios de esquema de aquí en adelante
+
+```bash
+npx supabase migration new <nombre>   # crea un .sql versionado en supabase/migrations/
+# ...editar el .sql con el DDL...
+npx supabase db push                  # aplica a producción (o correr el SQL en el panel y luego db pull)
+```
+
+> Notas: `supabase/config.toml` y `supabase/migrations/` **sí** se versionan; `supabase/.temp`,
+> `.branches` y los `.env*` están en `supabase/.gitignore`. Nunca commitear el password de la DB.
+
+---
+
 ## Getting Started
 
 First, run the development server:

@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
+import { hoyColombia } from '@/lib/fecha'
 import {
   parseNIT,
   findDataicoCustomer,
@@ -146,7 +147,7 @@ export async function generarFacturaAction(tripId: string): Promise<
       customerNit:     nitBase,
       customerEmail:   client.email ?? undefined,
       nextConsecutive,
-      date:            new Date().toISOString().split('T')[0],
+      date:            hoyColombia(),
       freightValue:  fleteAFacturar,
       plate:         vehicle?.plate ?? '',
       origin:        trip.origin,
@@ -327,8 +328,8 @@ export async function crearNotaCreditoAction(params: {
     .eq('trip_id', params.tripId)
     .maybeSingle()
 
-  console.log('1. invoice_number recibido:', inv?.invoice_number)
-  console.log('2. dataico_id en DB:', inv?.dataico_id)
+  console.log('invoice_number recibido:', inv?.invoice_number)
+  console.log('dataico_id en DB:', inv?.dataico_id)
 
   // 1. UUID ya guardado en la factura (columna dataico_id)
   if (isUuid(inv?.dataico_id)) {
@@ -336,24 +337,34 @@ export async function crearNotaCreditoAction(params: {
   } else if (inv?.invoice_number) {
     // 2. Consultar Dataico por número: GET /invoices?number=FEIT12 → uuid
     try {
-      const dataicoInv = await getDataicoInvoice(inv.invoice_number as string) as any
-      console.log('3. Resultado getDataicoInvoice:', JSON.stringify(dataicoInv))
-      uuid = dataicoInv?.uuid ?? dataicoInv?.id ?? ''
+      const invoiceDataico = await getDataicoInvoice(inv.invoice_number as string) as any
+      console.log('Resultado getDataicoInvoice:', invoiceDataico)
+      uuid = invoiceDataico?.uuid ?? invoiceDataico?.id ?? ''
       // Cachear el UUID para no consultar de nuevo la próxima vez
       if (isUuid(uuid)) await supabase.from('invoices').update({ dataico_id: uuid }).eq('trip_id', params.tripId)
     } catch (e: any) {
-      console.log('3. Resultado getDataicoInvoice: ERROR', e.message)
+      console.log('Resultado getDataicoInvoice: ERROR', e.message)
       return { ok: false, error: `No se pudo consultar la factura en Dataico: ${e.message}` }
     }
   } else {
-    console.log('3. Resultado getDataicoInvoice: (no se consultó — sin invoice_number)')
+    console.log('Resultado getDataicoInvoice: (no se consultó — sin invoice_number)')
   }
   // 3. Último recurso: el valor recibido, solo si es un UUID válido
   if (!isUuid(uuid) && isUuid(params.invoiceUuid)) uuid = params.invoiceUuid
 
-  console.log('4. UUID final que se enviará:', uuid)
+  console.log('UUID final que se enviará a Dataico:', uuid)
   if (!isUuid(uuid)) {
     return { ok: false, error: 'No se pudo obtener el UUID interno de Dataico de la factura.' }
+  }
+
+  // Verificación: consultar la factura directamente en Dataico y comparar el UUID
+  // que devuelve contra el que tenemos en DB (diagnóstico, no bloquea el flujo).
+  try {
+    const invoiceCheck = await getDataicoInvoice('FEIT19') as any
+    console.log('UUID en DB:', inv?.dataico_id)
+    console.log('UUID que devuelve Dataico:', invoiceCheck?.uuid ?? invoiceCheck?.id)
+  } catch (e: any) {
+    console.log('Verificación getDataicoInvoice(FEIT19): ERROR', e.message)
   }
 
   let cn
@@ -383,6 +394,39 @@ export async function crearNotaCreditoAction(params: {
 
   revalidatePath(`/viajes/${params.tripId}`)
   return { ok: true, creditNoteUuid: cn.uuid, creditNoteNumber: cn.number }
+}
+
+/**
+ * Marca la factura del viaje como anulada MANUALMENTE en Dataico (cuando la nota
+ * crédito se hizo por fuera de la app). No llama a Dataico: solo refleja el estado.
+ *  · invoices: dian_status='ANULADA', credit_note_id='MANUAL' (distingue de las anuladas por la app)
+ *  · trips: status='FINALIZADO' + dataico_invoice_id=null → permite refacturar si es necesario
+ * En el Estado de Resultados el filtro dian_status='ANULADA' la excluye automáticamente.
+ */
+export async function marcarFacturaAnuladaManualAction(
+  tripId: string,
+): Promise<{ ok: boolean; error?: string; invoiceNumber?: string }> {
+  const { data: inv, error: invErr } = await supabase
+    .from('invoices')
+    .update({ dian_status: 'ANULADA', credit_note_id: 'MANUAL' })
+    .eq('trip_id', tripId)
+    .select('invoice_number')
+    .maybeSingle()
+
+  if (invErr) return { ok: false, error: invErr.message }
+
+  const { error: tripErr } = await supabase
+    .from('trips')
+    .update({ status: 'FINALIZADO', dataico_invoice_id: null })
+    .eq('id', tripId)
+
+  if (tripErr) return { ok: false, error: tripErr.message }
+
+  revalidatePath(`/viajes/${tripId}`)
+  revalidatePath('/viajes')
+  revalidatePath('/reportes')
+  revalidatePath('/facturas', 'layout')
+  return { ok: true, invoiceNumber: inv?.invoice_number ?? undefined }
 }
 
 export async function asignarVehiculoAction(tripId: string, vehicleId: string): Promise<

@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
+import { hoyColombia } from '@/lib/fecha'
 
 function buildInstallments(
   loanId: string,
@@ -103,7 +104,7 @@ export async function actualizarPrestamoAction(
 export async function sincronizarCuotasAction(
   loanId: string,
 ): Promise<{ ok: boolean; synced?: number; error?: string }> {
-  const today = new Date().toISOString().split('T')[0]
+  const today = hoyColombia()
 
   const { data: vencidas, error: fetchError } = await supabase
     .from('loan_installments')
@@ -139,7 +140,7 @@ export async function sincronizarCuotasAction(
 export async function pagarCuotaAction(
   installmentId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const today = new Date().toISOString().split('T')[0]
+  const today = hoyColombia()
 
   const { error } = await supabase
     .from('loan_installments')

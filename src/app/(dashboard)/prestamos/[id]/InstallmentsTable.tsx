@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { actualizarEstadoCuotaAction } from './actions'
 import { formatCOP, formatDate } from '@/lib/utils'
 import { X } from 'lucide-react'
+import { hoyColombia } from '@/lib/fecha'
 
 type Installment = {
   id: string
@@ -48,7 +49,7 @@ export function InstallmentsTable({
       void setEstado(inst.id, 'PENDIENTE', null)
     } else {
       // Marcar → pedir fecha de pago
-      setMarkTarget({ id: inst.id, date: new Date().toISOString().split('T')[0] })
+      setMarkTarget({ id: inst.id, date: hoyColombia() })
     }
   }
 

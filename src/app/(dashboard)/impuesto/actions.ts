@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
+import { hoyColombia } from '@/lib/fecha'
 
 export type MarcarPagadoInput = {
   year: number
@@ -30,7 +31,7 @@ export async function marcarPagadoAction(
         rst_net:              input.rst_net,
         total_to_pay:         input.total_to_pay,
         paid:                 true,
-        paid_date:            new Date().toISOString().split('T')[0],
+        paid_date:            hoyColombia(),
       },
       { onConflict: 'year,bimestre' },
     )

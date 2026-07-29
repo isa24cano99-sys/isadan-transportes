@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { X, Users, FileText, UserMinus, Trash2, ChevronDown, Download, Loader2 } from 'lucide-react'
 import { formatCOP, formatDate } from '@/lib/utils'
 import { guardarPrestacionesAction, eliminarPrestacionAction, eliminarEmpleadoAction } from './actions'
+import { hoyColombia } from '@/lib/fecha'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -227,7 +228,7 @@ async function generarPDF(params: {
   txt(`C.C.: ${employee.document}`)
 
   const safeName = employee.full_name.replace(/[^a-zA-Z0-9]/g, '_')
-  doc.save(`liquidacion_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`)
+  doc.save(`liquidacion_${safeName}_${hoyColombia()}.pdf`)
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -280,7 +281,7 @@ function LiquidacionModal({
   const [inicio,           setInicio]           = useState('')
   const [iniciosPrima,     setIniciosPrima]     = useState('')
   const [fin,              setFin]              = useState('')
-  const [paidDate,         setPaidDate]         = useState(new Date().toISOString().split('T')[0])
+  const [paidDate,         setPaidDate]         = useState(hoyColombia())
   const [loading,          setLoading]          = useState(false)
   const [error,            setError]            = useState('')
 
@@ -557,7 +558,7 @@ async function descargarPDFHistorial(row: HistorialRow) {
   if (!persona) return
 
   const period   = row.period   ?? ''
-  const paidDate = row.paid_date ?? new Date().toISOString().split('T')[0]
+  const paidDate = row.paid_date ?? hoyColombia()
   const hireDate = persona.hire_date ?? paidDate
 
   const liqType: LiquidationType   = period.endsWith('PRIMA') ? 'solo_prima' : 'completa'

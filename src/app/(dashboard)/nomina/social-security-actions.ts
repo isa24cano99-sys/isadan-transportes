@@ -1,6 +1,9 @@
 'use server'
 
 /*
+  ⚠ HISTÓRICO — la fuente de verdad del esquema es supabase/migrations/ (ver README → Migraciones).
+     Se conserva solo como referencia; NO ejecutar a mano.
+
   SQL to run once in Supabase SQL Editor:
 
   create table if not exists payroll_social_security (

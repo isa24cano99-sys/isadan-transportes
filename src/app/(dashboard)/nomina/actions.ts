@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
+import { hoyColombia } from '@/lib/fecha'
 
 export type LegalizacionCalculo = {
   id: string
@@ -96,7 +97,7 @@ export async function guardarNominaAction(formData: FormData): Promise<{ ok: boo
   const prima             = Number(formData.get('prima'))
   const otherAdditions    = Number(formData.get('other_additions'))
   const otherDeductions   = Number(formData.get('other_deductions'))
-  const paidDate          = (formData.get('paid_date') as string) || new Date().toISOString().split('T')[0]
+  const paidDate          = (formData.get('paid_date') as string) || hoyColombia()
   const notes             = (formData.get('notes') as string) || null
 
   const netPayment = baseSalary + totalFavorCond - totalFavorEmpresa + prima + otherAdditions - otherDeductions
@@ -155,7 +156,7 @@ export async function guardarNominaAction(formData: FormData): Promise<{ ok: boo
         account_id:  account.id,
         type:        'EGRESO',
         amount:      netPayment,
-        date:        new Date().toISOString().split('T')[0],
+        date:        hoyColombia(),
         description,
         category:    nomCat?.puc_code ?? 'SIN_CLASIFICAR',
         category_id: nomCat?.id ?? null,

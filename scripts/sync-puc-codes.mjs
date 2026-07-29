@@ -1,5 +1,14 @@
-const URL  = 'https://mykfkltwecslxqsxrkwn.supabase.co'
-const KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15a2ZrbHR3ZWNzbHhxc3hya3duIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc3OTY5NywiZXhwIjoyMDk2MzU1Njk3fQ.YsPnMLdqRzCSlmlbfJ8OeSlVXjNZ1_i413DuzTLvdxg'
+// Credenciales por variables de entorno — NUNCA hardcodear llaves en el repo.
+// Ejecutar con:  node --env-file=.env.local scripts/sync-puc-codes.mjs
+// Acepta SUPABASE_URL o (fallback) NEXT_PUBLIC_SUPABASE_URL.
+const URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+if (!URL || !KEY) {
+  console.error('Faltan credenciales. Define SUPABASE_URL (o NEXT_PUBLIC_SUPABASE_URL) y SUPABASE_SERVICE_ROLE_KEY.')
+  console.error('Ejemplo:  node --env-file=.env.local scripts/sync-puc-codes.mjs')
+  process.exit(1)
+}
 
 const headers = {
   'apikey':        KEY,

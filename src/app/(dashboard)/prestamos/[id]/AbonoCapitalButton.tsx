@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { X, Minus, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react'
 import { registrarPagoAction, type AbonoResumen } from './abono-actions'
 import { formatCOP } from '@/lib/utils'
+import { hoyColombia } from '@/lib/fecha'
 
 type Installment = {
   id: string
@@ -55,7 +56,7 @@ export function AbonoCapitalButton({
     const first = cuotas.find(i => i.status !== 'PAGADA')
     setSelId(first?.id ?? '')
     setMonto(String(first?.payment_amount ?? ''))
-    setFecha(new Date().toISOString().split('T')[0])
+    setFecha(hoyColombia())
     setStep('form')
     setApplyExtra(null)
     setOpcion('REDUCIR_CUOTA')

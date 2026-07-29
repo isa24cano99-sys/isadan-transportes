@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, FileText, CheckCircle, ExternalLink, RefreshCw, Pencil, ScrollText, Trash2, X, ReceiptText, Loader2, AlertTriangle } from 'lucide-react'
-import { cambiarEstadoAction, generarFacturaAction, asignarVehiculoAction, asignarConductorAction, eliminarViajeAction, crearNotaCreditoAction } from './actions'
+import { ArrowLeft, FileText, CheckCircle, ExternalLink, RefreshCw, Pencil, ScrollText, Trash2, ReceiptText, Loader2, AlertTriangle } from 'lucide-react'
+import { cambiarEstadoAction, generarFacturaAction, asignarVehiculoAction, asignarConductorAction, eliminarViajeAction, marcarFacturaAnuladaManualAction } from './actions'
 import type { TripDetail } from './actions'
 import { formatCOP, formatDate, formatInvoiceNumber } from '@/lib/utils'
 
@@ -14,142 +14,6 @@ const STATUS_FLOW = [
   { key: 'FINALIZADO', label: 'Finalizado', cls: 'bg-green-100 text-green-700 border-green-300' },
   { key: 'PAGADO',     label: 'Pagado',     cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
 ] as const
-
-const MOTIVOS = [
-  { label: 'Devolución',       code: 1 },
-  { label: 'Descuento',        code: 2 },
-  { label: 'Anulación',        code: 3 },
-  { label: 'Rebaja de precio', code: 4 },
-] as const
-
-function NotaCreditoModal({
-  tripId,
-  invoiceUuid,
-  invoiceNumber,
-  defaultAmount,
-  onClose,
-  onCreated,
-}: {
-  tripId:        string
-  invoiceUuid:   string
-  invoiceNumber: string
-  defaultAmount: number
-  onClose:       () => void
-  onCreated:     (uuid: string, number: string) => void
-}) {
-  const [motivo,      setMotivo]      = useState<string>(MOTIVOS[0].label)
-  const [valor,       setValor]       = useState<string>(String(defaultAmount))
-  const [descripcion, setDescripcion] = useState('')
-  const [loading,     setLoading]     = useState(false)
-  const [error,       setError]       = useState('')
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const amount = parseFloat(valor)
-    if (!amount || amount <= 0) { setError('Ingresa un valor válido'); return }
-    if (!descripcion.trim()) { setError('Ingresa una descripción'); return }
-    setLoading(true)
-    setError('')
-    const res = await crearNotaCreditoAction({
-      tripId,
-      invoiceUuid,
-      motivo,
-      descripcion: descripcion.trim(),
-      amount,
-    })
-    setLoading(false)
-    if (!res.ok) { setError(res.error); return }
-    onCreated(res.creditNoteUuid, res.creditNoteNumber)
-  }
-
-  const inpCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB]'
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="font-semibold text-[#0F172A]">Crear nota crédito</h2>
-            <p className="text-xs text-[#64748B] mt-0.5">Factura original: <span className="font-mono font-semibold">{formatInvoiceNumber(invoiceNumber)}</span></p>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[#F1F5F9] transition-colors">
-            <X size={16} className="text-[#64748B]" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Factura (readonly) */}
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Número de factura</label>
-            <input
-              readOnly
-              value={formatInvoiceNumber(invoiceNumber)}
-              className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#64748B] bg-[#F8FAFC] outline-none font-mono"
-            />
-          </div>
-
-          {/* Motivo */}
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Motivo de la nota crédito *</label>
-            <select value={motivo} onChange={e => setMotivo(e.target.value)} className={inpCls}>
-              {MOTIVOS.map(m => (
-                <option key={m.code} value={m.label}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Valor */}
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Valor de la nota crédito (COP) *</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={valor}
-              onChange={e => setValor(e.target.value)}
-              required
-              className={inpCls}
-            />
-          </div>
-
-          {/* Descripción */}
-          <div>
-            <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción *</label>
-            <textarea
-              rows={3}
-              value={descripcion}
-              onChange={e => setDescripcion(e.target.value)}
-              placeholder="Describe el motivo de la nota crédito..."
-              className={`${inpCls} resize-none`}
-              required
-            />
-          </div>
-
-          {error && (
-            <p className="text-xs text-red-500 font-medium">{error}</p>
-          )}
-
-          <div className="flex gap-3 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
-            >
-              {loading ? <><Loader2 size={13} className="animate-spin" /> Creando…</> : 'Crear nota crédito'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -200,15 +64,39 @@ export default function ViajeDetailClient({
     initialInvNum ? { number: initialInvNum, pdfUrl: initialPdf ?? '' } : null,
   )
   const [invoiceError, setInvoiceError] = useState<string | null>(null)
-  const [showNcModal,  setShowNcModal]  = useState(false)
-  const [ncResult,     setNcResult]     = useState<{ uuid: string; number: string } | null>(
-    initialCreditNoteId ? { uuid: initialCreditNoteId, number: initialCreditNoteNumber ?? '' } : null,
+  // Anulada manualmente en Dataico → credit_note_id === 'MANUAL'
+  const [anuladaManual, setAnuladaManual] = useState(initialCreditNoteId === 'MANUAL')
+  // Nota crédito real generada por la app (Dataico) — se conserva para datos previos
+  const [ncResult] = useState<{ uuid: string; number: string } | null>(
+    initialCreditNoteId && initialCreditNoteId !== 'MANUAL'
+      ? { uuid: initialCreditNoteId, number: initialCreditNoteNumber ?? '' }
+      : null,
   )
+  const [showAnularModal, setShowAnularModal] = useState(false)
+  const [anulando,        setAnulando]        = useState(false)
 
   const currentStatus   = STATUS_FLOW.find(s => s.key === trip.status)
   const canInvoice      = ['FINALIZADO', 'FACTURADO'].includes(trip.status)
   const alreadyInvoiced = !!trip.dataico_invoice_id || !!invoiceResult
   const hasCreditNote   = !!ncResult
+
+  const facturaNumero = invoiceResult?.number ?? initialInvNum ?? trip.dataico_invoice_id ?? ''
+
+  const handleMarcarAnulada = async () => {
+    setAnulando(true)
+    const res = await marcarFacturaAnuladaManualAction(trip.id)
+    setAnulando(false)
+    if (res.ok) {
+      setAnuladaManual(true)
+      setInvoiceResult(null)
+      setInvoiceError(null)
+      setTrip(prev => ({ ...prev, status: 'FINALIZADO', dataico_invoice_id: null }))
+      setShowAnularModal(false)
+    } else {
+      setInvoiceError(res.error ?? 'No se pudo anular')
+      setShowAnularModal(false)
+    }
+  }
 
   const handleStatusChange = async (newStatus: string) => {
     if (changingStatus || newStatus === trip.status) return
@@ -319,14 +207,20 @@ export default function ViajeDetailClient({
               )}
             </span>
           )}
-          {alreadyInvoiced && !hasCreditNote && (
+          {alreadyInvoiced && !hasCreditNote && !anuladaManual && (
             <button
-              onClick={() => setShowNcModal(true)}
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition-colors"
+              onClick={() => setShowAnularModal(true)}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
             >
               <ReceiptText size={11} />
-              Crear nota crédito
+              Marcar como anulada
             </button>
+          )}
+          {anuladaManual && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200">
+              <ReceiptText size={11} />
+              Anulada manualmente
+            </span>
           )}
           {hasCreditNote && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-50 text-orange-700 border border-orange-200">
@@ -638,19 +532,36 @@ export default function ViajeDetailClient({
         </div>
       )}
 
-      {/* Nota crédito modal */}
-      {showNcModal && alreadyInvoiced && (
-        <NotaCreditoModal
-          tripId={trip.id}
-          invoiceUuid={trip.dataico_invoice_id ?? invoiceResult?.number ?? ''}
-          invoiceNumber={invoiceResult?.number ?? trip.dataico_invoice_id?.slice(0, 8) ?? ''}
-          defaultAmount={trip.freight_value}
-          onClose={() => setShowNcModal(false)}
-          onCreated={(uuid, number) => {
-            setNcResult({ uuid, number })
-            setShowNcModal(false)
-          }}
-        />
+      {/* Confirmar anulación manual */}
+      {showAnularModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !anulando && setShowAnularModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4" onClick={e => e.stopPropagation()}>
+            <h2 className="font-semibold text-[#0F172A]">Marcar factura como anulada</h2>
+            <p className="text-sm text-[#64748B]">
+              ¿Confirmar que esta factura fue anulada manualmente en Dataico? Número:{' '}
+              <span className="font-mono font-semibold text-[#0F172A]">{formatInvoiceNumber(facturaNumero)}</span>
+            </p>
+            <p className="text-xs text-[#94A3B8]">
+              Quedará excluida de los ingresos y el viaje volverá a <span className="font-medium">Finalizado</span> para poder refacturar si lo necesitas.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowAnularModal(false)}
+                disabled={anulando}
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleMarcarAnulada}
+                disabled={anulando}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
+              >
+                {anulando ? <><Loader2 size={13} className="animate-spin" /> Anulando…</> : 'Sí, marcar anulada'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete confirm */}

@@ -3,6 +3,7 @@
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { extractText } from 'unpdf'
+import { hoyColombia } from '@/lib/fecha'
 
 async function extractTextFromPDF(base64: string): Promise<string> {
   const buffer = Buffer.from(base64, 'base64')
@@ -239,7 +240,7 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
       driver_id,
       origin:           extracted.origin      ?? '',
       destination:      extracted.destination ?? '',
-      load_date:        extracted.load_date   ?? new Date().toISOString().slice(0, 10),
+      load_date:        extracted.load_date   ?? hoyColombia(),
       load_content:     extracted.load_content ?? null,
       weight_kg:        extracted.weight_kg   ?? null,
       freight_value:    extracted.freight_value ?? 0,
@@ -259,7 +260,7 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
     trip_id:        trip.id,
     driver_id,               // puede ser null si no se detectó el conductor (columna nullable)
     vehicle_id,              // requiere la columna vehicle_id en legalizations (ver ALTER)
-    date:           extracted.load_date ?? new Date().toISOString().slice(0, 10),
+    date:           extracted.load_date ?? hoyColombia(),
     advance_amount: extracted.advance_amount ?? 0,
     total_expenses: 0,
     status:         'BORRADOR',
@@ -357,7 +358,7 @@ export async function reemplazarManifiestoAction(
       trip_id:        existingTripId,
       driver_id:      t?.driver_id ?? null,
       vehicle_id:     t?.vehicle_id ?? null,   // requiere la columna vehicle_id (ver ALTER)
-      date:           extracted.load_date ?? t?.load_date ?? new Date().toISOString().slice(0, 10),
+      date:           extracted.load_date ?? t?.load_date ?? hoyColombia(),
       advance_amount: extracted.advance_amount ?? t?.advance_amount ?? 0,
       total_expenses: 0,
       status:         'BORRADOR',

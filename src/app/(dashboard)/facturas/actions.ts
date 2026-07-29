@@ -1,6 +1,9 @@
 'use server'
 
 /*
+⚠ HISTÓRICO — la fuente de verdad del esquema es supabase/migrations/ (ver README → Migraciones).
+   Se conserva solo como referencia; NO ejecutar a mano.
+
 Si falta alguna columna, ejecuta este SQL en Supabase antes de sincronizar:
 
 alter table invoices add column if not exists dataico_id text unique;

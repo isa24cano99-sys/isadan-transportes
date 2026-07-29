@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
+import { hoyColombia } from '@/lib/fecha'
 
 export async function guardarPrestacionesAction(data: {
   entity_type: 'EMPLOYEE' | 'DRIVER'
@@ -24,7 +25,7 @@ export async function guardarPrestacionesAction(data: {
       employee_id,
       driver_id,
       paid: true,
-      paid_date: paid_date || new Date().toISOString().split('T')[0],
+      paid_date: paid_date || hoyColombia(),
     })
 
   if (error) {
