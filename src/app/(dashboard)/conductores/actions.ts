@@ -3,6 +3,18 @@
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
+// Inicio de actividades del RUT (casilla 47). La empresa arrancó de cero, sin
+// sustitución patronal: ninguna contratación puede ser anterior a esta fecha.
+const MIN_HIRE_DATE = '2026-01-30'
+
+function validarHireDate(hire_date: string | null | undefined): string | null {
+  if (!hire_date) return 'La fecha de contratación es obligatoria.'
+  if (hire_date < MIN_HIRE_DATE) {
+    return `La fecha de contratación no puede ser anterior al ${MIN_HIRE_DATE} (inicio de actividades de la empresa).`
+  }
+  return null
+}
+
 function extractFields(formData: FormData) {
   return {
     full_name:           formData.get('full_name') as string,
@@ -20,7 +32,10 @@ function extractFields(formData: FormData) {
 }
 
 export async function crearConductorAction(formData: FormData) {
-  const { data: created, error } = await supabase.from('drivers').insert(extractFields(formData)).select().single()
+  const fields = extractFields(formData)
+  const vErr = validarHireDate(fields.hire_date)
+  if (vErr) return { ok: false, error: vErr }
+  const { data: created, error } = await supabase.from('drivers').insert(fields).select().single()
   if (error) return { ok: false, error: error.message }
   revalidatePath('/conductores')
   return { ok: true, data: created }
@@ -53,7 +68,10 @@ export async function eliminarConductorAction(id: string, force = false): Promis
 
 export async function actualizarConductorAction(formData: FormData) {
   const id = formData.get('id') as string
-  const { error } = await supabase.from('drivers').update(extractFields(formData)).eq('id', id)
+  const fields = extractFields(formData)
+  const vErr = validarHireDate(fields.hire_date)
+  if (vErr) return { ok: false, error: vErr }
+  const { error } = await supabase.from('drivers').update(fields).eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/conductores')
   return { ok: true }

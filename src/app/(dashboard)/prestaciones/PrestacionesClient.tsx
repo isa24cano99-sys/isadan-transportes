@@ -79,7 +79,7 @@ function calcular(
   const diasPrima   = Math.max(0, Math.round((e.getTime() - ip.getTime()) / 86_400_000))
   if (diasGeneral <= 0 || diasPrima <= 0) return emptyCalc
   const cesantias  = Math.round((salary * diasGeneral) / 360)
-  const intereses  = Math.round(cesantias * 0.12)          // 12% fijo anual — NO proporcional
+  const intereses  = Math.round(cesantias * diasGeneral * 0.12 / 360)   // Ley 52/1975: 12% anual, proporcional por fracción
   const vacaciones = Math.round((salary * diasGeneral) / 720)
   const prima      = Math.round((salary * diasPrima) / 360)
   return {

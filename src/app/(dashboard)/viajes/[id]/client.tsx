@@ -144,6 +144,7 @@ export default function ViajeDetailClient({
     if (res.ok) {
       setInvoiceResult({ number: res.invoiceNumber, pdfUrl: res.pdfUrl })
       setTrip(prev => ({ ...prev, status: 'FACTURADO' }))
+      if (res.warning) setInvoiceError(res.warning)   // aviso suave: se emitió, pero el tercero está incompleto
     } else {
       setInvoiceError(res.error)
     }

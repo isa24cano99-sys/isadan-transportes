@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
   Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
-  Wallet, BarChart3, Receipt, type LucideIcon,
+  Wallet, BarChart3, Receipt, IdCard, type LucideIcon,
 } from 'lucide-react'
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
@@ -22,6 +22,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/vehiculos',           label: 'Vehículos',        icon: Truck },
   { href: '/conductores',         label: 'Conductores',      icon: User },
   { href: '/clientes',            label: 'Clientes',         icon: Contact },
+  { href: '/terceros',            label: 'Terceros',         icon: IdCard },
   { href: '/documentos',          label: 'Documentos',       icon: Folder },
   { href: '/cartera',             label: 'Cartera',          icon: Wallet },
   { href: '/reportes',            label: 'Estado resultados', icon: BarChart3 },

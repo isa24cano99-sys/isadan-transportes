@@ -3,6 +3,7 @@
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { hoyColombia } from '@/lib/fecha'
+import { calcularDV } from '@/lib/nit'
 import {
   parseNIT,
   findDataicoCustomer,
@@ -63,7 +64,7 @@ export async function cambiarEstadoAction(id: string, status: string) {
 }
 
 export async function generarFacturaAction(tripId: string): Promise<
-  { ok: false; error: string } | { ok: true; invoiceNumber: string; cufe: string; pdfUrl: string }
+  { ok: false; error: string } | { ok: true; invoiceNumber: string; cufe: string; pdfUrl: string; warning?: string }
 > {
   // 1. Load trip with relations
   const { data: raw, error: tripErr } = await supabase
@@ -71,7 +72,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     .select(`
       id, trip_number, manifest_number, origin, destination, load_date,
       freight_value, weight_kg, price_per_ton, load_content, status,
-      clients(id, name, nit, email),
+      clients(id, name, nit, email, tercero_id, terceros(numero_identificacion, digito_verificacion, razon_social, completo)),
       vehicles(id, plate)
     `)
     .eq('id', tripId)
@@ -82,17 +83,33 @@ export async function generarFacturaAction(tripId: string): Promise<
   const trip = raw as any
   const client = Array.isArray(trip.clients) ? trip.clients[0] : trip.clients
 
-  if (!client?.nit) return { ok: false, error: 'El cliente no tiene NIT registrado. Agrégalo en la ficha del cliente.' }
+  // 2. NIT autoritativo desde el TERCERO (numero_identificacion + digito_verificacion),
+  //    no de clients.nit — así la emisión usa el NIT corregido/fusionado, no una copia vieja.
+  const tercero = client && (Array.isArray(client.terceros) ? client.terceros[0] : client.terceros)
+  let nitBase: string, dv: string, customerName: string
+  if (tercero?.numero_identificacion) {
+    nitBase = tercero.numero_identificacion
+    dv = String(tercero.digito_verificacion ?? calcularDV(nitBase))
+    customerName = tercero.razon_social || client?.name || ''
+  } else if (client?.nit) {
+    // fallback transitorio: cliente aún sin tercero enlazado
+    const p = parseNIT(client.nit); nitBase = p.base; dv = p.dv
+    customerName = client.name
+  } else {
+    return { ok: false, error: 'El cliente no tiene tercero ni NIT. Créalo/complétalo en /terceros antes de facturar.' }
+  }
 
-  // 2. Parse NIT → base + DV
-  const { base: nitBase, dv } = parseNIT(client.nit)
+  // Aviso SUAVE (no bloquea): si el tercero está incompleto para exógena, se emite igual.
+  // (Se volverá bloqueo duro cuando el maestro de terceros esté completo.)
+  const terceroIncompleto = !!tercero && tercero.completo === false
+  if (terceroIncompleto) console.warn(`[factura] tercero ${nitBase} incompleto para exógena — se emite igual (aviso suave)`)
 
   // 3. Ensure customer exists in Dataico (non-blocking)
   try {
     const existing = await findDataicoCustomer(nitBase)
     if (!existing) {
       await createDataicoCustomer({
-        name: client.name,
+        name: customerName,
         nit: nitBase,
         dv,
         email: client.email ?? undefined,
@@ -143,7 +160,7 @@ export async function generarFacturaAction(tripId: string): Promise<
   try {
     const vehicle = Array.isArray(trip.vehicles) ? trip.vehicles[0] : trip.vehicles
     invoice = await createDataicoInvoice({
-      customerName:    client.name,
+      customerName:    customerName,
       customerNit:     nitBase,
       customerEmail:   client.email ?? undefined,
       nextConsecutive,
@@ -177,8 +194,8 @@ export async function generarFacturaAction(tripId: string): Promise<
     invoice_number: invoiceNumber,
     cufe:           invoice.cufe,
     issue_date:     parseDateicoDate(invoice.issue_date),
-    client_name:    client.name,
-    client_nit:     client.nit,
+    client_name:    customerName,
+    client_nit:     nitBase,
     total_amount:   fleteAFacturar,
     tax_amount:     0,
     invoice_type:   'EMITIDA',
@@ -209,6 +226,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     invoiceNumber,
     cufe:   invoice.cufe,
     pdfUrl: invoice.pdf_url,
+    warning: terceroIncompleto ? 'El tercero está incompleto para exógena. Complétalo en /terceros.' : undefined,
   }
 }
 
