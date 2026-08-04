@@ -48,7 +48,7 @@ export interface TripData {
   id: string
   manifest_auth: string | null
   manifest_number: string | null
-  client_id: string
+  tercero_id: string | null
   vehicle_id: string
   driver_id: string
   origin: string
@@ -63,7 +63,7 @@ export interface TripData {
 }
 
 interface Props {
-  clients: { id: string; name: string; nit: string | null }[]
+  terceros: { id: string; nombre: string }[]
   vehicles: { id: string; plate: string; brand: string; model: string }[]
   drivers: { id: string; full_name: string }[]
   trip?: TripData
@@ -95,7 +95,7 @@ function calcFreight(kg: string, ppt: string): number | null {
   return null
 }
 
-export default function ViajeForm({ clients, vehicles, drivers, trip }: Props) {
+export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -183,9 +183,9 @@ export default function ViajeForm({ clients, vehicles, drivers, trip }: Props) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Cliente *</label>
-          <select name="client_id" required defaultValue={trip?.client_id ?? ''} className={SEL}>
+          <select name="tercero_id" required defaultValue={trip?.tercero_id ?? ''} className={SEL}>
             <option value="">Seleccionar cliente</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {terceros.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
           </select>
         </div>
         <div>

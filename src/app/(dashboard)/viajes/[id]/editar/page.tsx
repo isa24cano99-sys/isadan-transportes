@@ -1,24 +1,30 @@
 import { supabase } from '@/lib/supabase'
 import ViajeForm from '../../nuevo/form'
 import { notFound } from 'next/navigation'
+import { nombreTercero } from '@/lib/tercero-nombre'
 
 async function getData(id: string) {
-  const [{ data: trip }, { data: clients }, { data: vehicles }, { data: drivers }] = await Promise.all([
+  const [{ data: trip }, { data: terRaw }, { data: vehicles }, { data: drivers }] = await Promise.all([
     supabase
       .from('trips')
-      .select('id, manifest_auth, manifest_number, client_id, vehicle_id, driver_id, origin, destination, load_date, freight_value, advance_amount, weight_kg, price_per_ton, load_content, notes')
+      .select('id, manifest_auth, manifest_number, tercero_id, client_id, vehicle_id, driver_id, origin, destination, load_date, freight_value, advance_amount, weight_kg, price_per_ton, load_content, notes')
       .eq('id', id)
       .single(),
-    supabase.from('clients').select('id, name, nit').order('name'),
+    supabase.from('terceros')
+      .select('id, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona')
+      .eq('es_cliente', true).is('merged_into', null),
     supabase.from('vehicles').select('id, plate, brand, model').order('plate'),
     supabase.from('drivers').select('id, full_name').order('full_name'),
   ])
-  return { trip, clients: clients ?? [], vehicles: vehicles ?? [], drivers: drivers ?? [] }
+  const terceros = (terRaw ?? [])
+    .map(t => ({ id: t.id, nombre: nombreTercero(t) }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  return { trip, terceros, vehicles: vehicles ?? [], drivers: drivers ?? [] }
 }
 
 export default async function EditarViajePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { trip, clients, vehicles, drivers } = await getData(id)
+  const { trip, terceros, vehicles, drivers } = await getData(id)
   if (!trip) notFound()
 
   return (
@@ -28,7 +34,7 @@ export default async function EditarViajePage({ params }: { params: Promise<{ id
         <p className="text-sm text-[#64748B] mt-0.5">Modifica los datos del viaje</p>
       </div>
       <ViajeForm
-        clients={clients}
+        terceros={terceros}
         vehicles={vehicles}
         drivers={drivers}
         trip={trip as any}

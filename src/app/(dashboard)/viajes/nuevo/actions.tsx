@@ -3,10 +3,22 @@
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
+/**
+ * client_id legado (en PARALELO a tercero_id): se deriva del tercero elegido buscando
+ * su fila en clients. tercero_id es el valor autoritativo (el que eligió el usuario,
+ * intacto); esto solo mantiene client_id poblado para lo que aún lo lee. Devuelve null
+ * si el tercero no tiene fila en clients (columna nullable) → no se sobreescribe.
+ */
+async function derivarClientId(terceroId: string): Promise<string | null> {
+  if (!terceroId) return null
+  const { data } = await supabase.from('clients').select('id').eq('tercero_id', terceroId).limit(1)
+  return data?.[0]?.id ?? null
+}
+
 function extractFields(formData: FormData) {
   return {
     manifest_number: (formData.get('manifest_number') as string) || null,
-    client_id:       formData.get('client_id') as string,
+    tercero_id:      formData.get('tercero_id') as string,
     vehicle_id:      formData.get('vehicle_id') as string,
     driver_id:       formData.get('driver_id') as string,
     origin:          formData.get('origin') as string,
@@ -24,14 +36,15 @@ function extractFields(formData: FormData) {
 export async function crearViajeAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
   const fields = extractFields(formData)
 
-  if (!fields.client_id || !fields.vehicle_id || !fields.driver_id ||
+  if (!fields.tercero_id || !fields.vehicle_id || !fields.driver_id ||
       !fields.origin || !fields.destination || !fields.load_date || !fields.freight_value) {
     return { ok: false, error: 'Completa todos los campos obligatorios' }
   }
 
+  const client_id = await derivarClientId(fields.tercero_id)
   const { data: trip, error } = await supabase
     .from('trips')
-    .insert({ ...fields, status: 'PLANEADO' })
+    .insert({ ...fields, client_id, status: 'PLANEADO' })
     .select('id')
     .single()
 
@@ -61,12 +74,15 @@ export async function crearViajeAction(formData: FormData): Promise<{ ok: boolea
 export async function editarViajeAction(id: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
   const fields = extractFields(formData)
 
-  if (!fields.client_id || !fields.vehicle_id || !fields.driver_id ||
+  if (!fields.tercero_id || !fields.vehicle_id || !fields.driver_id ||
       !fields.origin || !fields.destination || !fields.load_date || !fields.freight_value) {
     return { ok: false, error: 'Completa todos los campos obligatorios' }
   }
 
-  const { error } = await supabase.from('trips').update(fields).eq('id', id)
+  // client_id legado en paralelo: solo se sobreescribe si el tercero tiene fila en clients.
+  const client_id = await derivarClientId(fields.tercero_id)
+  const payload = client_id ? { ...fields, client_id } : fields
+  const { error } = await supabase.from('trips').update(payload).eq('id', id)
 
   if (error) {
     console.error(error)
