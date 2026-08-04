@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { extractText } from 'unpdf'
 import { hoyColombia } from '@/lib/fecha'
+import { resolverTerceroPorNitCrudo } from '@/lib/terceros'
 
 async function extractTextFromPDF(base64: string): Promise<string> {
   const buffer = Buffer.from(base64, 'base64')
@@ -138,17 +139,24 @@ async function uploadPDF(base64: string, authKey: string): Promise<string> {
   return path
 }
 
-async function ensureClient(name: string, nit: string): Promise<string> {
+// `nit` debe llegar ya NORMALIZADO (base, sin DV pegado). `terceroId` enlaza el
+// cliente legado con el tercero maestro (relleno si aún no lo tenía).
+async function ensureClient(name: string, nit: string, terceroId?: string | null): Promise<string> {
   const { data: existing } = await supabase
     .from('clients')
-    .select('id')
+    .select('id, tercero_id')
     .eq('nit', nit)
     .maybeSingle()
-  if (existing?.id) return existing.id
+  if (existing?.id) {
+    if (terceroId && !existing.tercero_id) {
+      await supabase.from('clients').update({ tercero_id: terceroId }).eq('id', existing.id)
+    }
+    return existing.id
+  }
 
   const { data: created, error } = await supabase
     .from('clients')
-    .insert({ name, nit, active: true })
+    .insert({ name, nit, active: true, tercero_id: terceroId ?? null })
     .select('id')
     .single()
   if (error) throw new Error(error.message)
@@ -158,7 +166,7 @@ async function ensureClient(name: string, nit: string): Promise<string> {
 export type ProcesarResult =
   | { ok: false; duplicate: true; existing_trip_id: string; existing_trip_number: string; message: string; extracted: ManifiestoExtraido }
   | { ok: false; error: string }
-  | { ok: true; trip_id: string; extracted: ManifiestoExtraido }
+  | { ok: true; trip_id: string; extracted: ManifiestoExtraido; warning?: string }
 
 export async function procesarManifiestoAction(pdfBase64: string): Promise<ProcesarResult> {
   // 1. Parse PDF text
@@ -205,6 +213,8 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
   let vehicle_id: string | null = null
   let driver_id:  string | null = null
   let client_id:  string | null = null
+  let tercero_id: string | null = null
+  let terceroWarning: string | null = null
 
   if (extracted.plate) {
     const { data, error } = await supabase.from('vehicles').select('id').ilike('plate', extracted.plate.replace('-', '')).maybeSingle()
@@ -220,8 +230,21 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
   } else {
     console.log('[CONDUCTOR] documento no extraído del PDF')
   }
-  if (extracted.client_name && extracted.client_nit) {
-    try { client_id = await ensureClient(extracted.client_name, extracted.client_nit) } catch { /* non-fatal */ }
+  // Resolver el TERCERO a partir del NIT crudo del PDF (normaliza DV pegado y
+  // evita duplicados). El viaje queda con tercero_id; el cliente legado se enlaza.
+  if (extracted.client_nit) {
+    try {
+      const r = await resolverTerceroPorNitCrudo(extracted.client_nit, { nombre: extracted.client_name })
+      tercero_id = r.terceroId
+      terceroWarning = r.warning
+      if (r.warning) console.warn('[TERCERO/MANIFIESTO]', r.warning)
+      console.log(`[TERCERO] NIT crudo="${extracted.client_nit}" → base=${r.base} dv=${r.dv} tercero=${r.terceroId}${r.created ? ' (creado)' : ''}`)
+      if (extracted.client_name) {
+        try { client_id = await ensureClient(extracted.client_name, r.base, tercero_id) } catch { /* non-fatal */ }
+      }
+    } catch (e: any) {
+      console.warn('[TERCERO/MANIFIESTO] no se pudo resolver el tercero:', e.message)
+    }
   }
 
   // 5. Upload PDF
@@ -236,6 +259,7 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
       manifest_number:  extracted.manifest_number ?? null,
       manifest_pdf_path,
       client_id,
+      tercero_id,
       vehicle_id,
       driver_id,
       origin:           extracted.origin      ?? '',
@@ -268,7 +292,7 @@ export async function procesarManifiestoAction(pdfBase64: string): Promise<Proce
   console.log('Resultado legalización:', legError ? legError : 'OK')
 
   revalidatePath('/viajes')
-  return { ok: true, trip_id: trip.id, extracted }
+  return { ok: true, trip_id: trip.id, extracted, ...(terceroWarning ? { warning: terceroWarning } : {}) }
 }
 
 export async function reemplazarManifiestoAction(

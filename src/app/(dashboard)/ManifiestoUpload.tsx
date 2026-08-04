@@ -50,6 +50,7 @@ export default function ManifiestoUpload({ compact = false }: { compact?: boolea
   const [dragging,    setDragging]    = useState(false)
   const [processing,  setProcessing]  = useState(false)
   const [error,       setError]       = useState<string | null>(null)
+  const [warning,     setWarning]     = useState<{ msg: string; tripId: string } | null>(null)
   const [modal,       setModal]       = useState<ModalState>(null)
   const [confirming,  setConfirming]  = useState(false)
   const [pdfBase64,   setPdfBase64]   = useState('')
@@ -60,6 +61,7 @@ export default function ManifiestoUpload({ compact = false }: { compact?: boolea
       return
     }
     setError(null)
+    setWarning(null)
     setProcessing(true)
 
     const base64 = await new Promise<string>((resolve, reject) => {
@@ -82,7 +84,13 @@ export default function ManifiestoUpload({ compact = false }: { compact?: boolea
         message:            result.message,
       })
     } else if (result.ok) {
-      router.push(`/viajes/${result.trip_id}`)
+      // Con advertencia (ej. DV que no cuadra): no navegar en automático — mostrar el
+      // banner para revisión manual y dejar que el usuario continúe al viaje.
+      if (result.warning) {
+        setWarning({ msg: result.warning, tripId: result.trip_id })
+      } else {
+        router.push(`/viajes/${result.trip_id}`)
+      }
     } else if (!result.ok && 'error' in result) {
       setError(result.error)
     }
@@ -190,6 +198,24 @@ export default function ManifiestoUpload({ compact = false }: { compact?: boolea
             </div>
           )}
         </>
+      )}
+
+      {/* Advertencia de tercero (ej. DV documento ≠ calculado) — visible tras la carga */}
+      {warning && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 text-amber-800 text-sm px-4 py-3 rounded-lg mt-3">
+          <AlertTriangle size={14} className="flex-shrink-0 mt-0.5 text-amber-600" />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium">Manifiesto cargado, pero el tercero necesita revisión</p>
+            <p className="text-amber-700 mt-0.5 break-words">{warning.msg}</p>
+            <button
+              type="button"
+              onClick={() => router.push(`/viajes/${warning.tripId}`)}
+              className="mt-2 text-xs font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950"
+            >
+              Ver el viaje →
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Modal overlay — solo aparece para manifiestos duplicados */}
