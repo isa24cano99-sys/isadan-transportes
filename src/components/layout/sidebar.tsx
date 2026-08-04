@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
   Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
-  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, type LucideIcon,
+  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, Banknote, type LucideIcon,
 } from 'lucide-react'
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
@@ -27,6 +27,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/cartera',             label: 'Cartera',          icon: Wallet },
   { href: '/contabilidad/causaciones',     label: 'Causaciones',   icon: Calculator },
   { href: '/contabilidad/emision-facturas', label: 'Emisión FEIT',  icon: FileCheck },
+  { href: '/contabilidad/recibos-anticipo', label: 'Recibos anticipo', icon: Banknote },
   { href: '/reportes',            label: 'Estado resultados', icon: BarChart3 },
   { href: '/impuesto',            label: 'Impuesto SIMPLE',  icon: Receipt },
 ]
