@@ -44,19 +44,31 @@ grant all on client_payments to service_role;
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
-export async function cruzarAnticiposAction(): Promise<{
+/**
+ * IMPORT PURO de cartera (no cruza nada). Crea accounts_receivable_entries para las
+ * facturas EMITIDA (no ANULADA) que aún no tienen entry, con:
+ *   · tercero_id resuelto (de invoices.tercero_id o, si es NULL, por client_nit → terceros),
+ *   · advance_amount = 0, status = 'PENDIENTE'.
+ *
+ * El cruce de anticipos NO se hace aquí: es un evento contable (evento 4,
+ * postear_cruce_cartera_v2) que postea un CX en el libro y sincroniza advance_amount
+ * de forma atómica. Tener un segundo mecanismo de cruce (el viejo, por NIT-en-texto)
+ * hacía divergir la cartera operativa de la contable — se eliminó. Una factura sin
+ * tercero resoluble NO se crea (rompería el evento 4); se reporta y se omite.
+ */
+export async function importarCarteraAction(): Promise<{
   ok: boolean; created: number; message?: string; error?: string
 }> {
-  // 1. All EMITIDA invoices
+  // 1. Facturas EMITIDA (con estado DIAN y tercero_id)
   const { data: invoices, error: invErr } = await supabase
     .from('invoices')
-    .select('id, invoice_number, total_amount, issue_date, client_name, client_nit')
+    .select('id, invoice_number, total_amount, issue_date, client_name, client_nit, tercero_id, dian_status')
     .eq('invoice_type', 'EMITIDA')
     .order('issue_date')
 
   if (invErr) return { ok: false, created: 0, error: invErr.message }
 
-  // 2. Already-imported invoice IDs
+  // 2. IDs ya importados
   const { data: existing, error: existErr } = await supabase
     .from('accounts_receivable_entries')
     .select('invoice_id')
@@ -66,103 +78,59 @@ export async function cruzarAnticiposAction(): Promise<{
   }
 
   const existingIds = new Set((existing ?? []).map((e: any) => e.invoice_id).filter(Boolean))
-  const newInvoices = (invoices ?? []).filter((inv: any) => !existingIds.has(inv.id))
 
+  // 3. Nuevas = EMITIDA, NO ANULADA, sin entry aún (una cartera no se apoya en documento anulado)
+  const newInvoices = (invoices ?? []).filter(
+    (inv: any) => !existingIds.has(inv.id) && inv.dian_status !== 'ANULADA',
+  )
   if (newInvoices.length === 0) {
-    return { ok: true, created: 0, message: 'Todas las facturas ya están importadas.' }
+    return { ok: true, created: 0, message: 'No hay facturas nuevas para importar.' }
   }
 
-  // 3. Anticipos from bank_transactions (category 28050510, direct or via category_id)
-  const { data: catRows } = await supabase
-    .from('transaction_categories')
-    .select('id')
-    .eq('puc_code', '28050510')
-
-  const catIds = (catRows ?? []).map((c: any) => c.id)
-
-  const [directRes, catIdRes] = await Promise.all([
-    supabase
-      .from('bank_transactions')
-      .select('id, amount, description')
-      .eq('type', 'INGRESO')
-      .eq('category', '28050510'),
-    catIds.length > 0
-      ? supabase
-          .from('bank_transactions')
-          .select('id, amount, description')
-          .eq('type', 'INGRESO')
-          .in('category_id', catIds)
-      : Promise.resolve({ data: [] as any[] }),
-  ])
-
-  const seenTx = new Set<string>()
-  const anticipos = [
-    ...(directRes.data ?? []),
-    ...((catIdRes.data ?? []) as any[]),
-  ].filter((tx: any) => {
-    if (seenTx.has(tx.id)) return false
-    seenTx.add(tx.id)
-    return true
-  })
-
-  // 4. Build anticipos map: nit → total (extract NIT from description)
-  const anticiposByNit = new Map<string, number>()
-  for (const ant of anticipos) {
-    if (!ant.description) continue
-    // Colombian NITs: 9-10 digit numbers, optionally followed by dash + check digit
-    const nitMatch = ant.description.match(/\b(\d{9,10})(?:-\d)?\b/)
-    if (nitMatch) {
-      const nit = nitMatch[1]
-      anticiposByNit.set(nit, (anticiposByNit.get(nit) ?? 0) + Number(ant.amount))
-    }
+  // 4. Resolver tercero_id faltante por client_nit → terceros (no-merged)
+  const missingNits = [...new Set(
+    newInvoices.filter((i: any) => !i.tercero_id && i.client_nit).map((i: any) => i.client_nit as string),
+  )]
+  const terceroByNit = new Map<string, string>()
+  if (missingNits.length > 0) {
+    const { data: ters } = await supabase
+      .from('terceros')
+      .select('id, numero_identificacion')
+      .in('numero_identificacion', missingNits)
+      .is('merged_into', null)
+    for (const t of (ters ?? []) as any[]) terceroByNit.set(t.numero_identificacion, t.id)
   }
 
-  // 5. Client lookup: nit → client_id
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('id, nit, name')
+  // 5. client_id best-effort por nit (mantiene el campo poblado como las entries previas)
+  const { data: clients } = await supabase.from('clients').select('id, nit')
+  const clientByNit = new Map<string, string>()
+  for (const c of (clients ?? []) as any[]) if (c.nit) clientByNit.set(c.nit, c.id)
 
-  const clientByNit = new Map<string, { id: string; name: string }>()
-  for (const c of (clients ?? []) as any[]) {
-    if (c.nit) clientByNit.set(c.nit, { id: c.id, name: c.name })
-  }
-
-  // 6. Group new invoices by client_nit and apply anticipos oldest-first
-  const invoicesByNit = new Map<string, any[]>()
-  for (const inv of newInvoices) {
-    const nit = (inv as any).client_nit ?? 'SIN_NIT'
-    if (!invoicesByNit.has(nit)) invoicesByNit.set(nit, [])
-    invoicesByNit.get(nit)!.push(inv)
-  }
-
+  // 6. Construir entries (import puro): advance 0, PENDIENTE, tercero_id obligatorio
   const entries: any[] = []
-  for (const [nit, nitInvs] of invoicesByNit.entries()) {
-    let available = anticiposByNit.get(nit) ?? 0
-    const clientRec = clientByNit.get(nit)
-
-    nitInvs.sort((a: any, b: any) => (a.issue_date ?? '').localeCompare(b.issue_date ?? ''))
-
-    for (const inv of nitInvs) {
-      const amount   = Number((inv as any).total_amount ?? 0)
-      const applied  = Math.min(available, amount)
-      available     -= applied
-      const status   = applied >= amount ? 'PAGADA' : applied > 0 ? 'ABONADA' : 'PENDIENTE'
-
-      entries.push({
-        client_id:      clientRec?.id ?? null,
-        client_name:    (inv as any).client_name ?? clientRec?.name ?? null,
-        client_nit:     nit === 'SIN_NIT' ? null : nit,
-        invoice_id:     (inv as any).id,
-        invoice_number: (inv as any).invoice_number ?? null,
-        invoice_amount: amount,
-        invoice_date:   (inv as any).issue_date ?? null,
-        advance_amount: applied,
-        status,
-      })
-    }
+  const omitidas: string[] = []
+  for (const inv of newInvoices as any[]) {
+    const terceroId = inv.tercero_id ?? (inv.client_nit ? terceroByNit.get(inv.client_nit) : null) ?? null
+    if (!terceroId) { omitidas.push(inv.invoice_number ?? inv.id); continue }
+    entries.push({
+      client_id:      inv.client_nit ? clientByNit.get(inv.client_nit) ?? null : null,
+      client_name:    inv.client_name ?? null,
+      client_nit:     inv.client_nit ?? null,
+      invoice_id:     inv.id,
+      invoice_number: inv.invoice_number ?? null,
+      invoice_amount: Number(inv.total_amount ?? 0),
+      invoice_date:   inv.issue_date ?? null,
+      advance_amount: 0,
+      status:         'PENDIENTE',
+      tercero_id:     terceroId,
+    })
   }
 
-  if (entries.length === 0) return { ok: true, created: 0 }
+  const omitMsg = omitidas.length ? ` · ${omitidas.length} sin tercero resoluble, omitida(s): ${omitidas.join(', ')}` : ''
+
+  if (entries.length === 0) {
+    return { ok: true, created: 0, message: `Sin facturas para importar${omitMsg}` }
+  }
 
   const { error: insErr } = await supabase
     .from('accounts_receivable_entries')
@@ -171,7 +139,7 @@ export async function cruzarAnticiposAction(): Promise<{
   if (insErr) return { ok: false, created: 0, error: insErr.message }
 
   revalidatePath('/cartera')
-  return { ok: true, created: entries.length }
+  return { ok: true, created: entries.length, message: `${entries.length} factura(s) importada(s)${omitMsg}` }
 }
 
 export async function marcarPagadaAction(

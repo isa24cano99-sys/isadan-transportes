@@ -7,7 +7,7 @@ import {
   RefreshCw, AlertCircle, Clock, Minus,
   TrendingUp, DollarSign, Wallet,
 } from 'lucide-react'
-import { cruzarAnticiposAction } from './actions'
+import { importarCarteraAction } from './actions'
 import type { CarteraKPIs, ClienteSummary, EstadoCartera } from './page'
 import { useUrlState } from '@/lib/useUrlState'
 
@@ -32,17 +32,17 @@ export default function CarteraClient({
   const [crossMsg, setCrossMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [filter, setFilter]     = useUrlState('estado', 'TODOS') as ['TODOS' | EstadoCartera, (v: string) => void]
 
-  const handleCruzar = async () => {
+  const handleImportar = async () => {
     setCrossing(true)
     setCrossMsg(null)
-    const res = await cruzarAnticiposAction()
+    const res = await importarCarteraAction()
     setCrossing(false)
     if (!res.ok) {
-      setCrossMsg({ type: 'err', text: res.error ?? 'Error al cruzar' })
+      setCrossMsg({ type: 'err', text: res.error ?? 'Error al importar' })
     } else if (res.created === 0) {
       setCrossMsg({ type: 'ok', text: res.message ?? 'Sin cambios.' })
     } else {
-      setCrossMsg({ type: 'ok', text: `${res.created} factura${res.created !== 1 ? 's' : ''} importada${res.created !== 1 ? 's' : ''}.` })
+      setCrossMsg({ type: 'ok', text: res.message ?? `${res.created} factura(s) importada(s).` })
       setTimeout(() => router.refresh(), 800)
     }
   }
@@ -74,12 +74,13 @@ export default function CarteraClient({
             </span>
           )}
           <button
-            onClick={handleCruzar}
+            onClick={handleImportar}
             disabled={crossing}
+            title="Crea la cartera (AR entry) de las facturas emitidas que aún no la tienen. No cruza anticipos: el cruce es el evento 4 contable."
             className="flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors min-h-[44px]"
           >
             <RefreshCw size={14} className={crossing ? 'animate-spin' : ''} />
-            {crossing ? 'Cruzando…' : 'Cruzar anticipos'}
+            {crossing ? 'Importando…' : 'Importar facturas'}
           </button>
         </div>
       </div>
