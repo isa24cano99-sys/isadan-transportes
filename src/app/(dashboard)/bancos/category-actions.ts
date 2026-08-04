@@ -138,6 +138,7 @@ export type SugerirResult = {
   source:       'RULES' | 'PROVEEDOR' | 'PATTERNS'
   supplierNit?: string | null
   supplierName?: string | null
+  terceroId?:   string | null
 }
 
 export async function sugerirCategoriaAction(
@@ -172,7 +173,7 @@ export async function sugerirCategoriaAction(
   // 3. Patrones aprendidos
   const { data: patterns } = await supabase
     .from('description_patterns')
-    .select('pattern, category_id, supplier_nit, supplier_name, transaction_categories(id, name, type)')
+    .select('pattern, category_id, supplier_nit, supplier_name, tercero_id, transaction_categories(id, name, type)')
     .order('match_count', { ascending: false })
     .limit(200)
 
@@ -188,6 +189,7 @@ export async function sugerirCategoriaAction(
         source:       'PATTERNS',
         supplierNit:  (match as any).supplier_nit as string | null ?? null,
         supplierName: (match as any).supplier_name as string | null ?? null,
+        terceroId:    (match as any).tercero_id as string | null ?? null,
       }
     }
   }

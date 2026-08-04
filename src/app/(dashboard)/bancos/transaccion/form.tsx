@@ -65,9 +65,13 @@ export default function TransaccionForm({
     debounceRef.current = setTimeout(async () => {
       const s = await sugerirCategoriaAction(val)
       setSuggestion(s)
+      // Solo autollena si NO hay tercero elegido (supplierNitRef vacío) → el
+      // SupplierSelector siempre gana. Arrastra el tercero_id del patrón (ya poblado),
+      // sin re-resolver por NIT — mismo principio que el selector.
       if (s?.supplierName && !supplierNitRef.current) {
         setSupplierNit(s.supplierNit ?? '')
         setSupplierName(s.supplierName ?? '')
+        setSupplierTerceroId(s.terceroId ?? null)
       }
     }, 400)
   }, [])
