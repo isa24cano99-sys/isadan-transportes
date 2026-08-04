@@ -43,7 +43,7 @@ async function buscarActivoPorNumero(numero: string) {
  */
 export async function resolverTerceroPorNitCrudo(
   nitCrudo: string | null | undefined,
-  datos?: { nombre?: string | null; dvDocumento?: string | number | null },
+  datos?: { nombre?: string | null; dvDocumento?: string | number | null; rol?: 'CLIENTE' | 'PROVEEDOR' },
 ): Promise<ResolucionTercero> {
   const limpio = normalizarIdentificacion(nitCrudo)
   if (!limpio) throw new Error('NIT vacío o sin dígitos.')
@@ -96,6 +96,9 @@ export async function resolverTerceroPorNitCrudo(
   }
   const warning = avisos.length ? avisos.join(' ') + ' Revisión manual.' : null
 
+  // Rol del tercero: por defecto CLIENTE (caso manifiesto). El punto de creación del
+  // banco puede pasar 'PROVEEDOR'. Un tercero puede terminar siendo ambos con el tiempo.
+  const esProveedor = datos?.rol === 'PROVEEDOR'
   const { data: creado, error } = await supabase
     .from('terceros')
     .insert({
@@ -104,7 +107,8 @@ export async function resolverTerceroPorNitCrudo(
       numero_identificacion: base,
       digito_verificacion:   dvCalc,
       razon_social:          datos?.nombre?.trim() || null,
-      es_cliente:            true,        // el tercero del manifiesto es cliente de ISADAN
+      es_cliente:            !esProveedor,
+      es_proveedor:          esProveedor,
       activo:                true,
     })
     .select('id')

@@ -25,6 +25,7 @@ export default function SupplierSelector({
   const [newNombre, setNewNombre] = useState('')
   const [newTipo,   setNewTipo]   = useState<'CLIENTE' | 'PROVEEDOR'>('PROVEEDOR')
   const [saving,    setSaving]    = useState(false)
+  const [createWarning, setCreateWarning] = useState<string | null>(null)
   const debRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -45,6 +46,7 @@ export default function SupplierSelector({
 
   const handleSearch = useCallback((val: string) => {
     setSearch(val)
+    setCreateWarning(null)
     if (!val.trim()) { onChange('', ''); setResults([]); setOpen(false); return }
     if (debRef.current) clearTimeout(debRef.current)
     debRef.current = setTimeout(async () => {
@@ -67,6 +69,7 @@ export default function SupplierSelector({
     setSearch('')
     setResults([])
     setOpen(false)
+    setCreateWarning(null)
   }
 
   const handleCreate = async () => {
@@ -78,6 +81,7 @@ export default function SupplierSelector({
     if (newNit.trim()) fd.set('nit', newNit.trim())
     const res = await crearProveedorAction(fd)
     if (res.ok && res.supplier) {
+      setCreateWarning(res.warning ?? null)
       select(res.supplier)
       setNewNit(''); setNewNombre('')
     }
@@ -105,17 +109,28 @@ export default function SupplierSelector({
         )}
       </div>
       {nit && <p className="mt-1 text-[10px] text-[#94A3B8]">NIT: {nit}</p>}
+      {createWarning && (
+        <p className="mt-1 text-[10px] text-amber-600 flex items-start gap-1">
+          <span className="shrink-0">⚠</span><span>{createWarning}</span>
+        </p>
+      )}
 
       {open && (
         <div className="absolute z-50 w-full mt-1 bg-white border border-[#E2E8F0] rounded-xl shadow-lg overflow-hidden">
           <div className="max-h-48 overflow-y-auto">
             {results.length > 0 ? results.map(s => (
-              <button key={`${s.tipo}-${s.id}`} type="button" onClick={() => select(s)}
+              <button key={s.id} type="button" onClick={() => select(s)}
                 className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-sm hover:bg-[#F1F5F9] transition-colors border-b border-[#E2E8F0] last:border-0">
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
-                  s.tipo === 'CLIENTE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-                }`}>
-                  {s.tipo === 'CLIENTE' ? 'Cliente' : 'Proveedor'}
+                <span className="flex gap-1 shrink-0">
+                  {s.es_cliente && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Cliente</span>
+                  )}
+                  {s.es_proveedor && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Proveedor</span>
+                  )}
+                  {!s.es_cliente && !s.es_proveedor && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">Tercero</span>
+                  )}
                 </span>
                 <span className="text-[#0F172A] font-medium flex-1 min-w-0 truncate">{s.nombre}</span>
                 {s.nit && <span className="text-[10px] text-[#94A3B8] shrink-0">NIT {s.nit}</span>}

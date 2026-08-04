@@ -3,6 +3,8 @@
 import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { normalizarDescripcion, categorizarPorReglas, buscarPorProveedor } from '@/lib/transaction-categorizer'
+import { resolverTerceroPorNitCrudo } from '@/lib/terceros'
+import { normalizarIdentificacion } from '@/lib/nit'
 
 export type TransactionCategory = {
   id: string
@@ -15,33 +17,45 @@ export type TransactionCategory = {
 }
 
 export type SupplierResult = {
-  id: string
-  nit: string | null
+  id: string             // terceros.id (= tercero_id)
+  nit: string | null     // numero_identificacion base (sin DV pegado)
   nombre: string
-  tipo: 'CLIENTE' | 'PROVEEDOR'
+  es_cliente: boolean
+  es_proveedor: boolean
 }
 
 /**
- * Busca "terceros" unificando dos fuentes: clientes (tabla `clients`) y
- * proveedores (tabla `supplier_catalog`). Filtra por nombre o NIT en ambas.
- * No modifica ninguna tabla; solo unifica para la vista del selector.
+ * Busca terceros (catálogo maestro unificado) por NIT o nombre. Un movimiento
+ * bancario puede ser con un cliente, un proveedor, o un tercero que es ambos, así
+ * que devuelve es_cliente/es_proveedor para que el selector pinte el badge correcto.
+ * Excluye los fusionados (merged_into IS NOT NULL). No modifica ninguna tabla.
  */
 export async function buscarProveedoresAction(query: string): Promise<SupplierResult[]> {
   if (query.trim().length < 2) return []
   const q = query.trim()
-  const [cliRes, provRes] = await Promise.all([
-    supabase.from('clients').select('id, nit, name')
-      .or(`name.ilike.%${q}%,nit.ilike.%${q}%`).limit(10),
-    supabase.from('supplier_catalog').select('id, nit, nombre')
-      .or(`nombre.ilike.%${q}%,nit.ilike.%${q}%`).limit(10),
-  ])
-  const clientes: SupplierResult[] = (cliRes.data ?? []).map((c: any) => ({
-    id: c.id, nit: c.nit ?? null, nombre: c.name, tipo: 'CLIENTE' as const,
+  const { data } = await supabase
+    .from('terceros')
+    .select('id, numero_identificacion, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona, es_cliente, es_proveedor')
+    .is('merged_into', null)
+    .or([
+      `numero_identificacion.ilike.%${q}%`,
+      `razon_social.ilike.%${q}%`,
+      `primer_nombre.ilike.%${q}%`,
+      `primer_apellido.ilike.%${q}%`,
+      `segundo_apellido.ilike.%${q}%`,
+      `otros_nombres.ilike.%${q}%`,
+    ].join(','))
+    .limit(10)
+
+  return (data ?? []).map((t: any) => ({
+    id: t.id,
+    nit: t.numero_identificacion ?? null,
+    nombre: t.tipo_persona === 'NATURAL'
+      ? [t.primer_nombre, t.otros_nombres, t.primer_apellido, t.segundo_apellido].filter(Boolean).join(' ')
+      : (t.razon_social ?? ''),
+    es_cliente:   !!t.es_cliente,
+    es_proveedor: !!t.es_proveedor,
   }))
-  const proveedores: SupplierResult[] = (provRes.data ?? []).map((p: any) => ({
-    id: p.id, nit: p.nit ?? null, nombre: p.nombre, tipo: 'PROVEEDOR' as const,
-  }))
-  return [...clientes, ...proveedores]
 }
 
 /**
@@ -50,29 +64,50 @@ export async function buscarProveedoresAction(query: string): Promise<SupplierRe
  */
 export async function crearProveedorAction(
   formData: FormData,
-): Promise<{ ok: boolean; supplier?: SupplierResult; error?: string }> {
-  const nit    = (formData.get('nit') as string)?.trim() || null
+): Promise<{ ok: boolean; supplier?: SupplierResult; error?: string; warning?: string }> {
+  const nitRaw = (formData.get('nit') as string)?.trim() || null
   const nombre = (formData.get('nombre') as string)?.trim()
   const tipo   = (formData.get('tipo') as 'CLIENTE' | 'PROVEEDOR') || 'PROVEEDOR'
   if (!nombre) return { ok: false, error: 'Nombre requerido' }
 
+  // Normalizar el NIT (separa el DV pegado) y registrar/enlazar el tercero maestro.
+  // Mismo blindaje anti-duplicados que la carga de manifiestos. Best-effort: si el
+  // resolver falla, no bloquea la creación del registro legado, pero deja un warning
+  // VISIBLE (el registro queda sin tercero_id → hay que enlazarlo a mano después).
+  let nit = nitRaw
+  let terceroId: string | null = null
+  let warning: string | null = null
+  if (nitRaw) {
+    try {
+      const r = await resolverTerceroPorNitCrudo(nitRaw, { nombre, rol: tipo })
+      nit = r.base
+      terceroId = r.terceroId
+    } catch (e: any) {
+      console.warn('[TERCERO/BANCO] no se pudo resolver el tercero:', e.message)
+      nit = normalizarIdentificacion(nitRaw) || null
+      warning = `"${nombre}" se creó, pero el NIT "${nitRaw}" no se pudo registrar en el catálogo de terceros (${e.message}). Quedó SIN enlace — búscalo en Terceros y enlázalo a mano.`
+    }
+  } else {
+    warning = `"${nombre}" se creó sin NIT, así que no quedó enlazado al catálogo de terceros.`
+  }
+
   if (tipo === 'CLIENTE') {
     const { data, error } = await supabase
       .from('clients')
-      .insert({ name: nombre, nit, active: true })
+      .insert({ name: nombre, nit, active: true, tercero_id: terceroId })
       .select('id, nit, name')
       .single()
     if (error) return { ok: false, error: error.message }
-    return { ok: true, supplier: { id: data.id, nit: data.nit ?? null, nombre: data.name, tipo: 'CLIENTE' } }
+    return { ok: true, supplier: { id: terceroId ?? data.id, nit: data.nit ?? null, nombre: data.name, es_cliente: true, es_proveedor: false }, ...(warning ? { warning } : {}) }
   }
 
   const { data, error } = await supabase
     .from('supplier_catalog')
-    .insert({ nit, nombre })
+    .insert({ nit, nombre, tercero_id: terceroId })
     .select('id, nit, nombre')
     .single()
   if (error) return { ok: false, error: error.message }
-  return { ok: true, supplier: { id: data.id, nit: data.nit ?? null, nombre: data.nombre, tipo: 'PROVEEDOR' } }
+  return { ok: true, supplier: { id: terceroId ?? data.id, nit: data.nit ?? null, nombre: data.nombre, es_cliente: false, es_proveedor: true }, ...(warning ? { warning } : {}) }
 }
 
 export async function crearCategoriaAction(
