@@ -15,7 +15,7 @@ export default function SupplierSelector({
 }: {
   nit: string
   name: string
-  onChange: (nit: string, name: string) => void
+  onChange: (nit: string, name: string, terceroId: string | null) => void
 }) {
   const [search,    setSearch]    = useState(name)
   const [results,   setResults]   = useState<SupplierResult[]>([])
@@ -47,7 +47,7 @@ export default function SupplierSelector({
   const handleSearch = useCallback((val: string) => {
     setSearch(val)
     setCreateWarning(null)
-    if (!val.trim()) { onChange('', ''); setResults([]); setOpen(false); return }
+    if (!val.trim()) { onChange('', '', null); setResults([]); setOpen(false); return }
     if (debRef.current) clearTimeout(debRef.current)
     debRef.current = setTimeout(async () => {
       const res = await buscarProveedoresAction(val)
@@ -57,7 +57,7 @@ export default function SupplierSelector({
   }, [onChange])
 
   const select = (s: SupplierResult) => {
-    onChange(s.nit ?? '', s.nombre)
+    onChange(s.nit ?? '', s.nombre, s.id)
     setSearch(s.nombre)
     setResults([])
     setOpen(false)
@@ -65,7 +65,7 @@ export default function SupplierSelector({
   }
 
   const clearSelection = () => {
-    onChange('', '')
+    onChange('', '', null)
     setSearch('')
     setResults([])
     setOpen(false)

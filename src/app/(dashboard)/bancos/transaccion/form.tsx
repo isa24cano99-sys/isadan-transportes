@@ -49,8 +49,9 @@ export default function TransaccionForm({
   const [description,  setDescription]  = useState('')
   const [supplierNit,  setSupplierNit]  = useState('')
   const [supplierName, setSupplierName] = useState('')
+  const [supplierTerceroId, setSupplierTerceroId] = useState<string | null>(null)
   const [suggestion,   setSuggestion]   = useState<SugerirResult | null>(null)
-  const [tripClientSug, setTripClientSug] = useState<{ nit: string; name: string } | null>(null)
+  const [tripClientSug, setTripClientSug] = useState<{ nit: string; name: string; terceroId: string | null } | null>(null)
   const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const supplierNitRef = useRef('')
   supplierNitRef.current = supplierNit
@@ -83,7 +84,7 @@ export default function TransaccionForm({
     setTripClientSug(null)
     if (!id) return
     const c = await obtenerClienteViajeAction(id)
-    if (c && (c.name || c.nit)) setTripClientSug({ nit: c.nit ?? '', name: c.name ?? '' })
+    if (c && (c.name || c.nit)) setTripClientSug({ nit: c.nit ?? '', name: c.name ?? '', terceroId: c.terceroId })
   }
 
   const handleCancel = () => {
@@ -102,6 +103,7 @@ export default function TransaccionForm({
     fd.set('description',   description)
     fd.set('supplier_nit',  supplierNit)
     fd.set('supplier_name', supplierName)
+    fd.set('tercero_id',    supplierTerceroId ?? '')
     if (tripId) {
       fd.set('reference_type', 'TRIP')
       fd.set('reference_id',   tripId)
@@ -207,7 +209,7 @@ export default function TransaccionForm({
         <SupplierSelector
           nit={supplierNit}
           name={supplierName}
-          onChange={(nit, name) => { setSupplierNit(nit); setSupplierName(name); setTripClientSug(null) }}
+          onChange={(nit, name, terceroId) => { setSupplierNit(nit); setSupplierName(name); setSupplierTerceroId(terceroId); setTripClientSug(null) }}
         />
         {tripClientSug && !supplierNit && !supplierName && (
           <div className="mt-2 flex items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
@@ -215,7 +217,7 @@ export default function TransaccionForm({
               Sugerido del viaje: <span className="font-semibold">{tripClientSug.name || tripClientSug.nit}</span>
             </span>
             <button type="button"
-              onClick={() => { setSupplierNit(tripClientSug.nit); setSupplierName(tripClientSug.name); setTripClientSug(null) }}
+              onClick={() => { setSupplierNit(tripClientSug.nit); setSupplierName(tripClientSug.name); setSupplierTerceroId(tripClientSug.terceroId); setTripClientSug(null) }}
               className="ml-auto shrink-0 text-blue-700 hover:text-blue-900 font-semibold">
               Aceptar
             </button>

@@ -51,6 +51,7 @@ interface Transaction {
   source?: string
   supplier_nit?: string | null
   supplier_name?: string | null
+  tercero_id?: string | null
   reference_type?: string | null
   reference_id?: string | null
   transaction_categories?: TxCategory | null
@@ -62,6 +63,7 @@ type SortCol    = 'date' | 'type' | 'category' | 'description' | 'amount'
 interface EditForm {
   type: string; amount: string; date: string; category_id: string
   description: string; supplier_nit: string; supplier_name: string
+  tercero_id: string | null
   trip_id: string
 }
 
@@ -103,7 +105,7 @@ export default function BankDetailClient({
   const [editTxn,        setEditTxn]        = useState<Transaction | null>(null)
   const [editForm,       setEditForm]       = useState<EditForm | null>(null)
   const [editTripSearch, setEditTripSearch] = useState('')
-  const [editTripClientSug, setEditTripClientSug] = useState<{ nit: string; name: string } | null>(null)
+  const [editTripClientSug, setEditTripClientSug] = useState<{ nit: string; name: string; terceroId: string | null } | null>(null)
   const [saving,         setSaving]         = useState(false)
   const [editError,      setEditError]      = useState('')
   const [editSuggestion, setEditSuggestion] = useState<SugerirResult | null>(null)
@@ -120,6 +122,7 @@ export default function BankDetailClient({
   const [bulkAssigning,  setBulkAssigning]  = useState(false)
   const [bulkSupNit,     setBulkSupNit]     = useState('')
   const [bulkSupName,    setBulkSupName]    = useState('')
+  const [bulkSupTerceroId, setBulkSupTerceroId] = useState<string | null>(null)
   const [bulkProvAssign, setBulkProvAssign] = useState(false)
 
   // Copia local de las transacciones → permite actualizar la vista en tiempo real
@@ -244,6 +247,7 @@ export default function BankDetailClient({
       type: t.type, amount: String(t.amount), date: t.date,
       category_id: t.category_id ?? '', description: t.description,
       supplier_nit: t.supplier_nit ?? '', supplier_name: t.supplier_name ?? '',
+      tercero_id: t.tercero_id ?? null,
       trip_id: t.reference_type === 'TRIP' ? (t.reference_id ?? '') : '',
     })
     setEditTripSearch('')
@@ -265,7 +269,7 @@ export default function BankDetailClient({
     setEditTripClientSug(null)
     if (!id) return
     const c = await obtenerClienteViajeAction(id)
-    if (c && (c.name || c.nit)) setEditTripClientSug({ nit: c.nit ?? '', name: c.name ?? '' })
+    if (c && (c.name || c.nit)) setEditTripClientSug({ nit: c.nit ?? '', name: c.name ?? '', terceroId: c.terceroId })
   }
 
   const handleDeleteConfirm = async () => {
@@ -283,6 +287,7 @@ export default function BankDetailClient({
     fd.set('type', editForm.type); fd.set('amount', editForm.amount); fd.set('date', editForm.date)
     fd.set('category_id', editForm.category_id); fd.set('description', editForm.description)
     fd.set('supplier_nit', editForm.supplier_nit); fd.set('supplier_name', editForm.supplier_name)
+    fd.set('tercero_id', editForm.tercero_id ?? '')
     if (editForm.trip_id) {
       fd.set('reference_type', 'TRIP')
       fd.set('reference_id',   editForm.trip_id)
@@ -328,14 +333,14 @@ export default function BankDetailClient({
     if (!bulkSupName || selectedIds.size === 0) return
     setBulkProvAssign(true)
     const ids = [...selectedIds]
-    const res = await asignarProveedorMasivoAction(ids, bulkSupNit || null, bulkSupName)
+    const res = await asignarProveedorMasivoAction(ids, bulkSupNit || null, bulkSupName, bulkSupTerceroId)
     if (res.ok) {
       // Actualiza la vista en tiempo real sin recargar la página
       const idSet = new Set(ids)
       setTxns(prev => prev.map(t =>
-        idSet.has(t.id) ? { ...t, supplier_nit: bulkSupNit || null, supplier_name: bulkSupName } : t,
+        idSet.has(t.id) ? { ...t, supplier_nit: bulkSupNit || null, supplier_name: bulkSupName, tercero_id: bulkSupTerceroId } : t,
       ))
-      setSelectedIds(new Set()); setBulkSupNit(''); setBulkSupName('')
+      setSelectedIds(new Set()); setBulkSupNit(''); setBulkSupName(''); setBulkSupTerceroId(null)
     }
     setBulkProvAssign(false)
   }
@@ -561,7 +566,7 @@ export default function BankDetailClient({
                     <SupplierSelector
                       nit={bulkSupNit}
                       name={bulkSupName}
-                      onChange={(nit, name) => { setBulkSupNit(nit); setBulkSupName(name) }}
+                      onChange={(nit, name, terceroId) => { setBulkSupNit(nit); setBulkSupName(name); setBulkSupTerceroId(terceroId) }}
                     />
                   </div>
                   <button
@@ -831,14 +836,14 @@ export default function BankDetailClient({
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tercero (opcional)</label>
                 <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
-                  onChange={(nit, name) => { setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name })); setEditTripClientSug(null) }} />
+                  onChange={(nit, name, terceroId) => { setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name, tercero_id: terceroId })); setEditTripClientSug(null) }} />
                 {editTripClientSug && !editForm.supplier_nit && !editForm.supplier_name && (
                   <div className="mt-2 flex items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
                     <span className="text-blue-800 min-w-0 truncate">
                       Sugerido del viaje: <span className="font-semibold">{editTripClientSug.name || editTripClientSug.nit}</span>
                     </span>
                     <button type="button"
-                      onClick={() => { setEditForm(p => p && ({ ...p, supplier_nit: editTripClientSug.nit, supplier_name: editTripClientSug.name })); setEditTripClientSug(null) }}
+                      onClick={() => { setEditForm(p => p && ({ ...p, supplier_nit: editTripClientSug.nit, supplier_name: editTripClientSug.name, tercero_id: editTripClientSug.terceroId })); setEditTripClientSug(null) }}
                       className="ml-auto shrink-0 text-blue-700 hover:text-blue-900 font-semibold">
                       Aceptar
                     </button>

@@ -4,19 +4,19 @@ import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { extraerPatron } from '@/lib/transaction-categorizer'
 
-/** Devuelve el cliente (nombre + NIT) del viaje, para sugerir el tercero. */
+/** Devuelve el cliente (nombre + NIT + tercero_id) del viaje, para sugerir el tercero. */
 export async function obtenerClienteViajeAction(
   tripId: string,
-): Promise<{ nit: string | null; name: string | null } | null> {
+): Promise<{ nit: string | null; name: string | null; terceroId: string | null } | null> {
   if (!tripId) return null
   const { data } = await supabase
     .from('trips')
-    .select('clients(name, nit)')
+    .select('clients(name, nit, tercero_id)')
     .eq('id', tripId)
     .single()
   const c = (data as any)?.clients
   if (!c || (!c.name && !c.nit)) return null
-  return { nit: c.nit ?? null, name: c.name ?? null }
+  return { nit: c.nit ?? null, name: c.name ?? null, terceroId: c.tercero_id ?? null }
 }
 
 function extractTxnFields(formData: FormData) {
@@ -30,6 +30,9 @@ function extractTxnFields(formData: FormData) {
     reference_id:   (formData.get('reference_id') as string) || null,
     supplier_nit:   (formData.get('supplier_nit') as string) || null,
     supplier_name:  (formData.get('supplier_name') as string) || null,
+    // tercero_id: el que el usuario eligió en el selector (respeta la elección exacta,
+    // no se re-resuelve por NIT en el backend). '' → null (no se eligió tercero).
+    tercero_id:     (formData.get('tercero_id') as string) || null,
   }
 }
 
@@ -164,12 +167,13 @@ export async function asignarProveedorMasivoAction(
   ids: string[],
   supplierNit: string | null,
   supplierName: string,
+  terceroId: string | null = null,
 ): Promise<{ ok: boolean; error?: string; updated: number }> {
   if (!ids.length || !supplierName?.trim()) return { ok: false, error: 'Datos incompletos', updated: 0 }
 
   const { error } = await supabase
     .from('bank_transactions')
-    .update({ supplier_nit: supplierNit?.trim() || null, supplier_name: supplierName.trim() })
+    .update({ supplier_nit: supplierNit?.trim() || null, supplier_name: supplierName.trim(), tercero_id: terceroId })
     .in('id', ids)
 
   if (error) return { ok: false, error: error.message, updated: 0 }
