@@ -15,8 +15,8 @@ async function getData() {
     .not('tercero_id', 'is', null)
     .order('full_name')
 
-  // fondos de pensión por NIT conocido; el default sugerido es Protección
-  const FONDOS_NIT = ['800300739', '900336004'] // Protección, Colpensiones
+  // fondos de pensión por NIT conocido (verificados contra PILA); Protección es el sugerido
+  const FONDOS_NIT = ['800229739', '900336004'] // Protección (NIT correcto PILA), Colpensiones
   const { data: fondosRaw } = await supabase
     .from('terceros')
     .select('id, razon_social, numero_identificacion')
@@ -26,7 +26,7 @@ async function getData() {
   const fondos = (fondosRaw ?? []).map(f => ({
     id: f.id as string,
     nombre: (f.razon_social ?? f.numero_identificacion) as string,
-    esDefault: f.numero_identificacion === '800300739',
+    esDefault: f.numero_identificacion === '800229739',
   }))
 
   const conductores = (drivers ?? []).map(d => ({
