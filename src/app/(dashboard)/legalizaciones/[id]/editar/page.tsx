@@ -60,12 +60,17 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
 
   // Reconstruir gastos fijos + adicionales desde legalization_expenses
   let percentage = 0
+  let comision = 0
   const fixedExpenses: Record<string, number> = {}
   const dynExpenses: DynExpenseInit[] = []
 
   for (const e of expenses) {
     if (e.expense_type === 'porcentaje') {
       percentage = e.description ? Number(e.description) : 0
+      continue
+    }
+    if (e.expense_type === 'comision_empresa') {
+      comision = e.amount ?? 0
       continue
     }
 
@@ -109,6 +114,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
     freight,
     advance:     leg.advance_amount ?? 0,
     percentage,
+    comision,
     fixedExpenses,
     dynExpenses,
   }

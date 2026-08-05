@@ -47,6 +47,7 @@ export interface LegalizacionInitialData {
   freight: number
   advance: number
   percentage: number
+  comision: number
   fixedExpenses: Record<string, number>
   dynExpenses: DynExpenseInit[]
 }
@@ -81,6 +82,10 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   // Default 10%. En edición, muestra el valor guardado si existe (> 0); si no, 10.
   const [percentage,  setPercentage]  = useState(
     initialData && initialData.percentage > 0 ? String(initialData.percentage) : '10',
+  )
+  // Comisión empresa: opcional, no todos los viajes la tienen (default vacío)
+  const [comision,    setComision]    = useState(
+    initialData && initialData.comision > 0 ? String(initialData.comision) : '',
   )
   const [weightKg,    setWeightKg]    = useState(initTrip?.weight_kg     != null ? String(initTrip.weight_kg)     : '')
   const [pricePerTon, setPricePerTon] = useState(initTrip?.price_per_ton != null ? String(initTrip.price_per_ton) : '')
@@ -176,12 +181,13 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   // ── Calculated totals ───────────────────────────────────────────────────────
   const gastosFijos       = FIXED_FIELDS.reduce((s, f) => s + num(fixed[f.key]), 0)
   const gastosAdicionales = dynExpenses.reduce((s, r) => s + num(r.amount), 0)
-  const gastosViaje       = gastosFijos + gastosAdicionales               // sin porcentaje
+  const gastosViaje       = gastosFijos + gastosAdicionales               // sin porcentaje ni comisión
   const porcentajeCalc    = num(freight) * (num(percentage) / 100)
-  const totalGastos       = gastosViaje + porcentajeCalc
+  const comisionNum       = num(comision)
+  const totalGastos       = gastosViaje + porcentajeCalc + comisionNum
   const advanceNum        = num(advance)
   const subtotal          = advanceNum - gastosViaje                      // anticipo − gastos del viaje
-  const balance           = subtotal - porcentajeCalc                     // >0 conductor debe · <0 empresa debe
+  const balance           = subtotal - porcentajeCalc - comisionNum       // >0 conductor debe · <0 empresa debe
 
   // ── Form data builder ───────────────────────────────────────────────────────
   function buildFormData() {
@@ -192,6 +198,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
     fd.set('freight',       freight)
     fd.set('advance',       advance)
     fd.set('percentage',    percentage)
+    fd.set('comision_empresa', comision)
     fd.set('weight_kg',     weightKg)
     fd.set('price_per_ton', pricePerTon)
     fd.set('fixed_expenses', JSON.stringify(
@@ -377,9 +384,9 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
           <Plus size={13} /> Agregar gasto
         </button>
 
-        {/* Porcentaje conductor */}
-        <div className="mt-5 pt-5 border-t border-[#E2E8F0]">
-          <div className="max-w-xs">
+        {/* Porcentaje conductor + comisión empresa */}
+        <div className="mt-5 pt-5 border-t border-[#E2E8F0] grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
             <label className={labelCls}>Porcentaje ganancia conductor (%)</label>
             <input name="percentage" type="number" min="0" max="100" step="0.01"
               value={percentage} onChange={e => setPercentage(e.target.value)} placeholder="10" className={inputCls} />
@@ -388,6 +395,12 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
                 = {formatCOP(porcentajeCalc)} ({percentage}% de {formatCOP(num(freight))})
               </p>
             )}
+          </div>
+          <div>
+            <label className={labelCls}>Comisión empresa (COP)</label>
+            <input name="comision_empresa" type="number" min="0" step="0.01"
+              value={comision} onChange={e => setComision(e.target.value)} placeholder="0 (opcional)" className={inputCls} />
+            <p className="text-xs text-[#94A3B8] mt-1">Opcional. Se contabiliza contra Consumidor Final.</p>
           </div>
         </div>
       </div>
@@ -413,11 +426,17 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
             </div>
           </div>
 
-          {/* Paso 2: subtotal − porcentaje conductor = balance */}
+          {/* Paso 2: subtotal − porcentaje conductor − comisión = balance */}
           <div className="flex items-center justify-between pt-1">
             <span className="text-sm text-[#64748B]">(−) Porcentaje conductor ({num(percentage)}%)</span>
             <span className="text-sm text-[#0F172A] tabular-nums">{formatCOP(porcentajeCalc)}</span>
           </div>
+          {comisionNum > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-[#64748B]">(−) Comisión empresa</span>
+              <span className="text-sm text-[#0F172A] tabular-nums">{formatCOP(comisionNum)}</span>
+            </div>
+          )}
           <div className="border-t border-[#E2E8F0] pt-2.5">
             <div className="flex items-start justify-between">
               <span className="text-sm font-semibold text-[#0F172A]">(=) Balance</span>
@@ -473,6 +492,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
               <PreviewRow label="Gastos fijos"       value={formatCOP(gastosFijos)} />
               <PreviewRow label="Gastos adicionales" value={formatCOP(gastosAdicionales)} />
               <PreviewRow label={`Porcentaje conductor (${percentage}%)`} value={formatCOP(porcentajeCalc)} />
+              {comisionNum > 0 && <PreviewRow label="Comisión empresa" value={formatCOP(comisionNum)} />}
               <PreviewRow label="(−) Total gastos"   value={formatCOP(totalGastos)} />
               <div className="border-t border-[#E2E8F0] pt-2 mt-2 flex justify-between font-semibold">
                 <span className="text-[#0F172A]">Balance</span>
@@ -494,6 +514,9 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
                 })}
                 {porcentajeCalc > 0 && (
                   <PreviewRow label={`Porcentaje conductor (${percentage}%)`} value={formatCOP(porcentajeCalc)} />
+                )}
+                {comisionNum > 0 && (
+                  <PreviewRow label="Comisión empresa" value={formatCOP(comisionNum)} />
                 )}
               </Section>
             )}

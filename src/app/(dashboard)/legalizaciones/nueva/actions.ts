@@ -12,6 +12,7 @@ function buildLegalizationPayload(formData: FormData) {
   const freight    = Number(formData.get('freight') ?? 0)
   const advance    = Number(formData.get('advance') ?? 0)
   const percentage = Number(formData.get('percentage') ?? 0)
+  const comision   = Number(formData.get('comision_empresa') ?? 0)
 
   const weight_kg    = formData.get('weight_kg')     ? Number(formData.get('weight_kg'))     : null
   const price_per_ton = formData.get('price_per_ton') ? Number(formData.get('price_per_ton')) : null
@@ -52,7 +53,14 @@ function buildLegalizationPayload(formData: FormData) {
     gastos_viaje += porcentaje_calculado
   }
 
-  // total_expenses = fijos + adicionales + porcentaje; balance (generado) = advance - total_expenses
+  // 4. Comisión empresa (opcional): campo estructurado, expense_type dedicado (no 'otros').
+  //    Cuenta dentro del total de gastos, igual que el porcentaje.
+  if (comision > 0) {
+    expenses.push({ expense_type: 'comision_empresa', amount: comision, description: 'Comisión empresa' })
+    gastos_viaje += comision
+  }
+
+  // total_expenses = fijos + adicionales + porcentaje + comisión; balance (generado) = advance - total_expenses
   return { trip_id, driver_id, date, freight, advance, gastos_viaje, expenses, weight_kg, price_per_ton }
 }
 
