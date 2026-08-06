@@ -35,6 +35,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/contabilidad/anticipo-conductor', label: 'Anticipo cond.',   icon: Coins },
   { href: '/contabilidad/peajes',            label: 'Peajes (F2X)',     icon: TrafficCone },
   { href: '/contabilidad/pago-proveedores',  label: 'Pago proveedores', icon: CreditCard },
+  { href: '/contabilidad/conciliacion-costos', label: 'Conciliar costos DIAN', icon: FileCheck },
   { href: '/contabilidad/libro-diario',      label: 'Libro diario',     icon: BookOpen },
   { href: '/contabilidad/libro-mayor',       label: 'Libro mayor',      icon: BookText },
   { href: '/contabilidad/balance-comprobacion', label: 'Balance compr.', icon: Scale },
