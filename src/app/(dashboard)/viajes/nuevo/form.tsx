@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { crearViajeAction, editarViajeAction } from './actions'
+import { crearViajeAction, editarViajeAction, parsearManifiestoTextoAction, type ManifiestoParseResult } from './actions'
 
 const COLOMBIA_GEO: Record<string, string[]> = {
   'Amazonas':             ['Leticia'],
@@ -97,10 +97,20 @@ function calcFreight(kg: string, ppt: string): number | null {
 
 export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) {
   const router = useRouter()
+  const formRef = useRef<HTMLFormElement>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isEdit = !!trip
-  const isManifest = !!trip?.manifest_auth
+
+  // Pegado de manifiesto por texto
+  const [pasteText, setPasteText] = useState('')
+  const [parsing, setParsing] = useState(false)
+  const [pasted, setPasted] = useState(false)
+  const [parseResult, setParseResult] = useState<ManifiestoParseResult | null>(null)
+
+  // origen/destino en texto libre cuando el viaje viene de un manifiesto (edición) o
+  // cuando se autocompletó desde texto pegado (la ciudad del portal no está en el dropdown).
+  const isManifest = !!trip?.manifest_auth || pasted
 
   const initOrigin = trip ? parseLocation(trip.origin) : { dept: '', city: '' }
   const initDest   = trip ? parseLocation(trip.destination) : { dept: '', city: '' }
@@ -128,6 +138,40 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
     setPricePerTon(v)
     const c = calcFreight(weightKg, v)
     if (c !== null) setFreight(String(c))
+  }
+
+  const handleAutocompletar = async () => {
+    setParsing(true); setError(''); setParseResult(null)
+    const r = await parsearManifiestoTextoAction(pasteText)
+    setParsing(false)
+    if (!r.ok) { setError(r.error ?? 'No se pudo leer el texto pegado'); return }
+    setParseResult(r)
+    setPasted(true)   // origen/destino pasan a texto libre
+
+    // origen / destino / flete van por estado (campos controlados)
+    if (r.origin) setOriginText(r.origin)
+    if (r.destination) setDestText(r.destination)
+    if (r.freight_value != null) setFreight(String(r.freight_value))
+
+    // el resto son campos no controlados: se fijan por el DOM, sobrescribiendo lo que haya
+    // y dejando intacto lo que no tenga match (vehículo, mercancía).
+    const f = formRef.current
+    if (f) {
+      const set = (name: string, val: string) => {
+        const el = f.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null
+        if (el) el.value = val
+      }
+      if (r.manifest_number) set('manifest_number', r.manifest_number)
+      if (r.manifest_auth)   set('manifest_auth', r.manifest_auth)
+      if (r.load_date)       set('load_date', r.load_date)
+      if (r.advance_amount != null) set('advance_amount', String(r.advance_amount))
+      if (r.driver_id)  set('driver_id', r.driver_id)
+      if (r.tercero_id) set('tercero_id', r.tercero_id)
+      if (r.notes) {
+        const notesEl = f.elements.namedItem('notes') as HTMLTextAreaElement | null
+        if (notesEl) notesEl.value = notesEl.value ? `${notesEl.value}\n\n${r.notes}` : r.notes
+      }
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -170,7 +214,51 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-5">
+    <form ref={formRef} onSubmit={handleSubmit} className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-5">
+
+      {/* Autocompletar desde texto del portal (solo al crear) */}
+      {!isEdit && (
+        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-4 space-y-2">
+          <label className="block text-xs font-semibold text-[#64748B]">Autocompletar desde texto del portal</label>
+          <p className="text-xs text-[#94A3B8]">
+            Pega el texto crudo del manifiesto (los dos bloques) y se rellenan los campos. Revisa antes de crear.
+          </p>
+          <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={3}
+            placeholder="OrigenGIRARDOTA ANTIOQUIADestino…" className={`${INP} resize-none font-mono text-xs`} />
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={handleAutocompletar} disabled={parsing || !pasteText.trim()}
+              className="text-xs bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg">
+              {parsing ? 'Leyendo…' : 'Autocompletar'}
+            </button>
+            {parseResult?.ok && (
+              <span className="text-xs text-emerald-700">✓ Campos rellenados — revísalos abajo</span>
+            )}
+          </div>
+          {parseResult?.ok && (
+            <div className="text-xs space-y-1 pt-1">
+              {parseResult.yaExiste && (
+                <p className="text-red-600 font-medium">⚠ El manifiesto (autorización {parseResult.manifest_auth}) ya está cargado{parseResult.yaExisteViaje ? ` en el viaje ${parseResult.yaExisteViaje}` : ''}.</p>
+              )}
+              <p className={parseResult.driverEncontrado ? 'text-[#64748B]' : 'text-amber-700'}>
+                {parseResult.driverEncontrado ? '✓' : '⚠'} Conductor: {parseResult.conductor_texto ?? '—'}
+                {!parseResult.driverEncontrado && ' (no encontrado por cédula — selecciónalo a mano)'}
+              </p>
+              <p className={parseResult.terceroEncontrado ? 'text-[#64748B]' : 'text-amber-700'}>
+                {parseResult.terceroEncontrado ? '✓' : '⚠'} Cliente: {parseResult.empresa_texto ?? '—'}
+                {parseResult.terceroAmbiguo
+                  ? ' (varios clientes coinciden con ese nombre — selecciónalo a mano)'
+                  : !parseResult.terceroEncontrado && ' (sin NIT en el texto — verifica/selecciona el cliente)'}
+              </p>
+              {parseResult.notes && (
+                <p className="text-[#94A3B8]">Retenciones y valores extra guardados en Notas (revísalos).</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Radicado / Autorización (clave anti-duplicado; se llena al autocompletar) */}
+      <input type="hidden" name="manifest_auth" defaultValue={trip?.manifest_auth ?? ''} />
 
       {/* Manifiesto */}
       <div>
