@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
   Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
-  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Briefcase, Building, TrendingUp, Lock, type LucideIcon,
+  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Briefcase, Building, TrendingUp, Lock, FileSpreadsheet, type LucideIcon,
 } from 'lucide-react'
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
@@ -42,6 +42,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/contabilidad/estado-situacion',  label: 'Estado situación', icon: Building },
   { href: '/contabilidad/estado-resultados', label: 'Estado resultados (ERI)', icon: TrendingUp },
   { href: '/contabilidad/cierre-periodo',    label: 'Cierre de periodo',  icon: Lock },
+  { href: '/contabilidad/exogena-consulta',  label: 'Exógena (consulta)', icon: FileSpreadsheet },
   { href: '/reportes',            label: 'Estado resultados', icon: BarChart3 },
   { href: '/impuesto',            label: 'Impuesto SIMPLE',  icon: Receipt },
 ]
