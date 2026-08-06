@@ -22,17 +22,23 @@ export type LineaMov = {
   credito: number
 }
 
-export async function fetchLineasContabilizadas(): Promise<LineaMov[]> {
-  const { data } = await supabase
+export async function fetchLineasContabilizadas(
+  opts?: { periodo?: string; excluirCierre?: boolean },
+): Promise<LineaMov[]> {
+  let query = supabase
     .from('journal_entry_lines')
     .select(
       'debito, credito, centro_costo, cuenta_puc,' +
       'puc_accounts(nombre, naturaleza),' +
       'terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),' +
-      'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, estado)',
+      'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, estado, periodo)',
     )
     .eq('journal_entries.estado', 'CONTABILIZADO')
 
+  if (opts?.periodo) query = query.eq('journal_entries.periodo', opts.periodo)
+  if (opts?.excluirCierre) query = query.neq('journal_entries.tipo_comprobante', 'CC')
+
+  const { data } = await query
   return ((data ?? []) as any[]).map(l => ({
     cuenta:       l.cuenta_puc,
     cuentaNombre: l.puc_accounts?.nombre ?? '',
@@ -80,8 +86,10 @@ export const SUBGRUPO: Record<string, string> = {
   '61': 'Costo de ventas', '62': 'Compras', '73': 'Costos de producción',
 }
 
-export async function getEstructuraFinanciera(): Promise<EstructuraFin> {
-  const lineas = await fetchLineasContabilizadas()
+export async function getEstructuraFinanciera(
+  opts?: { periodo?: string; excluirCierre?: boolean },
+): Promise<EstructuraFin> {
+  const lineas = await fetchLineasContabilizadas(opts)
   const acc = new Map<string, { nombre: string; d: number; c: number }>()
   for (const l of lineas) {
     let a = acc.get(l.cuenta)
@@ -106,6 +114,22 @@ export async function getEstructuraFinanciera(): Promise<EstructuraFin> {
     cuentas, ingresos, costos, gastos, utilidad: ingresos - costos - gastos,
     activo: sumClase('1'), pasivo: sumClase('2'), patrimonio: sumClase('3'),
   }
+}
+
+// Periodos (YYYY-MM) con actividad de RESULTADO (clase 4-7), excluyendo asientos de
+// cierre (CC) — los meses que tienen algo que mostrar en el Estado de Resultados.
+// Más recientes primero. (Meses con solo movimiento de balance no aparecen.)
+export async function getPeriodosDisponibles(): Promise<string[]> {
+  const { data } = await supabase
+    .from('journal_entry_lines')
+    .select('cuenta_puc, journal_entries!inner(periodo, estado, tipo_comprobante)')
+    .eq('journal_entries.estado', 'CONTABILIZADO')
+    .neq('journal_entries.tipo_comprobante', 'CC')
+  const set = new Set<string>()
+  for (const l of (data ?? []) as any[]) {
+    if (['4', '5', '6', '7'].includes(String(l.cuenta_puc).charAt(0))) set.add(l.journal_entries.periodo)
+  }
+  return [...set].sort((a, b) => b.localeCompare(a))
 }
 
 // Agrupa cuentas de las clases dadas por subgrupo (2 dígitos), con subtotal.

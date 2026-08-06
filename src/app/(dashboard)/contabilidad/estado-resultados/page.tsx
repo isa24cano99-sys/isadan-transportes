@@ -1,4 +1,5 @@
-import { getEstructuraFinanciera, agruparPorSubgrupo, type CuentaFin } from '@/lib/contabilidad-saldos'
+import Link from 'next/link'
+import { getEstructuraFinanciera, agruparPorSubgrupo, getPeriodosDisponibles, type CuentaFin } from '@/lib/contabilidad-saldos'
 import { formatCOP } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
@@ -42,17 +43,35 @@ function Grupo({ titulo, clases, cuentas }: { titulo: string; clases: string[]; 
   )
 }
 
-export default async function EstadoResultadosPage() {
-  const e = await getEstructuraFinanciera()
+export default async function EstadoResultadosPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
+  const periodos = await getPeriodosDisponibles()
+  const sp = await searchParams
+  const sel = (sp.periodo && periodos.includes(sp.periodo)) ? sp.periodo : (periodos[0] ?? '')
+  // Period-aware: solo el mes seleccionado, EXCLUYENDO el asiento de cierre (CC) — así un mes
+  // ya cerrado sigue mostrando su actividad bruta, no cero. (El ESF sí es acumulado.)
+  const e = await getEstructuraFinanciera({ periodo: sel, excluirCierre: true })
   return (
     <div className="p-6 max-w-3xl">
       <div className="mb-5">
         <h1 className="text-xl font-semibold text-[#0F172A]">Estado de Resultados</h1>
         <p className="text-sm text-[#64748B] mt-0.5">
-          Ingresos − Costos − Gastos = Utilidad (pérdida) del ejercicio. Sobre el libro contable
-          (asientos contabilizados), clasificado por clase de cuenta PUC.
+          Ingresos − Costos − Gastos = Utilidad (pérdida) del ejercicio, <strong>del periodo {sel || '—'}</strong>.
+          Sobre el libro contable, clasificado por clase de cuenta PUC (excluye el asiento de cierre).
         </p>
       </div>
+
+      {periodos.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {periodos.map(p => (
+            <Link key={p} href={`/contabilidad/estado-resultados?periodo=${p}`}
+              className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors ${
+                p === sel ? 'bg-[#2563EB] text-white border-[#2563EB]' : 'bg-white text-[#64748B] border-[#E2E8F0] hover:bg-[#F8FAFC]'
+              }`}>
+              {p}
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-3">
         <Grupo titulo="Ingresos" clases={['4']} cuentas={e.cuentas} />
