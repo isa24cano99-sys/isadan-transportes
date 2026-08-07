@@ -17,7 +17,7 @@ async function getTrips() {
       drivers(id, full_name),
       invoices(invoice_number, issue_date)
     `)
-    .order('created_at', { ascending: false })
+    .order('load_date', { ascending: false, nullsFirst: false })
 
   if (error) {
     console.error('ERROR VIAJES:', JSON.stringify(error))
