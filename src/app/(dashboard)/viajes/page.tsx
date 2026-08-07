@@ -12,6 +12,7 @@ async function getTrips() {
       id, trip_number, manifest_auth, manifest_number, origin, destination, load_date,
       freight_value, advance_amount, status, notes, dataico_invoice_id,
       clients(id, name),
+      terceros(id, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),
       vehicles(id, plate, brand),
       drivers(id, full_name),
       invoices(invoice_number, issue_date)

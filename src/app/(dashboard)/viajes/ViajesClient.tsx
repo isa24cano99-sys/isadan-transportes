@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { generarFacturaAction } from './[id]/actions'
 import { useUrlState } from '@/lib/useUrlState'
+import { nombreTercero } from '@/lib/tercero-nombre'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   PLANEADO:   { label: 'Planeado',   className: 'bg-gray-100 text-gray-600' },
@@ -36,11 +37,20 @@ type Trip = {
   dataico_invoice_id: string | null
   invoices: InvoiceInfo[] | null
   clients: { id: string; name: string } | null
+  terceros: {
+    id: string; razon_social: string | null; primer_nombre: string | null; otros_nombres: string | null
+    primer_apellido: string | null; segundo_apellido: string | null; tipo_persona: string | null
+  } | null
   vehicles: { id: string; plate: string; brand: string } | null
   drivers: { id: string; full_name: string } | null
 }
 
 type Tab = 'todos' | 'por_facturar' | 'facturados'
+
+// Nombre del cliente para mostrar/agrupar: el canónico del TERCERO (deduplicado), con
+// fallback al legacy clients.name solo si por alguna razón faltara el tercero.
+const nombreCliente = (t: Trip): string =>
+  (t.terceros ? nombreTercero(t.terceros) : '') || t.clients?.name || ''
 
 export default function ViajesClient({ trips }: { trips: Trip[] }) {
   const router = useRouter()
@@ -72,10 +82,12 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                  : tab === 'facturados'   ? facturados
                  : trips
 
-  // Clientes y conductores únicos presentes en los viajes
+  // Clientes únicos presentes en los viajes — agrupados por el TERCERO real (tercero_id),
+  // no por el client_id legacy. Esto colapsa las variantes de texto (typos/puntuación) que
+  // apuntan al mismo tercero en una sola opción. El filtrado (abajo) también es por tercero.
   const clientesUnicos = useMemo(() => {
     const m = new Map<string, string>()
-    for (const t of trips) if (t.clients) m.set(t.clients.id, t.clients.name)
+    for (const t of trips) if (t.terceros) m.set(t.terceros.id, nombreCliente(t))
     return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [trips])
   const conductoresUnicos = useMemo(() => {
@@ -98,7 +110,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
       if (rt && !`${t.origin} ${t.destination}`.toLowerCase().includes(rt)) return false
       if (desde && (t.load_date ?? '') < desde) return false
       if (hasta && (t.load_date ?? '') > hasta) return false
-      if (clienteId   && t.clients?.id !== clienteId)   return false
+      if (clienteId   && t.terceros?.id !== clienteId)  return false
       if (conductorId && t.drivers?.id !== conductorId) return false
       if (estado      && t.status !== estado)           return false
       return true
@@ -253,7 +265,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                         <p className="text-xs text-[#0F172A]">{trip.origin}</p>
                         <p className="text-xs text-[#64748B]">→ {trip.destination}</p>
                       </td>
-                      <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.clients?.name}</td>
+                      <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{nombreCliente(trip)}</td>
                       <td className="px-3 py-2 text-xs font-mono text-[#0F172A]">{trip.vehicles?.plate}</td>
                       <td className="px-3 py-2 text-xs text-[#64748B] hidden lg:table-cell">{formatDate(trip.load_date)}</td>
                       <td className="px-3 py-2 text-xs font-semibold text-right text-[#0F172A]">{formatCOP(trip.freight_value)}</td>
@@ -302,7 +314,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                   </div>
                   <p className="text-sm font-medium text-[#0F172A]">{trip.origin} → {trip.destination}</p>
                   <p className="text-xs text-[#64748B] mt-0.5">
-                    {[trip.clients?.name, trip.vehicles?.plate, formatDate(trip.load_date)].filter(Boolean).join(' · ')}
+                    {[nombreCliente(trip), trip.vehicles?.plate, formatDate(trip.load_date)].filter(Boolean).join(' · ')}
                   </p>
                   <div className="mt-2.5">
                     {success ? (
@@ -376,7 +388,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                         <p className="text-xs text-[#0F172A]">{trip.origin}</p>
                         <p className="text-xs text-[#64748B]">→ {trip.destination}</p>
                       </td>
-                      <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.clients?.name}</td>
+                      <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{nombreCliente(trip)}</td>
                       <td className="px-3 py-2 text-xs font-semibold text-right text-[#0F172A]">{formatCOP(trip.freight_value)}</td>
                       <td className="px-3 py-2 text-xs text-[#64748B] hidden lg:table-cell">
                         {inv?.issue_date ? formatDate(inv.issue_date) : '—'}
@@ -420,7 +432,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                     <span className="text-sm font-bold text-[#0F172A]">{formatCOP(trip.freight_value)}</span>
                     {inv?.issue_date
                       ? <span className="text-xs text-[#94A3B8]">{formatDate(inv.issue_date)}</span>
-                      : trip.clients?.name && <span className="text-xs text-[#94A3B8] truncate max-w-[140px]">{trip.clients.name}</span>
+                      : nombreCliente(trip) && <span className="text-xs text-[#94A3B8] truncate max-w-[140px]">{nombreCliente(trip)}</span>
                     }
                   </div>
                 </div>
@@ -485,7 +497,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                         <p className="text-xs text-[#0F172A]">{trip.origin}</p>
                         <p className="text-xs text-[#64748B]">→ {trip.destination}</p>
                       </td>
-                      <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.clients?.name}</td>
+                      <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{nombreCliente(trip)}</td>
                       <td className="px-3 py-2 text-xs text-[#0F172A]">{trip.vehicles?.plate}</td>
                       <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.drivers?.full_name}</td>
                       <td className="px-3 py-2 text-xs text-[#64748B] hidden lg:table-cell">{formatDate(trip.load_date)}</td>
@@ -547,8 +559,8 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-sm font-bold text-[#0F172A]">{formatCOP(trip.freight_value)}</span>
-                    {trip.clients?.name && (
-                      <span className="text-xs text-[#94A3B8] truncate max-w-[140px]">{trip.clients.name}</span>
+                    {nombreCliente(trip) && (
+                      <span className="text-xs text-[#94A3B8] truncate max-w-[140px]">{nombreCliente(trip)}</span>
                     )}
                   </div>
                 </div>

@@ -11,8 +11,12 @@
 */
 
 import { supabase } from '@/lib/supabase'
-import { getDataicoCustomers } from '@/lib/dataico'
 import { revalidatePath } from 'next/cache'
+
+// Varias actions de escritura quedaron DESHABILITADAS (solo lectura): la gestión de
+// proveedores/clientes se hace ahora desde /terceros. Escribían directo a suppliers/
+// supplier_catalog/clients SIN pasar por terceros. Se conservan pero con early-return.
+const DESHABILITADO = 'Deshabilitado — la gestión de proveedores/clientes ahora se hace desde /terceros'
 
 export type Supplier = {
   id: string
@@ -55,91 +59,19 @@ export type MergedRow = {
   cuenta_puc:        string | null
 }
 
-export async function sincronizarProveedoresAction() {
-  // 1. Unique (nit_issuer, name_issuer) from DIAN imports
-  const { data: dianRows, error: dianErr } = await supabase
-    .from('dian_invoices_import')
-    .select('nit_issuer, name_issuer')
-    .not('nit_issuer', 'is', null)
-    .neq('nit_issuer', '')
-
-  if (dianErr) return { ok: false, error: dianErr.message }
-
-  const uniqueMap = new Map<string, string>()
-  for (const r of (dianRows ?? [])) {
-    if (r.nit_issuer && !uniqueMap.has(r.nit_issuer)) {
-      uniqueMap.set(r.nit_issuer, r.name_issuer ?? '')
-    }
-  }
-
-  if (uniqueMap.size === 0) {
-    return { ok: true, inserted: 0, updated: 0, message: 'No hay facturas DIAN importadas con NIT emisor.' }
-  }
-
-  // 2. Dataico customers for cross-reference (enrichment)
-  let dataicoMap = new Map<string, Awaited<ReturnType<typeof getDataicoCustomers>>[number]>()
-  try {
-    const customers = await getDataicoCustomers()
-    dataicoMap = new Map(customers.map(c => [c.party_identification, c]))
-  } catch {
-    // Non-fatal — continue without Dataico enrichment
-  }
-
-  // 3. Build rows
-  const rows = [...uniqueMap.entries()].map(([nit, nameFromDian]) => {
-    const dc = dataicoMap.get(nit)
-    return {
-      nit,
-      name:       dc?.company_name ?? nameFromDian,
-      dataico_id: dc?.id           ?? null,
-      email:      dc?.email        ?? null,
-      phone:      dc?.phone        ?? null,
-      category:   dc?.party_type   ?? null,
-      active:     true,
-      updated_at: new Date().toISOString(),
-    }
-  })
-
-  // 4. Check existing suppliers by NIT
-  const { data: existing } = await supabase.from('suppliers').select('nit, id')
-  const existingNits = new Map((existing ?? []).map(e => [e.nit, e.id as string]))
-
-  const toInsert = rows.filter(r => !existingNits.has(r.nit))
-  const toUpdate = rows.filter(r => existingNits.has(r.nit))
-
-  if (toInsert.length > 0) {
-    const { error } = await supabase.from('suppliers').insert(toInsert)
-    if (error) return { ok: false, error: error.message }
-  }
-
-  for (const row of toUpdate) {
-    await supabase.from('suppliers').update(row).eq('nit', row.nit)
-  }
-
-  revalidatePath('/proveedores')
-  return {
-    ok: true,
-    inserted: toInsert.length,
-    updated:  toUpdate.length,
-    enriched: [...uniqueMap.keys()].filter(nit => dataicoMap.has(nit)).length,
-  }
+export async function sincronizarProveedoresAction(): Promise<{ ok: false; error: string }> {
+  return { ok: false, error: DESHABILITADO }
 }
 
 export async function actualizarProveedorAction(
-  id: string,
-  data: { name: string; category: string | null; account_code: string | null },
+  _id: string,
+  _data: { name: string; category: string | null; account_code: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.from('suppliers').update(data).eq('id', id)
-  if (error) return { ok: false, error: error.message }
-  revalidatePath('/proveedores')
-  return { ok: true }
+  return { ok: false, error: DESHABILITADO }
 }
 
-export async function eliminarProveedorAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.from('suppliers').delete().eq('id', id)
-  if (error) return { ok: false, error: error.message }
-  revalidatePath('/proveedores')
-  return { ok: true }
+export async function eliminarProveedorAction(_id: string): Promise<{ ok: boolean; error?: string }> {
+  return { ok: false, error: DESHABILITADO }
 }
 
 /**
@@ -189,29 +121,10 @@ export async function getProveedoresAction() {
  * NO elimina del catálogo — eso se confirma aparte con `eliminarDeCatalogoAction`.
  */
 export async function moverAClienteAction(
-  nit: string | null,
-  name: string,
+  _nit: string | null,
+  _name: string,
 ): Promise<{ ok: boolean; created: boolean; error?: string }> {
-  if (!nit) return { ok: false, created: false, error: 'El registro no tiene NIT.' }
-
-  const { data: existing, error: selErr } = await supabase
-    .from('clients').select('id').eq('nit', nit).maybeSingle()
-  if (selErr) {
-    console.error('[moverACliente] consulta clients:', selErr.message)
-    return { ok: false, created: false, error: selErr.message }
-  }
-  if (existing) return { ok: true, created: false } // ya existe como cliente
-
-  const { error: insErr } = await supabase
-    .from('clients').insert({ name, nit, active: true })
-  if (insErr) {
-    console.error('[moverACliente] insert clients:', insErr.message)
-    return { ok: false, created: false, error: insErr.message }
-  }
-
-  revalidatePath('/proveedores')
-  revalidatePath('/clientes')
-  return { ok: true, created: true }
+  return { ok: false, created: false, error: DESHABILITADO }
 }
 
 /** Elimina una entrada de `supplier_catalog` por id (paso de confirmación tras mover a clientes). */
