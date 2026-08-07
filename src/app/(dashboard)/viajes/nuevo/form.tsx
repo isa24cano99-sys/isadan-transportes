@@ -165,8 +165,10 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
       if (r.manifest_auth)   set('manifest_auth', r.manifest_auth)
       if (r.load_date)       set('load_date', r.load_date)
       if (r.advance_amount != null) set('advance_amount', String(r.advance_amount))
-      if (r.driver_id)  set('driver_id', r.driver_id)
-      if (r.tercero_id) set('tercero_id', r.tercero_id)
+      if (r.load_content)    set('load_content', r.load_content)
+      if (r.driver_id)   set('driver_id', r.driver_id)
+      if (r.tercero_id)  set('tercero_id', r.tercero_id)
+      if (r.vehicle_id)  set('vehicle_id', r.vehicle_id)
       if (r.notes) {
         const notesEl = f.elements.namedItem('notes') as HTMLTextAreaElement | null
         if (notesEl) notesEl.value = notesEl.value ? `${notesEl.value}\n\n${r.notes}` : r.notes
@@ -243,6 +245,12 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
                 {parseResult.driverEncontrado ? '✓' : '⚠'} Conductor: {parseResult.conductor_texto ?? '—'}
                 {!parseResult.driverEncontrado && ' (no encontrado por cédula — selecciónalo a mano)'}
               </p>
+              {parseResult.placa_texto && (
+                <p className={parseResult.vehiculoEncontrado ? 'text-[#64748B]' : 'text-amber-700'}>
+                  {parseResult.vehiculoEncontrado ? '✓' : '⚠'} Vehículo: {parseResult.placa_texto}
+                  {!parseResult.vehiculoEncontrado && ' (placa no encontrada — selecciónalo a mano)'}
+                </p>
+              )}
               <p className={parseResult.terceroEncontrado ? 'text-[#64748B]' : 'text-amber-700'}>
                 {parseResult.terceroEncontrado ? '✓' : '⚠'} Cliente: {parseResult.empresa_texto ?? '—'}
                 {parseResult.terceroAmbiguo

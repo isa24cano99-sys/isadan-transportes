@@ -137,14 +137,18 @@ export type ManifiestoParseResult = {
   load_date:       string | null   // ISO, desde Fecha viaje
   freight_value:   number | null
   advance_amount:  number | null
+  load_content:    string | null   // Producto (Mercancía transportada)
   driver_id:       string | null
   tercero_id:      string | null
+  vehicle_id:      string | null    // resuelto por placa
   notes:           string          // bloque con los campos sin columna (retenciones, etc.)
   // info para mostrar al usuario qué se resolvió y qué quedó pendiente
   conductor_texto: string | null   // "1020485007 DANIEL CANO GARCIA"
   empresa_texto:   string | null
+  placa_texto:     string | null
   driverEncontrado: boolean
   terceroEncontrado: boolean
+  vehiculoEncontrado: boolean
   terceroAmbiguo:  boolean         // varios clientes coinciden con el nombre → no se asigna
   yaExiste:        boolean         // el Radicado ya está cargado
   yaExisteViaje:   string | null
@@ -158,9 +162,11 @@ export type ManifiestoParseResult = {
 export async function parsearManifiestoTextoAction(texto: string): Promise<ManifiestoParseResult> {
   const vacio = (extra: Partial<ManifiestoParseResult>): ManifiestoParseResult => ({
     ok: false, manifest_number: null, manifest_auth: null, origin: null, destination: null,
-    load_date: null, freight_value: null, advance_amount: null, driver_id: null, tercero_id: null,
-    notes: '', conductor_texto: null, empresa_texto: null, driverEncontrado: false,
-    terceroEncontrado: false, terceroAmbiguo: false, yaExiste: false, yaExisteViaje: null, ...extra,
+    load_date: null, freight_value: null, advance_amount: null, load_content: null,
+    driver_id: null, tercero_id: null, vehicle_id: null,
+    notes: '', conductor_texto: null, empresa_texto: null, placa_texto: null, driverEncontrado: false,
+    terceroEncontrado: false, vehiculoEncontrado: false, terceroAmbiguo: false,
+    yaExiste: false, yaExisteViaje: null, ...extra,
   })
 
   if (!texto || texto.trim().length < 20) {
@@ -177,6 +183,13 @@ export async function parsearManifiestoTextoAction(texto: string): Promise<Manif
   if (m.conductor_doc) {
     const { data } = await supabase.from('drivers').select('id').eq('document', m.conductor_doc).maybeSingle()
     driver_id = data?.id ?? null
+  }
+
+  // Resolver vehículo por placa (ilike sin guion, igual que el parser de PDF)
+  let vehicle_id: string | null = null
+  if (m.placa) {
+    const { data } = await supabase.from('vehicles').select('id').ilike('plate', m.placa.replace('-', '')).maybeSingle()
+    vehicle_id = data?.id ?? null
   }
 
   // Resolver cliente (tercero) por NOMBRE — best-effort, el portal no da NIT del cliente.
@@ -218,13 +231,17 @@ export async function parsearManifiestoTextoAction(texto: string): Promise<Manif
     load_date:       fechaPortalToISO(m.fecha_viaje),
     freight_value:   valorPortalToNumber(m.valor_viaje),
     advance_amount:  valorPortalToNumber(m.valor_anticipo),
+    load_content:    m.producto,
     driver_id,
     tercero_id,
+    vehicle_id,
     notes:           construirNotasExtra(m),
     conductor_texto: m.conductor_doc ? `${m.conductor_doc} ${m.conductor_nombre ?? ''}`.trim() : m.conductor_nombre,
     empresa_texto:   m.empresa,
+    placa_texto:     m.placa,
     driverEncontrado:  !!driver_id,
     terceroEncontrado: !!tercero_id,
+    vehiculoEncontrado: !!vehicle_id,
     terceroAmbiguo,
     yaExiste,
     yaExisteViaje,

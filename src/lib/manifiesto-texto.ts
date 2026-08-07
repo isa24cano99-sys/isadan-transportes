@@ -6,12 +6,17 @@
 // colisionan), y el valor es el texto entre el fin de un ancla y el inicio del
 // siguiente ancla localizado. Probado 18/18 exacto contra un ejemplo real del portal.
 
-// [ancla, clave] en el ORDEN en que aparecen. clave=null → separador/duplicado que no se usa.
+// [ancla, clave] en el ORDEN en que aparecen. clave=null → separador/frontera que no se usa.
+// 'Manifiesto de Carga' (encabezado) va primero → su valor es la placa. OJO: contiene la
+// palabra 'Manifiesto', pero como la caminata es secuencial y esta ancla se consume antes
+// de llegar al ancla 'Manifiesto' (MAN…), no colisionan. Si el texto no trae encabezado
+// (formato viejo pegado), esta ancla simplemente no se encuentra y se salta sin romper nada.
 const ANCLAS: [string, string | null][] = [
+  ['Manifiesto de Carga', 'placa'],
   ['Origen', 'origen'], ['Destino', 'destino'], ['Empresa', 'empresa'], ['Conductor', 'conductor'],
   ['Radicado', 'radicado'], ['Manifiesto', 'manifiesto'], ['Fecha viaje', 'fecha_viaje'],
   ['Valor Viaje', 'valor_viaje'], ['Fecha aceptación', 'fecha_aceptacion'], ['Cumplido', 'cumplido'],
-  ['Ver detalle y Aprobar', null],
+  ['Ver detalle y Aprobar', null], ['Producto:', 'producto'],
   ['Manifiesto', null], ['Fecha Viaje', null], ['Fecha Cumplido', 'fecha_cumplido'],
   ['Valor Viaje', null], ['Valor Adicional por Tiempos Logísticos', 'valor_adicional'],
   ['Valor a Disminuir por Tiempos Logísticos', 'valor_disminuir'], ['Valor a Pagar', 'valor_a_pagar'],
@@ -20,6 +25,8 @@ const ANCLAS: [string, string | null][] = [
 ]
 
 export type ManifiestoTexto = {
+  placa: string | null
+  producto: string | null
   origen: string | null
   destino: string | null
   empresa: string | null
@@ -83,7 +90,13 @@ export function parseManifiestoTexto(texto: string): ManifiestoTexto {
   }
   // separar cédula/NIT del nombre del conductor ("1020485007 DANIEL CANO GARCIA")
   const cm = (out.conductor ?? '').match(/^(\d{6,12})\s+(.+)$/)
+  // placa: extraer solo el patrón de placa del valor capturado (self-delimita)
+  const placaMatch = (out.placa ?? '').match(/[A-Z]{2,4}\d{3,4}/i)
+  // producto: solo la primera línea tras "Producto:" (corta antes de "Cantidad:"/CARGUE…)
+  const productoLinea = (out.producto ?? '').split('\n')[0].trim()
   return {
+    placa: placaMatch ? placaMatch[0].toUpperCase() : null,
+    producto: productoLinea || null,
     origen: out.origen ?? null,
     destino: out.destino ?? null,
     empresa: out.empresa ?? null,
