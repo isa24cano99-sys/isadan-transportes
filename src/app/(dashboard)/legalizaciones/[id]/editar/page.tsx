@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit } from '../../nueva/form'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
+import { getCombustibleFE } from '@/lib/fuel-invoices'
 
 const FIXED_KEYS = new Set(FIXED_FIELDS.map(f => f.key))
 // Mapa PUC → clave fija (para datos legacy guardados por código PUC). El primer match gana.
@@ -29,7 +30,7 @@ const LEGACY_TYPE_NAMES: Record<string, string> = {
 }
 
 async function getData(id: string) {
-  const [{ data: leg }, { data: expenses }, { data: trips }, { data: cats }] = await Promise.all([
+  const [{ data: leg }, { data: expenses }, { data: trips }, { data: cats }, combustibleFE] = await Promise.all([
     supabase
       .from('legalizations')
       .select('id, trip_id, date, advance_amount, total_expenses, status, driver_id, trips(freight_value)')
@@ -37,7 +38,7 @@ async function getData(id: string) {
       .single(),
     supabase
       .from('legalization_expenses')
-      .select('expense_type, amount, description')
+      .select('expense_type, amount, description, matched_invoice_id')
       .eq('legalization_id', id),
     supabase
       .from('trips')
@@ -49,14 +50,19 @@ async function getData(id: string) {
       .eq('active', true)
       .eq('type', 'NEGOCIO')
       .order('name'),
+    getCombustibleFE(),
   ])
-  return { leg, expenses: expenses ?? [], trips: trips ?? [], categories: cats ?? [] }
+  return { leg, expenses: expenses ?? [], trips: trips ?? [], categories: cats ?? [], combustibleFE }
 }
 
 export default async function EditarLegalizacionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { leg, expenses, trips, categories } = await getData(id)
+  const { leg, expenses, trips, categories, combustibleFE } = await getData(id)
   if (!leg) notFound()
+
+  // FE enlazada a la línea de ACPM (para precargar el dropdown al editar)
+  const acpmMatchedInvoiceId =
+    (expenses.find((e: any) => e.expense_type === 'acpm_contado') as any)?.matched_invoice_id ?? null
 
   // Reconstruir gastos fijos + adicionales desde legalization_expenses
   let percentage = 0
@@ -117,6 +123,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
     comision,
     fixedExpenses,
     dynExpenses,
+    acpmMatchedInvoiceId,
   }
 
   return (
@@ -133,7 +140,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
         <h1 className="text-xl font-semibold text-[#0F172A]">Editar legalización</h1>
         <p className="text-sm text-[#64748B] mt-0.5">Modifica los datos de la legalización</p>
       </div>
-      <NuevaLegalizacionForm trips={trips as any} initialData={initialData} categories={categories as any} />
+      <NuevaLegalizacionForm trips={trips as any} initialData={initialData} categories={categories as any} combustibleFE={combustibleFE} />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { crearLegalizacionAction, actualizarLegalizacionAction, crearCuentaYCategoriaAction } from './actions'
 import { formatCOP, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
+import type { FuelInvoice } from '@/lib/fuel-invoices'
 import { X, Plus, Trash2 } from 'lucide-react'
 
 type TransactionCategory = {
@@ -50,12 +51,14 @@ export interface LegalizacionInitialData {
   comision: number
   fixedExpenses: Record<string, number>
   dynExpenses: DynExpenseInit[]
+  acpmMatchedInvoiceId?: string | null
 }
 
 interface Props {
   trips: Trip[]
   initialData?: LegalizacionInitialData
   categories: TransactionCategory[]
+  combustibleFE: FuelInvoice[]
 }
 
 type DynRow = { _id: string; categoryId: string; description: string; amount: string }
@@ -64,7 +67,7 @@ let _rc = 0
 function mkId() { return `r${++_rc}` }
 function num(v: string) { return parseFloat(v) || 0 }
 
-export default function NuevaLegalizacionForm({ trips, initialData, categories }: Props) {
+export default function NuevaLegalizacionForm({ trips, initialData, categories, combustibleFE }: Props) {
   const router = useRouter()
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState('')
@@ -89,6 +92,15 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
   )
   const [weightKg,    setWeightKg]    = useState(initTrip?.weight_kg     != null ? String(initTrip.weight_kg)     : '')
   const [pricePerTon, setPricePerTon] = useState(initTrip?.price_per_ton != null ? String(initTrip.price_per_ton) : '')
+
+  // ACPM: FE de combustible enlazada manualmente (dropdown filtrado por el mes de la
+  // legalización). Selección 100% manual — sin sugerencia ni cálculo de coincidencia.
+  const [acpmInvoiceId, setAcpmInvoiceId] = useState(initialData?.acpmMatchedInvoiceId ?? '')
+  const acpmFEOptions = useMemo(() => {
+    const mes = (tripDate ?? '').slice(0, 7)               // 'YYYY-MM'
+    if (!mes) return [] as FuelInvoice[]
+    return combustibleFE.filter(fe => (fe.issue_date ?? '').slice(0, 7) === mes)
+  }, [combustibleFE, tripDate])
 
   // ── Fixed expense fields (always visible) ───────────────────────────────────
   const [fixed, setFixed] = useState<Record<string, string>>(() => {
@@ -201,6 +213,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
     fd.set('comision_empresa', comision)
     fd.set('weight_kg',     weightKg)
     fd.set('price_per_ton', pricePerTon)
+    fd.set('acpm_matched_invoice_id', acpmInvoiceId)
     fd.set('fixed_expenses', JSON.stringify(
       Object.fromEntries(FIXED_FIELDS.map(f => [f.key, num(fixed[f.key])]).filter(([, v]) => (v as number) > 0)),
     ))
@@ -325,6 +338,25 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories }
                 placeholder="0"
                 className={inputCls}
               />
+              {f.key === 'acpm_contado' && (
+                <div className="mt-1.5">
+                  <select
+                    value={acpmInvoiceId}
+                    onChange={e => setAcpmInvoiceId(e.target.value)}
+                    className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-2 text-xs bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  >
+                    <option value="">FE de combustible del mes (opcional)…</option>
+                    {acpmFEOptions.map(fe => (
+                      <option key={fe.id} value={fe.id}>
+                        {fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[#94A3B8] mt-0.5">
+                    Enlaza la factura física del conductor. Da el proveedor real y la placa al costo.
+                  </p>
+                </div>
+              )}
             </div>
           ))}
         </div>

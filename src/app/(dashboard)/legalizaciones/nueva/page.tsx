@@ -2,9 +2,10 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import NuevaLegalizacionForm from './form'
+import { getCombustibleFE } from '@/lib/fuel-invoices'
 
 async function getData() {
-  const [{ data: trips }, { data: cats }] = await Promise.all([
+  const [{ data: trips }, { data: cats }, combustibleFE] = await Promise.all([
     supabase
       .from('trips')
       .select(`
@@ -20,12 +21,13 @@ async function getData() {
       .eq('active', true)
       .eq('type', 'NEGOCIO')
       .order('name'),
+    getCombustibleFE(),
   ])
-  return { trips: trips ?? [], categories: cats ?? [] }
+  return { trips: trips ?? [], categories: cats ?? [], combustibleFE }
 }
 
 export default async function NuevaLegalizacionPage() {
-  const { trips, categories } = await getData()
+  const { trips, categories, combustibleFE } = await getData()
 
   return (
     <div className="p-6 max-w-3xl">
@@ -41,7 +43,7 @@ export default async function NuevaLegalizacionPage() {
         <h1 className="text-xl font-semibold text-[#0F172A]">Nueva legalización</h1>
         <p className="text-sm text-[#64748B] mt-0.5">Liquidación del conductor después del viaje</p>
       </div>
-      <NuevaLegalizacionForm trips={trips as any} categories={categories as any} />
+      <NuevaLegalizacionForm trips={trips as any} categories={categories as any} combustibleFE={combustibleFE} />
     </div>
   )
 }

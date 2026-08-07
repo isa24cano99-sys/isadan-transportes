@@ -16,8 +16,10 @@ function buildLegalizationPayload(formData: FormData) {
 
   const weight_kg    = formData.get('weight_kg')     ? Number(formData.get('weight_kg'))     : null
   const price_per_ton = formData.get('price_per_ton') ? Number(formData.get('price_per_ton')) : null
+  // FE de combustible enlazada a mano a la línea de ACPM (opcional)
+  const acpm_matched_invoice_id = (formData.get('acpm_matched_invoice_id') as string) || null
 
-  const expenses: { expense_type: string; amount: number; description: string | null }[] = []
+  const expenses: { expense_type: string; amount: number; description: string | null; matched_invoice_id?: string | null }[] = []
   let gastos_viaje = 0
 
   // 1. Gastos fijos: { expense_type: monto }. La clave (ej. 'acpm_contado') se guarda tal cual.
@@ -26,7 +28,11 @@ function buildLegalizationPayload(formData: FormData) {
   for (const [key, rawAmount] of Object.entries(fixed)) {
     const amt = Number(rawAmount) || 0
     if (amt > 0) {
-      expenses.push({ expense_type: key, amount: amt, description: null })
+      expenses.push({
+        expense_type: key, amount: amt, description: null,
+        // el enlace solo aplica a la línea de ACPM
+        matched_invoice_id: key === 'acpm_contado' ? acpm_matched_invoice_id : null,
+      })
       gastos_viaje += amt
     }
   }
@@ -81,7 +87,7 @@ export async function crearLegalizacionAction(formData: FormData): Promise<{ ok:
   }
 
   if (expenses.length > 0) {
-    const rows = expenses.map(e => ({ legalization_id: leg.id, expense_type: e.expense_type, date, amount: e.amount, description: e.description }))
+    const rows = expenses.map(e => ({ legalization_id: leg.id, expense_type: e.expense_type, date, amount: e.amount, description: e.description, matched_invoice_id: e.matched_invoice_id ?? null }))
     const { error: expError } = await supabase.from('legalization_expenses').insert(rows)
     if (expError) return { ok: false, error: 'Legalización creada pero error al guardar gastos' }
   }
@@ -112,7 +118,7 @@ export async function actualizarLegalizacionAction(id: string, formData: FormDat
   await supabase.from('legalization_expenses').delete().eq('legalization_id', id)
 
   if (expenses.length > 0) {
-    const rows = expenses.map(e => ({ legalization_id: id, expense_type: e.expense_type, date, amount: e.amount, description: e.description }))
+    const rows = expenses.map(e => ({ legalization_id: id, expense_type: e.expense_type, date, amount: e.amount, description: e.description, matched_invoice_id: e.matched_invoice_id ?? null }))
     const { error: expError } = await supabase.from('legalization_expenses').insert(rows)
     if (expError) return { ok: false, error: 'Error al guardar los gastos actualizados' }
   }
