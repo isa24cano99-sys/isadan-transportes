@@ -107,6 +107,9 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
   const [parsing, setParsing] = useState(false)
   const [pasted, setPasted] = useState(false)
   const [parseResult, setParseResult] = useState<ManifiestoParseResult | null>(null)
+  // Radicado (manifest_auth) por ESTADO — el input oculto no sobrevivía al submit; se
+  // manda explícito en handleSubmit igual que flete/origen/destino (que sí funcionan).
+  const [radicado, setRadicado] = useState(trip?.manifest_auth ?? '')
 
   // origen/destino en texto libre cuando el viaje viene de un manifiesto (edición) o
   // cuando se autocompletó desde texto pegado (la ciudad del portal no está en el dropdown).
@@ -148,10 +151,11 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
     setParseResult(r)
     setPasted(true)   // origen/destino pasan a texto libre
 
-    // origen / destino / flete van por estado (campos controlados)
+    // origen / destino / flete / radicado van por estado (se mandan en handleSubmit)
     if (r.origin) setOriginText(r.origin)
     if (r.destination) setDestText(r.destination)
     if (r.freight_value != null) setFreight(String(r.freight_value))
+    if (r.manifest_auth) setRadicado(r.manifest_auth)
 
     // el resto son campos no controlados: se fijan por el DOM, sobrescribiendo lo que haya
     // y dejando intacto lo que no tenga match (vehículo, mercancía).
@@ -162,7 +166,6 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
         if (el) el.value = val
       }
       if (r.manifest_number) set('manifest_number', r.manifest_number)
-      if (r.manifest_auth)   set('manifest_auth', r.manifest_auth)
       if (r.load_date)       set('load_date', r.load_date)
       if (r.advance_amount != null) set('advance_amount', String(r.advance_amount))
       if (r.load_content)    set('load_content', r.load_content)
@@ -201,6 +204,7 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
     formData.set('freight_value', freight)
     formData.set('weight_kg',    weightKg)
     formData.set('price_per_ton', pricePerTon)
+    formData.set('manifest_auth', radicado)
 
     const result = isEdit
       ? await editarViajeAction(trip.id, formData)
@@ -265,8 +269,7 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
         </div>
       )}
 
-      {/* Radicado / Autorización (clave anti-duplicado; se llena al autocompletar) */}
-      <input type="hidden" name="manifest_auth" defaultValue={trip?.manifest_auth ?? ''} />
+      {/* Radicado (manifest_auth) se manda por estado en handleSubmit, no por input oculto. */}
 
       {/* Manifiesto */}
       <div>
@@ -288,7 +291,7 @@ export default function ViajeForm({ terceros, vehicles, drivers, trip }: Props) 
           <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Vehículo *</label>
           <select name="vehicle_id" required defaultValue={trip?.vehicle_id ?? ''} className={SEL}>
             <option value="">Seleccionar vehículo</option>
-            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate} — {v.brand} {v.model}</option>)}
+            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
           </select>
         </div>
       </div>

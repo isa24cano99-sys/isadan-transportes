@@ -289,7 +289,7 @@ export default function ViajeDetailClient({
                 >
                   <option value="">Seleccionar...</option>
                   {allVehicles.map(v => (
-                    <option key={v.id} value={v.id}>{v.plate} — {v.brand} {v.model}</option>
+                    <option key={v.id} value={v.id}>{v.plate}</option>
                   ))}
                 </select>
                 <button
