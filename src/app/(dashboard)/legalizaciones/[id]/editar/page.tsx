@@ -34,7 +34,7 @@ async function getData(id: string) {
   const [{ data: leg }, { data: expenses }, { data: trips }, { data: cats }, feClasificadas] = await Promise.all([
     supabase
       .from('legalizations')
-      .select('id, trip_id, date, advance_amount, total_expenses, status, driver_id, trips(freight_value)')
+      .select('id, trip_id, date, advance_amount, total_expenses, status, driver_id, freight_value, trips(freight_value)')
       .eq('id', id)
       .single(),
     supabase
@@ -111,7 +111,10 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
   }
 
   const tripData = (trips as any[]).find((t: any) => t.id === leg.trip_id)
-  const freight  = (tripData as any)?.freight_value ?? 0
+  // Flete de la LEGALIZACIÓN (el editado/guardado); fallback al del viaje solo si la
+  // legalización nunca lo capturó (0/null) — no romper legalizaciones viejas.
+  const legFreight = Number((leg as any).freight_value ?? 0)
+  const freight    = legFreight > 0 ? legFreight : ((tripData as any)?.freight_value ?? 0)
 
   const initialData: LegalizacionInitialData = {
     id:          leg.id,
