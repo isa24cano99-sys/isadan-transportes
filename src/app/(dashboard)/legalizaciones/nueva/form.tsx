@@ -401,29 +401,41 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
                   </button>
                 </div>
                 <div className="space-y-2">
-                  {lines.map(line => (
-                    <div key={line._id} className="grid grid-cols-[120px_1fr_28px] gap-2 items-center">
-                      <input type="number" min="0" inputMode="numeric" value={line.amount}
-                        onChange={e => updateFeLine(line._id, { amount: e.target.value })}
-                        placeholder="Monto" className={inputCls} />
-                      <select value={line.matchedInvoiceId}
-                        onChange={e => updateFeLine(line._id, { matchedInvoiceId: e.target.value })}
-                        className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-2.5 text-xs bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-                        <option value="">FE del mes (opcional)…</option>
-                        {feOptionsDe(f.key).map(fe => (
-                          <option key={fe.id} value={fe.id}>
-                            {fe.cuenta === '' ? '⚠ ' : ''}{fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
-                            {fe.cuenta === '' ? ' · sin clasificar' : ''}
-                            {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={() => removeFeLine(line._id)}
-                        className="text-[#CBD5E1] hover:text-red-500 transition-colors p-1" title="Quitar línea">
-                        <Trash2 size={13} />
-                      </button>
+                  {lines.map(line => {
+                    const feSel = line.matchedInvoiceId ? feClasificadas.find(x => x.id === line.matchedInvoiceId) : null
+                    const amt = num(line.amount)
+                    const desajuste = !!feSel && amt > 0 && Math.abs(amt - feSel.total) > 1
+                    return (
+                    <div key={line._id}>
+                      <div className="grid grid-cols-[120px_1fr_28px] gap-2 items-center">
+                        <input type="number" min="0" inputMode="numeric" value={line.amount}
+                          onChange={e => updateFeLine(line._id, { amount: e.target.value })}
+                          placeholder="Monto" className={inputCls} />
+                        <select value={line.matchedInvoiceId}
+                          onChange={e => updateFeLine(line._id, { matchedInvoiceId: e.target.value })}
+                          className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-2.5 text-xs bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                          <option value="">FE del mes (opcional)…</option>
+                          {feOptionsDe(f.key).map(fe => (
+                            <option key={fe.id} value={fe.id}>
+                              {fe.cuenta === '' ? '⚠ ' : ''}{fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
+                              {fe.cuenta === '' ? ' · sin clasificar' : ''}
+                              {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => removeFeLine(line._id)}
+                          className="text-[#CBD5E1] hover:text-red-500 transition-colors p-1" title="Quitar línea">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      {desajuste && feSel && (
+                        <p className="text-[10px] text-amber-700 mt-1">
+                          ⚠ El monto de la línea ({formatCOP(amt)}) no coincide con el total de la FE {feSel.name_issuer} ({formatCOP(feSel.total)}). Divídela en dos con &quot;+ Agregar&quot; y enlaza cada parte por separado.
+                        </p>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
