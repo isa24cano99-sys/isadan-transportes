@@ -9,7 +9,7 @@
  */
 export const FIXED_FIELDS: { key: string; label: string; puc: string }[] = [
   { key: 'acpm_contado',  label: 'ACPM / Combustible',         puc: '61450510' },
-  { key: 'cargue',        label: 'Cargue',                     puc: '61450530' },
+  { key: 'cargue',        label: 'Cargue',                     puc: '61450515' },
   { key: 'descargue',     label: 'Descargue',                  puc: '61450535' },
   { key: 'peajes',        label: 'Peajes',                     puc: '61450575' },
   { key: 'lavada',        label: 'Lavada',                     puc: '61450550' },
