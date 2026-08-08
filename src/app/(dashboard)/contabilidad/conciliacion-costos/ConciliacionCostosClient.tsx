@@ -8,6 +8,7 @@ import { postearCostoDianAction, importarDianConciliacionAction, type CostoResul
 import { Upload, CheckCircle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
 export type CuentaCosto = { codigo: string; nombre: string }
+export type EstadoFE = 'legalizacion' | 'banco' | 'contabilizada' | 'sin_asignar'
 export type ItemCosto = {
   id: string
   emisor: string
@@ -17,6 +18,24 @@ export type ItemCosto = {
   terceroId: string | null
   cuentaSugerida: string | null
   tratamiento: 'a' | 'c'
+  estado: EstadoFE
+  etiqueta: string | null   // manifiesto (legalización) o fecha (banco)
+}
+
+function EstadoBadge({ estado, etiqueta }: { estado: EstadoFE; etiqueta: string | null }) {
+  const verde = 'text-emerald-700 bg-emerald-100'
+  const rojo  = 'text-red-700 bg-red-100'
+  const cfg = {
+    legalizacion:  { cls: verde, txt: `Legalización${etiqueta ? ' · ' + etiqueta : ''}` },
+    banco:         { cls: verde, txt: `Pago banco${etiqueta ? ' · ' + etiqueta : ''}` },
+    contabilizada: { cls: verde, txt: 'Contabilizada (directa)' },
+    sin_asignar:   { cls: rojo,  txt: 'Sin asignar' },
+  }[estado]
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>
+      {cfg.txt}
+    </span>
+  )
 }
 
 function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; onDone: (r: CostoResultado) => void }) {
@@ -24,7 +43,8 @@ function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; 
   const [trat, setTrat] = useState<'a' | 'c'>(it.tratamiento)
   const [loading, setLoading] = useState(false)
   const sinClasificar = !it.cuentaSugerida
-  const fijaraFuturo = sinClasificar && !!cuenta   // el tercero no tenía sugerida y se está eligiendo → se guardará
+  const accionable = it.estado === 'sin_asignar'     // solo las sin asignar se contabilizan aquí
+  const fijaraFuturo = sinClasificar && accionable && !!cuenta
 
   const contabilizar = async () => {
     if (!cuenta || loading) return
@@ -45,32 +65,37 @@ function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; 
       <td className="px-3 py-2.5">
         <div className="text-[#0F172A]">{it.emisor}</div>
         <div className="text-xs text-[#94A3B8]">FE {it.folio}</div>
-        {sinClasificar && (
-          <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
-            ⚠ Tercero sin clasificar — asigna cuenta
-          </div>
-        )}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(it.monto)}</td>
       <td className="px-3 py-2.5">
-        <select value={cuenta} onChange={e => setCuenta(e.target.value)} className={selCls}>
-          <option value="">{sinClasificar ? '— Tercero sin clasificar —' : 'Elegir cuenta…'}</option>
-          {cuentas.map(c => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
-        </select>
-        {it.cuentaSugerida && <div className="text-[10px] text-emerald-600 mt-0.5">Sugerido del proveedor · editable</div>}
-        {fijaraFuturo && <div className="text-[10px] text-amber-700 mt-0.5">⚠ Se fija como cuenta de este proveedor para el futuro</div>}
+        <EstadoBadge estado={it.estado} etiqueta={it.etiqueta} />
+        {sinClasificar && (
+          <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+            ⚠ Tercero sin clasificar
+          </div>
+        )}
       </td>
       <td className="px-3 py-2.5">
-        <select value={trat} onChange={e => setTrat(e.target.value as 'a' | 'c')} className={selCls}>
-          <option value="c">Causación (CR proveedor)</option>
-          <option value="a">Pago directo (CR banco)</option>
-        </select>
-      </td>
-      <td className="px-3 py-2.5 text-right">
-        <button onClick={contabilizar} disabled={!cuenta || loading}
-          className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-40 disabled:no-underline">
-          {loading ? '…' : 'Contabilizar'}
-        </button>
+        {accionable ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={cuenta} onChange={e => setCuenta(e.target.value)} className={selCls}>
+              <option value="">{sinClasificar ? '— Elige cuenta (sin clasificar) —' : 'Elegir cuenta…'}</option>
+              {cuentas.map(c => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+            </select>
+            <select value={trat} onChange={e => setTrat(e.target.value as 'a' | 'c')} className={selCls}>
+              <option value="c">Causación (CR proveedor)</option>
+              <option value="a">Pago directo (CR banco)</option>
+            </select>
+            <button onClick={contabilizar} disabled={!cuenta || loading}
+              className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-40 disabled:no-underline">
+              {loading ? '…' : 'Contabilizar'}
+            </button>
+            {it.cuentaSugerida && <div className="text-[10px] text-emerald-600 w-full">Sugerido del proveedor · editable</div>}
+            {fijaraFuturo && <div className="text-[10px] text-amber-700 w-full">⚠ Se fija como cuenta de este proveedor para el futuro</div>}
+          </div>
+        ) : (
+          <span className="text-xs text-[#CBD5E1]">—</span>
+        )}
       </td>
     </tr>
   )
@@ -180,7 +205,7 @@ export default function ConciliacionCostosClient({ items, cuentas }: { items: It
 
       {items.length === 0 ? (
         <p className="text-sm text-[#64748B] bg-white border border-[#E2E8F0] rounded-xl p-6">
-          No hay costos de proveedores DIAN pendientes de contabilizar.
+          No hay facturas DIAN de proveedores (no-F2X) este mes. Sube el reporte para verlas.
         </p>
       ) : (
         <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
@@ -191,9 +216,8 @@ export default function ConciliacionCostosClient({ items, cuentas }: { items: It
                   <th className="text-left font-medium px-3 py-2">Fecha</th>
                   <th className="text-left font-medium px-3 py-2">Proveedor</th>
                   <th className="text-right font-medium px-3 py-2">Monto</th>
-                  <th className="text-left font-medium px-3 py-2">Cuenta de costo</th>
-                  <th className="text-left font-medium px-3 py-2">Tratamiento</th>
-                  <th className="w-24 px-3 py-2"></th>
+                  <th className="text-left font-medium px-3 py-2">Estado</th>
+                  <th className="text-left font-medium px-3 py-2">Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -203,7 +227,7 @@ export default function ConciliacionCostosClient({ items, cuentas }: { items: It
                 <tr className="bg-[#F8FAFC] font-semibold border-t-2 border-[#E2E8F0]">
                   <td className="px-3 py-2.5 text-xs text-[#64748B]" colSpan={2}>{items.length} factura(s)</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(total)}</td>
-                  <td colSpan={3}></td>
+                  <td colSpan={2}></td>
                 </tr>
               </tfoot>
             </table>
