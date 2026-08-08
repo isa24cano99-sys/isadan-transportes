@@ -104,6 +104,12 @@ export async function actualizarTransaccionAction(id: string, formData: FormData
 }
 
 export async function eliminarTransaccionAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  // Guard de inmutabilidad: una transacción vinculada a un asiento contabilizado no se borra
+  // (dejaría el asiento sin su contraparte bancaria). Exige reversar primero.
+  const { data: t } = await supabase.from('bank_transactions').select('matched_invoice_id').eq('id', id).single()
+  if (t?.matched_invoice_id) {
+    return { ok: false, error: 'Esta transacción está vinculada a un asiento contabilizado — debes reversar el asiento antes de poder borrarla.' }
+  }
   const { error } = await supabase.from('bank_transactions').delete().eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/bancos', 'layout')

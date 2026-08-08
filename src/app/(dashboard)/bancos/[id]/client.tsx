@@ -198,6 +198,13 @@ export default function BankDetailClient({
       ? tripManifiesto(tripById.get(t.reference_id))
       : null
 
+  // Tooltip del badge "FE": proveedor + folio de la factura vinculada (join en la query).
+  const feTooltip = (t: Transaction) => {
+    const fe = (t as unknown as { dian_invoices_import?: { folio: string | null; name_issuer: string | null; terceros: { razon_social: string | null } | null } | null }).dian_invoices_import
+    if (!fe) return null
+    return `${fe.terceros?.razon_social ?? fe.name_issuer ?? '—'} · FE ${fe.folio ?? ''}`
+  }
+
   // ── Exportar a Excel las transacciones visibles (respeta filtros activos) ────
   const pucNameByCode = useMemo(() => {
     const m = new Map<string, string>()
@@ -316,6 +323,7 @@ export default function BankDetailClient({
   // ── Vincular factura DIAN al egreso (pago directo) — mismo núcleo que la conciliación ──
   const feCuentas = useMemo(() => pucAccounts.filter(p => p.codigo.startsWith('6145')), [pucAccounts])
   const feSelObj = feList.find(f => f.id === feSel)
+  const vinculada = !!editTxn?.matched_invoice_id   // transacción ya contabilizada vía FE → modal de solo lectura
   const selectFe = (id: string) => {
     setFeSel(id)
     setFeCuenta(feList.find(x => x.id === id)?.cuentaSugerida ?? '')
@@ -686,6 +694,12 @@ export default function BankDetailClient({
                           <Truck size={11} />
                         </span>
                       )}
+                      {t.matched_invoice_id && (
+                        <span title={feTooltip(t) ?? 'Vinculada a factura DIAN'} aria-label="Vinculada a factura DIAN"
+                          className="shrink-0 inline-flex items-center text-[9px] font-bold text-green-700 bg-green-100 px-1 py-0.5 rounded">
+                          FE
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-1.5 text-xs text-[#94A3B8] whitespace-nowrap max-w-[140px] truncate hidden lg:table-cell">
@@ -747,6 +761,12 @@ export default function BankDetailClient({
                         <Truck size={11} />
                       </span>
                     )}
+                    {t.matched_invoice_id && (
+                      <span title={feTooltip(t) ?? 'Vinculada a factura DIAN'} aria-label="Vinculada a factura DIAN"
+                        className="shrink-0 inline-flex items-center text-[9px] font-bold text-green-700 bg-green-100 px-1 py-0.5 rounded">
+                        FE
+                      </span>
+                    )}
                   </div>
                   <p className="text-[10px] text-[#94A3B8] mt-0.5">{formatDate(t.date)}</p>
                 </div>
@@ -782,20 +802,38 @@ export default function BankDetailClient({
       {deleteTxn && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl p-5 md:p-6 w-full sm:max-w-sm shadow-xl space-y-4">
-            <h2 className="font-semibold text-[#0F172A]">Eliminar transacción</h2>
-            <p className="text-sm text-[#64748B]">
-              Se eliminará <span className="font-medium text-[#0F172A]">{deleteTxn.description}</span> de forma permanente.
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setDeleteTxn(null)} disabled={deleting}
-                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
-                Cancelar
-              </button>
-              <button onClick={handleDeleteConfirm} disabled={deleting}
-                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-3 rounded-lg text-sm">
-                {deleting ? 'Eliminando...' : 'Eliminar'}
-              </button>
-            </div>
+            {deleteTxn.matched_invoice_id ? (
+              <>
+                <h2 className="font-semibold text-[#0F172A]">No se puede eliminar</h2>
+                <p className="text-sm text-[#64748B]">
+                  <span className="font-medium text-[#0F172A]">{deleteTxn.description}</span> está vinculada a un asiento
+                  contabilizado — debes reversar el asiento antes de poder borrarla.
+                </p>
+                <div className="flex">
+                  <button onClick={() => setDeleteTxn(null)}
+                    className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="font-semibold text-[#0F172A]">Eliminar transacción</h2>
+                <p className="text-sm text-[#64748B]">
+                  Se eliminará <span className="font-medium text-[#0F172A]">{deleteTxn.description}</span> de forma permanente.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeleteTxn(null)} disabled={deleting}
+                    className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                    Cancelar
+                  </button>
+                  <button onClick={handleDeleteConfirm} disabled={deleting}
+                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-3 rounded-lg text-sm">
+                    {deleting ? 'Eliminando...' : 'Eliminar'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -831,10 +869,16 @@ export default function BankDetailClient({
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl p-5 md:p-6 w-full sm:max-w-md shadow-xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-semibold text-[#0F172A]">Editar transacción</h2>
+              <h2 className="font-semibold text-[#0F172A]">{vinculada ? 'Transacción vinculada' : 'Editar transacción'}</h2>
               <button onClick={closeEdit} className="p-1"><X size={18} className="text-[#64748B]" /></button>
             </div>
             <div className="space-y-4">
+              {vinculada && (
+                <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <span>Vinculada a un asiento contabilizado — <span className="font-semibold">de solo lectura</span>. Para cambiarla, reversa el asiento.</span>
+                </div>
+              )}
+              <fieldset disabled={vinculada} className="space-y-4 border-0 p-0 m-0 min-w-0">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tipo</label>
@@ -993,16 +1037,26 @@ export default function BankDetailClient({
                   </select>
                 </div>
               )}
+              </fieldset>
               {editError &&<p className="text-sm text-red-500">{editError}</p>}
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={closeEdit}
-                  className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
-                  Cancelar
-                </button>
-                <button type="button" onClick={handleSave} disabled={saving}
-                  className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-3 rounded-lg text-sm">
-                  {saving ? 'Guardando...' : 'Guardar cambios'}
-                </button>
+                {vinculada ? (
+                  <button type="button" onClick={closeEdit}
+                    className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                    Cerrar
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={closeEdit}
+                      className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">
+                      Cancelar
+                    </button>
+                    <button type="button" onClick={handleSave} disabled={saving}
+                      className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-3 rounded-lg text-sm">
+                      {saving ? 'Guardando...' : 'Guardar cambios'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

@@ -10,7 +10,7 @@ async function getBankDetail(id: string) {
     supabase.from('bank_accounts').select('*').eq('id', id).single(),
     supabase
       .from('bank_transactions')
-      .select('*, transaction_categories(id, name, type, puc_code)')
+      .select('*, transaction_categories(id, name, type, puc_code), dian_invoices_import(folio, name_issuer, terceros(razon_social))')
       .eq('account_id', id)
       .order('date', { ascending: false }),
     supabase
