@@ -28,10 +28,12 @@ export type TerceroRow = {
   es_cliente: boolean
   es_proveedor: boolean
   cuenta_puc_sugerida: string | null
+  notas: string | null
   completo: boolean
   monto: number
   registros: number
 }
+export type CuentaCosto = { codigo: string; nombre: string }
 export type Municipio = { codigo_departamento: string; nombre_departamento: string; codigo_municipio: string; nombre_municipio: string }
 export type DuplicadoPar = {
   sobreviviente: { id: string; numero: string; nombre: string; registros: number; monto: number }
@@ -48,7 +50,7 @@ const emptyForm = (): TerceroForm => ({
   tipo_persona: 'JURIDICA', tipo_documento: '31', numero_identificacion: '', digito_verificacion: '',
   razon_social: '', primer_apellido: '', segundo_apellido: '', primer_nombre: '', otros_nombres: '',
   direccion: '', codigo_pais: '169', codigo_departamento: '', codigo_municipio: '', email: '', telefono: '',
-  es_cliente: false, es_proveedor: false, cuenta_puc_sugerida: '',
+  es_cliente: false, es_proveedor: false, cuenta_puc_sugerida: '', notas: '',
 })
 
 const nombreDe = (t: { razon_social: string | null; primer_nombre: string | null }) =>
@@ -59,14 +61,16 @@ const norm = (s: string | null | undefined) =>
   (s ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
 
 export default function TercerosClient({
-  terceros, municipios, duplicados, municipiosDisponibles,
+  terceros, municipios, duplicados, municipiosDisponibles, cuentasCosto,
 }: {
   terceros: TerceroRow[]
   municipios: Municipio[]
   duplicados: DuplicadoPar[]
   municipiosDisponibles: boolean
+  cuentasCosto: CuentaCosto[]
 }) {
   const router = useRouter()
+  const cuentaNombre = useMemo(() => new Map(cuentasCosto.map(c => [c.codigo, c.nombre])), [cuentasCosto])
   const [tab, setTab] = useState<'lista' | 'duplicados'>('lista')
   const [editId, setEditId] = useState<string | null>(null)
   const [creando, setCreando] = useState(false)
@@ -102,6 +106,17 @@ export default function TercerosClient({
                     .sort((a, b) => a.nombre_municipio.localeCompare(b.nombre_municipio)),
     [municipios, form.codigo_departamento],
   )
+  // Opciones del selector: cuentas de costo operativo 6145xx; + la cuenta actual del
+  // tercero si está fuera de esa lista (nómina/servicios/etc.), para no borrarla al editar.
+  const cuentasSelector = useMemo(() => {
+    const base = cuentasCosto.filter(c => c.codigo.startsWith('6145'))
+    const cur = form.cuenta_puc_sugerida
+    if (cur && !base.some(c => c.codigo === cur)) {
+      const actual = cuentasCosto.find(c => c.codigo === cur) ?? { codigo: cur, nombre: '(actual)' }
+      return [actual, ...base]
+    }
+    return base
+  }, [cuentasCosto, form.cuenta_puc_sugerida])
 
   const numero = normalizarIdentificacion(form.numero_identificacion)
   const esNit = form.tipo_documento === '31'
@@ -120,6 +135,7 @@ export default function TercerosClient({
       codigo_departamento: t.codigo_departamento ?? '', codigo_municipio: t.codigo_municipio ?? '',
       email: t.email ?? '', telefono: t.telefono ?? '',
       es_cliente: t.es_cliente, es_proveedor: t.es_proveedor, cuenta_puc_sugerida: t.cuenta_puc_sugerida ?? '',
+      notas: t.notas ?? '',
     })
   }
   const abrirNuevo = () => { setCreando(true); setEditId(null); setForm(emptyForm()); setError('') }
@@ -221,7 +237,14 @@ export default function TercerosClient({
                     </td>
                     <td className="px-3 py-2 text-[#0F172A]">{nombreDe(t)}</td>
                     <td className="px-3 py-2 font-mono text-xs text-[#475569]">{t.tipo_documento === '31' ? `${t.numero_identificacion}-${t.digito_verificacion ?? '?'}` : t.numero_identificacion}</td>
-                    <td className="px-3 py-2 text-xs text-[#64748B]">{[t.es_cliente && 'Cliente', t.es_proveedor && 'Proveedor'].filter(Boolean).join(' · ') || '—'}</td>
+                    <td className="px-3 py-2 text-xs text-[#64748B]">
+                      <div>{[t.es_cliente && 'Cliente', t.es_proveedor && 'Proveedor'].filter(Boolean).join(' · ') || '—'}</div>
+                      {t.es_proveedor && (
+                        t.cuenta_puc_sugerida
+                          ? <span className="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700" title={t.cuenta_puc_sugerida}>{cuentaNombre.get(t.cuenta_puc_sugerida) ?? t.cuenta_puc_sugerida}</span>
+                          : <span className="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Cuenta sin asignar</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[#0F172A]">{t.monto ? COP.format(t.monto) : '—'}</td>
                     <td className="px-3 py-2 text-right">
                       <button onClick={() => abrirEdicion(t)} className="text-xs font-medium text-[#2563EB] hover:underline">Editar</button>
@@ -319,6 +342,20 @@ export default function TercerosClient({
               <div className="col-span-2 flex gap-4 pt-1">
                 <label className="flex items-center gap-2 text-sm text-[#374151]"><input type="checkbox" checked={!!form.es_cliente} onChange={e => setForm(f => ({ ...f, es_cliente: e.target.checked }))} /> Es cliente</label>
                 <label className="flex items-center gap-2 text-sm text-[#374151]"><input type="checkbox" checked={!!form.es_proveedor} onChange={e => setForm(f => ({ ...f, es_proveedor: e.target.checked }))} /> Es proveedor</label>
+              </div>
+
+              <div className="col-span-2">
+                <label className={lbl}>Cuenta contable (costo) — para clasificar sus facturas</label>
+                <select className={inp} value={form.cuenta_puc_sugerida ?? ''} onChange={e => setForm(f => ({ ...f, cuenta_puc_sugerida: e.target.value }))}>
+                  <option value="">— Sin asignar —</option>
+                  {cuentasSelector.map(c => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className={lbl}>Notas (opcional)</label>
+                <textarea className={`${inp} resize-none`} rows={2} value={form.notas ?? ''}
+                  onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}
+                  placeholder="Ej: a veces combustible, a veces repuestos según el ticket" />
               </div>
             </div>
 

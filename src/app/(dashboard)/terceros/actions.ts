@@ -23,6 +23,7 @@ export type TerceroForm = {
   es_cliente?: boolean
   es_proveedor?: boolean
   cuenta_puc_sugerida?: string | null
+  notas?: string | null
 }
 
 function buildRow(d: TerceroForm) {
@@ -48,6 +49,7 @@ function buildRow(d: TerceroForm) {
       es_cliente:            !!d.es_cliente,
       es_proveedor:          !!d.es_proveedor,
       cuenta_puc_sugerida:   d.cuenta_puc_sugerida?.trim() || null,
+      notas:                 d.notas?.trim() || null,
     },
     numero,
     dvNum,
