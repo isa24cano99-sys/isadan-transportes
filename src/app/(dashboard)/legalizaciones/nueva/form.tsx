@@ -283,7 +283,12 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   const inputCls    = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
   const readonlyCls = 'w-full border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm text-[#64748B] bg-[#F8FAFC] outline-none'
   const labelCls    = 'block text-xs font-semibold text-[#64748B] mb-1.5'
-  const negocioCats = localCats.filter(c => c.active && c.type === 'NEGOCIO')
+  // Dropdown de "otros gastos" acotado a costos operativos del viaje (6145xx): un gasto
+  // puntual de un viaje no puede ser nómina/prestaciones/anticipos/ingresos/pasivos. Las
+  // categorías excluidas siguen existiendo y siendo válidas en bancos/cartera/causaciones;
+  // solo se ocultan de ESTE dropdown. El guard de aprobar_legalizacion (clase 5/6) es el
+  // backstop si un dato con otra cuenta entra por otra vía (import directo, legacy, remapeo).
+  const negocioCats = localCats.filter(c => c.active && c.type === 'NEGOCIO' && (c.puc_code ?? '').startsWith('6145'))
 
   return (
     <>
