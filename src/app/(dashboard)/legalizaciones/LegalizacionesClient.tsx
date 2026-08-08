@@ -47,12 +47,22 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
   const [deleteTarget, setDeleteTarget] = useState<Legalizacion | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [changingStatus, setChangingStatus] = useState<string | null>(null)
+  const [mensaje, setMensaje] = useState<{ ok: boolean; text: string } | null>(null)
 
   const handleCambiarEstado = async (id: string, status: Status) => {
-    setChangingStatus(id)
+    setChangingStatus(id); setMensaje(null)
     const res = await cambiarEstadoLegalizacionAction(id, status)
     if (res.ok) {
       setLegalizaciones(prev => prev.map(l => l.id === id ? { ...l, status } : l))
+      if (status === 'APROBADA') {
+        const parts: string[] = []
+        if (res.posted) parts.push(`${res.posted} costo(s) contabilizado(s)`)
+        if (res.skipped) parts.push(`${res.skipped} ya estaba(n) contabilizado(s) — corrige con reversión si editaste montos`)
+        setMensaje({ ok: true, text: `Legalización aprobada. ${parts.join(' · ') || 'Sin costos que contabilizar.'}` })
+      }
+    } else {
+      // aprobación atómica: si falla, no quedó "a medias" — el estado no cambió
+      setMensaje({ ok: false, text: `No se pudo aprobar (nada quedó contabilizado): ${res.error ?? 'error desconocido'}` })
     }
     setChangingStatus(null)
   }
@@ -103,6 +113,13 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
 
   return (
     <div>
+      {mensaje && (
+        <div className={`flex items-start justify-between gap-3 text-sm rounded-xl border px-4 py-2.5 mb-4 ${mensaje.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          <span>{mensaje.ok ? '✓ ' : '✗ '}{mensaje.text}</span>
+          <button onClick={() => setMensaje(null)} className="shrink-0 opacity-60 hover:opacity-100"><X size={14} /></button>
+        </div>
+      )}
+
       {/* Filtros */}
       <button onClick={() => setFiltersOpen(o => !o)}
         className="md:hidden flex items-center gap-2 w-full justify-center px-3 py-2.5 mb-3 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#374151]">
