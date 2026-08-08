@@ -1,19 +1,15 @@
 import { supabase } from '@/lib/supabase'
+import { FE_LINEA_CUENTA, type FEClasificada } from '@/lib/fe-lineas'
 
-// FE de proveedores clasificados como servicios enlazables desde la legalización:
-// combustible (61450510 → ACPM), cargue (61450515) y descargue (61450535). El universo
-// del dropdown manual de cada línea. Se traen todas y el formulario filtra por (cuenta, mes).
-export type FEClasificada = { id: string; issue_date: string; total: number; name_issuer: string; cuenta: string }
-
-// clave de línea de gasto fijo → cuenta de clasificación del tercero que la alimenta
-export const FE_LINEA_CUENTA: Record<string, string> = {
-  acpm_contado: '61450510',
-  cargue:       '61450515',
-  descargue:    '61450535',
-}
+// SERVER-ONLY (importa supabase con service key). Solo debe importarse desde server
+// components / server actions. El tipo y la constante viven en '@/lib/fe-lineas' (client-safe);
+// los componentes 'use client' importan de ahí, NUNCA de este archivo.
+export type { FEClasificada } from '@/lib/fe-lineas'
 
 const CUENTAS = Object.values(FE_LINEA_CUENTA)
 
+// FE de proveedores clasificados como servicios enlazables desde la legalización:
+// combustible (61450510 → ACPM), cargue (61450515) y descargue (61450535).
 export async function getFEClasificadas(): Promise<FEClasificada[]> {
   const { data } = await supabase
     .from('dian_invoices_import')

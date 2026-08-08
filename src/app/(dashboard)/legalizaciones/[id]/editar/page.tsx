@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import NuevaLegalizacionForm, { LegalizacionInitialData, DynExpenseInit } from '../../nueva/form'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
-import { getFEClasificadas, FE_LINEA_CUENTA } from '@/lib/fuel-invoices'
+import { getFEClasificadas } from '@/lib/fuel-invoices'
+import { FE_LINEA_CUENTA } from '@/lib/fe-lineas'
 
 const FIXED_KEYS = new Set(FIXED_FIELDS.map(f => f.key))
 // Mapa PUC → clave fija (para datos legacy guardados por código PUC). El primer match gana.

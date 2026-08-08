@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { crearLegalizacionAction, actualizarLegalizacionAction, crearCuentaYCategoriaAction } from './actions'
 import { formatCOP, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
-import { type FEClasificada, FE_LINEA_CUENTA } from '@/lib/fuel-invoices'
+import { type FEClasificada, FE_LINEA_CUENTA } from '@/lib/fe-lineas'
 import { X, Plus, Trash2 } from 'lucide-react'
 
 type TransactionCategory = {
