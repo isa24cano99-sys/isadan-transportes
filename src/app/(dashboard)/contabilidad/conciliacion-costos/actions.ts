@@ -44,12 +44,17 @@ export async function importarDianConciliacionAction(rows: DianRow[]): Promise<D
     return true
   })
 
-  // c) dedupe por CUFE
-  const cufes = recibidas.map(r => r.cufe).filter(c => c?.length > 0)
-  let existentes = new Set<string>()
-  if (cufes.length > 0) {
-    const { data } = await supabase.from('dian_invoices_import').select('cufe').in('cufe', cufes)
-    existentes = new Set((data ?? []).map((e: { cufe: string }) => e.cufe))
+  // c) dedupe por CUFE — POR LOTES. Un solo .in() con cientos de CUFEs revienta la URL (HTTP 400)
+  //    y, si se ignora el error, el dedupe se salta en silencio y el insert choca con el unique de
+  //    cufe. Chunks de 100 + chequeo explícito del error: si un lote falla, abortamos con mensaje.
+  const cufes = recibidas.map(r => r.cufe).filter((c): c is string => !!c && c.length > 0)
+  const existentes = new Set<string>()
+  const CHUNK = 100
+  for (let i = 0; i < cufes.length; i += CHUNK) {
+    const lote = cufes.slice(i, i + CHUNK)
+    const { data, error } = await supabase.from('dian_invoices_import').select('cufe').in('cufe', lote)
+    if (error) return { ok: false, error: `Error verificando duplicados (lote ${Math.floor(i / CHUNK) + 1}): ${error.message}` }
+    for (const e of (data ?? [])) existentes.add((e as { cufe: string }).cufe)
   }
   const nuevas = recibidas.filter(r => r.cufe && !existentes.has(r.cufe))
   const duplicados = recibidas.length - nuevas.length
