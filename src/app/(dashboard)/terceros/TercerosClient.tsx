@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Check, Plus, Users, GitMerge, X } from 'lucide-react'
+import { AlertTriangle, Check, Plus, Users, GitMerge, X, Search } from 'lucide-react'
 import { calcularDV, esNitConDVPegado, normalizarIdentificacion, validarIdentificacion } from '@/lib/nit'
 import { guardarTerceroAction, fusionarTerceroAction, type TerceroForm } from './actions'
 
@@ -54,6 +54,10 @@ const emptyForm = (): TerceroForm => ({
 const nombreDe = (t: { razon_social: string | null; primer_nombre: string | null }) =>
   t.razon_social || t.primer_nombre || '(sin nombre)'
 
+// minúsculas + sin acentos, para búsqueda case/acento-insensible
+const norm = (s: string | null | undefined) =>
+  (s ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+
 export default function TercerosClient({
   terceros, municipios, duplicados, municipiosDisponibles,
 }: {
@@ -71,6 +75,22 @@ export default function TercerosClient({
   const [error, setError] = useState('')
   const [fusion, setFusion] = useState<DuplicadoPar | null>(null)
   const [fusionando, setFusionando] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
+
+  // Filtro de la lista: si la consulta es numérica → por identificación (substring);
+  // si es texto → por nombre/razón social completo, case- y acento-insensible.
+  const tercerosFiltrados = useMemo(() => {
+    const q = busqueda.trim()
+    if (!q) return terceros
+    const soloDigitos = /^[\d\s.\-]+$/.test(q)
+    const qd = q.replace(/\D/g, '')
+    const qn = norm(q)
+    return terceros.filter(t => {
+      if (soloDigitos) return qd !== '' && t.numero_identificacion.includes(qd)
+      const nombre = norm([t.razon_social, t.primer_nombre, t.otros_nombres, t.primer_apellido, t.segundo_apellido].filter(Boolean).join(' '))
+      return nombre.includes(qn)
+    })
+  }, [terceros, busqueda])
 
   const departamentos = useMemo(() => {
     const m = new Map<string, string>()
@@ -133,7 +153,9 @@ export default function TercerosClient({
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold text-[#0F172A] flex items-center gap-2"><Users size={20} /> Terceros</h1>
-          <p className="text-sm text-[#64748B] mt-0.5">{terceros.length} terceros · <span className="text-amber-700 font-medium">{incompletos} incompletos</span> (exógena/1001)</p>
+          <p className="text-sm text-[#64748B] mt-0.5">
+            {busqueda ? `${tercerosFiltrados.length} de ${terceros.length}` : terceros.length} terceros · <span className="text-amber-700 font-medium">{incompletos} incompletos</span> (exógena/1001)
+          </p>
         </div>
         <button onClick={abrirNuevo} className="inline-flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-sm font-medium px-4 py-2 rounded-lg">
           <Plus size={15} /> Nuevo tercero
@@ -147,11 +169,27 @@ export default function TercerosClient({
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center flex-wrap">
         <button onClick={() => setTab('lista')} className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${tab === 'lista' ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Lista</button>
         <button onClick={() => setTab('duplicados')} className={`px-3 py-1.5 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 ${tab === 'duplicados' ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#64748B]'}`}>
           <GitMerge size={13} /> Duplicados ({duplicados.length})
         </button>
+        {tab === 'lista' && (
+          <div className="relative w-full sm:w-80 sm:ml-auto">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              placeholder="Buscar por NIT o nombre…"
+              className="w-full pl-8 pr-8 py-1.5 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
+            {busqueda && (
+              <button onClick={() => setBusqueda('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#0F172A]">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {tab === 'lista' && (
@@ -169,7 +207,12 @@ export default function TercerosClient({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
-                {terceros.map(t => (
+                {tercerosFiltrados.length === 0 && (
+                  <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-[#94A3B8]">
+                    Sin resultados para “{busqueda}”.
+                  </td></tr>
+                )}
+                {tercerosFiltrados.map(t => (
                   <tr key={t.id} className={`hover:bg-[#F8FAFC] ${!t.completo ? 'bg-amber-50/40' : ''}`}>
                     <td className="px-3 py-2">
                       {t.completo
