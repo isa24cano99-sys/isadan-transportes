@@ -1,13 +1,9 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import type { DianRow } from '@/lib/dian-xlsx'
 
-export type DianRow = {
-  document_type: string; cufe: string; folio: string; prefix: string
-  issue_date: string | null; reception_date: string | null
-  nit_issuer: string; name_issuer: string; nit_receiver: string; name_receiver: string
-  iva: number; total: number; status: string
-}
+export type { DianRow }
 
 export type ImportResult =
   | { ok: true; inserted: number; duplicates: number }

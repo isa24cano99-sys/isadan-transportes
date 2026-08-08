@@ -3,7 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { postearCostoDianAction, type CostoResultado } from './actions'
+import { parseXlsx, mapDian, type DianRow } from '@/lib/dian-xlsx'
+import { postearCostoDianAction, importarDianConciliacionAction, type CostoResultado, type DianImportResult } from './actions'
+import { Upload, CheckCircle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
 export type CuentaCosto = { codigo: string; nombre: string }
 export type ItemCosto = {
@@ -43,6 +45,11 @@ function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; 
       <td className="px-3 py-2.5">
         <div className="text-[#0F172A]">{it.emisor}</div>
         <div className="text-xs text-[#94A3B8]">FE {it.folio}</div>
+        {sinClasificar && (
+          <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+            ⚠ Tercero sin clasificar — asigna cuenta
+          </div>
+        )}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(it.monto)}</td>
       <td className="px-3 py-2.5">
@@ -69,6 +76,81 @@ function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; 
   )
 }
 
+function ImportDian({ onImported }: { onImported: () => void }) {
+  const [rows, setRows] = useState<DianRow[]>([])
+  const [fileName, setFileName] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [res, setRes] = useState<DianImportResult | null>(null)
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return
+    setFileName(file.name); setRes(null)
+    setRows((await parseXlsx(file)).map(mapDian))
+  }
+  const importar = async () => {
+    setLoading(true)
+    const r = await importarDianConciliacionAction(rows)
+    setRes(r); setLoading(false)
+    if (r.ok) onImported()
+  }
+
+  return (
+    <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-[#0F172A]">Subir reporte DIAN (.xlsx)</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">
+            Facturas recibidas del mes. Filtra receptor ISADAN, excluye acuses y notas crédito,
+            evita duplicados por CUFE y resuelve/crea el proveedor por NIT.
+          </p>
+        </div>
+        <label className="cursor-pointer shrink-0">
+          <span className="inline-flex items-center gap-1.5 border border-[#E2E8F0] hover:border-[#2563EB]/40 hover:bg-[#F8FAFC] text-[#0F172A] text-xs font-medium px-3 py-2 rounded-lg">
+            <FileSpreadsheet size={14} /> {fileName || 'Elegir archivo'}
+            {rows.length > 0 && <span className="text-[#2563EB] font-semibold">· {rows.length} filas</span>}
+          </span>
+          <input type="file" accept=".xlsx,.xls" className="hidden" onChange={onFile} />
+        </label>
+        <button onClick={importar} disabled={!rows.length || loading}
+          className="inline-flex items-center justify-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white text-xs font-medium px-4 py-2 rounded-lg shrink-0">
+          {loading ? <><RefreshCw size={13} className="animate-spin" /> Importando…</> : <><Upload size={13} /> Importar</>}
+        </button>
+      </div>
+
+      {res && !res.ok && (
+        <p className="text-xs text-red-600 mt-3 bg-red-50 rounded-lg px-3 py-2">Error: {res.error}</p>
+      )}
+      {res && res.ok && (
+        <div className="mt-3 text-xs bg-[#F8FAFC] rounded-lg px-3 py-2.5 space-y-1.5">
+          <p className="flex items-center gap-1.5 text-emerald-700 font-medium">
+            <CheckCircle size={13} /> {res.insertados} importadas
+            {res.duplicados > 0 ? ` · ${res.duplicados} duplicadas` : ''}
+            {res.omitidos > 0 ? ` · ${res.omitidos} omitidas (no-recibido/acuse/NC)` : ''}
+          </p>
+          {res.tercerosNuevos.length > 0 && (
+            <div className="text-amber-700">
+              <span className="font-semibold">{res.tercerosNuevos.length} tercero(s) nuevo(s) creado(s)</span> — revisa su clasificación:
+              <ul className="mt-0.5 list-disc list-inside text-[#64748B]">
+                {res.tercerosNuevos.map((t, i) => (
+                  <li key={i}>{t.nombre} ({t.nit}){t.warning ? ` · ⚠ ${t.warning}` : ''}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {res.revisar.length > 0 && (
+            <div className="text-red-600">
+              <span className="font-semibold">{res.revisar.length} factura(s) con NIT no reconocido</span> — se importaron sin tercero, resuélvelas manual:
+              <ul className="mt-0.5 list-disc list-inside">
+                {res.revisar.map((r, i) => <li key={i}>FE {r.folio} · {r.nombre} ({r.nit})</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ConciliacionCostosClient({ items, cuentas }: { items: ItemCosto[]; cuentas: CuentaCosto[] }) {
   const router = useRouter()
   const [resultados, setResultados] = useState<CostoResultado[]>([])
@@ -82,6 +164,8 @@ export default function ConciliacionCostosClient({ items, cuentas }: { items: It
 
   return (
     <div className="space-y-4">
+      <ImportDian onImported={() => router.refresh()} />
+
       {resultados.length > 0 && (
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 space-y-1.5">
           <p className="text-xs font-semibold text-[#64748B] mb-1">Resultado</p>
