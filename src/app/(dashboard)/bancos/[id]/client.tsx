@@ -11,7 +11,7 @@ import {
 import * as XLSX from 'xlsx'
 import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, asignarProveedorMasivoAction, obtenerClienteViajeAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
-import { getFacturasVinculablesAction, vincularFeBancoAction } from '../../contabilidad/conciliacion-costos/actions'
+import { getFacturasVinculablesAction, vincularFeBancoAction, getVinculoInfoAction } from '../../contabilidad/conciliacion-costos/actions'
 import type { FeEstado } from '@/lib/facturas-estado'
 import type { Trip } from '@/lib/types'
 
@@ -56,6 +56,7 @@ interface Transaction {
   tercero_id?: string | null
   reference_type?: string | null
   reference_id?: string | null
+  matched_invoice_id?: string | null
   transaction_categories?: TxCategory | null
 }
 
@@ -117,6 +118,7 @@ export default function BankDetailClient({
   const [feCuenta,  setFeCuenta]  = useState('')
   const [feLoading, setFeLoading] = useState(false)
   const [feMsg,     setFeMsg]     = useState<string | null>(null)
+  const [vinculoInfo, setVinculoInfo] = useState<{ folio: string; emisor: string; asiento: string | null } | null>(null)
   const editDescDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [deleteTxn,      setDeleteTxn]      = useState<Transaction | null>(null)
   const [deleting,       setDeleting]       = useState(false)
@@ -262,8 +264,12 @@ export default function BankDetailClient({
     setEditTripClientSug(null)
     setEditError('')
     setEditSuggestion(null)
-    setFeList([]); setFeSel(''); setFeCuenta(''); setFeMsg(null)
-    if (t.type === 'EGRESO') getFacturasVinculablesAction((t.date ?? '').slice(0, 7)).then(setFeList)
+    setFeList([]); setFeSel(''); setFeCuenta(''); setFeMsg(null); setVinculoInfo(null)
+    if (t.matched_invoice_id) {
+      getVinculoInfoAction(t.matched_invoice_id).then(setVinculoInfo)   // ya vinculada → estado bloqueado
+    } else if (t.type === 'EGRESO') {
+      getFacturasVinculablesAction((t.date ?? '').slice(0, 7)).then(setFeList)   // vinculable → selector
+    }
     if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
   }
 
@@ -849,96 +855,6 @@ export default function BankDetailClient({
                   onChange={e => setEditForm(p => p && ({ ...p, date: e.target.value }))} className={inpCls} />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría</label>
-                <CategorySelector
-                  key={editTxn?.id}
-                  value={editForm.category_id}
-                  onChange={v => setEditForm(p => p && ({ ...p, category_id: v }))}
-                  categories={categories}
-                  pucAccounts={pucAccounts}
-                  typeFilter={editSuggestion?.categoryType}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tercero (opcional)</label>
-                <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
-                  onChange={(nit, name, terceroId) => { setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name, tercero_id: terceroId })); setEditTripClientSug(null) }} />
-                {editTripClientSug && !editForm.supplier_nit && !editForm.supplier_name && (
-                  <div className="mt-2 flex items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
-                    <span className="text-blue-800 min-w-0 truncate">
-                      Sugerido del viaje: <span className="font-semibold">{editTripClientSug.name || editTripClientSug.nit}</span>
-                    </span>
-                    <button type="button"
-                      onClick={() => { setEditForm(p => p && ({ ...p, supplier_nit: editTripClientSug.nit, supplier_name: editTripClientSug.name, tercero_id: editTripClientSug.terceroId })); setEditTripClientSug(null) }}
-                      className="ml-auto shrink-0 text-blue-700 hover:text-blue-900 font-semibold">
-                      Aceptar
-                    </button>
-                    <button type="button" onClick={() => setEditTripClientSug(null)}
-                      className="shrink-0 text-[#94A3B8] hover:text-[#64748B]">
-                      Ignorar
-                    </button>
-                  </div>
-                )}
-              </div>
-              {editForm.type === 'EGRESO' && (
-                <div className="border border-[#E2E8F0] rounded-xl p-3 bg-[#F8FAFC]">
-                  <p className="text-xs font-semibold text-[#0F172A] mb-0.5">Pago directo de factura DIAN (opcional)</p>
-                  <p className="text-[10px] text-[#94A3B8] mb-2">
-                    Si este egreso pagó una factura de proveedor, vincúlala: contabiliza el costo (CR banco) y deja la
-                    trazabilidad. Sobrescribe tercero y categoría con los de la factura.
-                  </p>
-                  <select value={feSel} onChange={e => selectFe(e.target.value)} className={`${inpCls} mb-2`}>
-                    <option value="">— Sin vincular —</option>
-                    {feList.map(f => {
-                      const asignada = f.estado !== 'sin_asignar'
-                      const et = f.estado === 'legalizacion' ? `Legalización ${f.etiqueta ?? ''}`
-                        : f.estado === 'banco' ? `Pago banco ${f.etiqueta ?? ''}`
-                        : f.estado === 'contabilizada' ? 'Contabilizada' : ''
-                      return (
-                        <option key={f.id} value={f.id} disabled={asignada}>
-                          {asignada ? '🟢' : '🔴'} {f.emisor} · FE {f.folio} · {formatCOP(f.monto)}{asignada ? ` · ${et}` : ''}
-                        </option>
-                      )
-                    })}
-                  </select>
-                  {feSel && (
-                    <>
-                      <select value={feCuenta} onChange={e => setFeCuenta(e.target.value)} className={`${inpCls} mb-2`}>
-                        <option value="">{feSelObj && !feSelObj.cuentaSugerida ? '— Elige cuenta (proveedor sin clasificar) —' : 'Cuenta de costo…'}</option>
-                        {feCuentas.map(c => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
-                      </select>
-                      <button type="button" onClick={vincularFe} disabled={!feCuenta || feLoading}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg">
-                        {feLoading ? 'Vinculando…' : 'Vincular y contabilizar (pago directo)'}
-                      </button>
-                    </>
-                  )}
-                  {feMsg && <p className="text-xs text-red-600 mt-2">{feMsg}</p>}
-                </div>
-              )}
-              {trips.length > 0 && (
-                <div>
-                  <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Viaje asociado (opcional)</label>
-                  <input
-                    type="text"
-                    value={editTripSearch}
-                    onChange={e => setEditTripSearch(e.target.value)}
-                    placeholder="Buscar por manifiesto, placa o ruta…"
-                    className={`${inpCls} mb-2`}
-                  />
-                  <select value={editForm.trip_id}
-                    onChange={e => handleEditTripChange(e.target.value)}
-                    className={inpCls}>
-                    <option value="">Sin viaje asociado</option>
-                    {trips
-                      .filter(t => t.id === editForm.trip_id || tripMatchesQuery(t, editTripSearch))
-                      .map(t => (
-                        <option key={t.id} value={t.id}>{formatTripOption(t)}</option>
-                      ))}
-                  </select>
-                </div>
-              )}
-              <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción</label>
                 <textarea rows={3} value={editForm.description}
                   onChange={e => {
@@ -973,7 +889,111 @@ export default function BankDetailClient({
                   </div>
                 )}
               </div>
-              {editError && <p className="text-sm text-red-500">{editError}</p>}
+              <div>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Categoría</label>
+                <CategorySelector
+                  key={editTxn?.id}
+                  value={editForm.category_id}
+                  onChange={v => setEditForm(p => p && ({ ...p, category_id: v }))}
+                  categories={categories}
+                  pucAccounts={pucAccounts}
+                  typeFilter={editSuggestion?.categoryType}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Tercero (opcional)</label>
+                <SupplierSelector nit={editForm.supplier_nit} name={editForm.supplier_name}
+                  onChange={(nit, name, terceroId) => { setEditForm(p => p && ({ ...p, supplier_nit: nit, supplier_name: name, tercero_id: terceroId })); setEditTripClientSug(null) }} />
+                {editTripClientSug && !editForm.supplier_nit && !editForm.supplier_name && (
+                  <div className="mt-2 flex items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                    <span className="text-blue-800 min-w-0 truncate">
+                      Sugerido del viaje: <span className="font-semibold">{editTripClientSug.name || editTripClientSug.nit}</span>
+                    </span>
+                    <button type="button"
+                      onClick={() => { setEditForm(p => p && ({ ...p, supplier_nit: editTripClientSug.nit, supplier_name: editTripClientSug.name, tercero_id: editTripClientSug.terceroId })); setEditTripClientSug(null) }}
+                      className="ml-auto shrink-0 text-blue-700 hover:text-blue-900 font-semibold">
+                      Aceptar
+                    </button>
+                    <button type="button" onClick={() => setEditTripClientSug(null)}
+                      className="shrink-0 text-[#94A3B8] hover:text-[#64748B]">
+                      Ignorar
+                    </button>
+                  </div>
+                )}
+              </div>
+              {editForm.type === 'EGRESO' && (
+                <div className="border border-[#E2E8F0] rounded-xl p-3 bg-[#F8FAFC]">
+                  <p className="text-xs font-semibold text-[#0F172A] mb-0.5">Pago directo de factura DIAN</p>
+                  {editTxn?.matched_invoice_id ? (
+                    <>
+                      <div className="mt-1 flex items-start gap-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2">
+                        <span>
+                          ✓ Vinculada a <span className="font-semibold">{vinculoInfo?.emisor ?? '…'}</span> · FE {vinculoInfo?.folio ?? '…'}
+                          {vinculoInfo?.asiento ? <> · <span className="font-semibold">{vinculoInfo.asiento}</span></> : null}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[#94A3B8] mt-1.5">Deshacer el vínculo requiere un asiento de reversión (los asientos contabilizados son inmutables).</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[10px] text-[#94A3B8] mb-2">
+                        Si este egreso pagó una factura de proveedor, vincúlala: contabiliza el costo (CR banco) y deja la
+                        trazabilidad. Sobrescribe tercero y categoría con los de la factura.
+                      </p>
+                      <select value={feSel} onChange={e => selectFe(e.target.value)} className={`${inpCls} mb-2`}>
+                        <option value="">— Sin vincular —</option>
+                        {feList.map(f => {
+                          const asignada = f.estado !== 'sin_asignar'
+                          const et = f.estado === 'legalizacion' ? `Legalización ${f.etiqueta ?? ''}`
+                            : f.estado === 'banco' ? `Pago banco ${f.etiqueta ?? ''}`
+                            : f.estado === 'contabilizada' ? 'Contabilizada' : ''
+                          return (
+                            <option key={f.id} value={f.id} disabled={asignada}>
+                              {asignada ? '🟢' : '🔴'} {f.emisor} · FE {f.folio} · {formatCOP(f.monto)}{asignada ? ` · ${et}` : ''}
+                            </option>
+                          )
+                        })}
+                      </select>
+                      {feSel && (
+                        <>
+                          <select value={feCuenta} onChange={e => setFeCuenta(e.target.value)} className={`${inpCls} mb-2`}>
+                            <option value="">{feSelObj && !feSelObj.cuentaSugerida ? '— Elige cuenta (proveedor sin clasificar) —' : 'Cuenta de costo…'}</option>
+                            {feCuentas.map(c => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+                          </select>
+                          <button type="button" onClick={vincularFe} disabled={!feCuenta || feLoading}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg">
+                            {feLoading ? 'Vinculando…' : 'Vincular y contabilizar (pago directo)'}
+                          </button>
+                        </>
+                      )}
+                      {feMsg && <p className="text-xs text-red-600 mt-2">{feMsg}</p>}
+                    </>
+                  )}
+                </div>
+              )}
+              {trips.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Viaje asociado (opcional)</label>
+                  <input
+                    type="text"
+                    value={editTripSearch}
+                    onChange={e => setEditTripSearch(e.target.value)}
+                    placeholder="Buscar por manifiesto, placa o ruta…"
+                    className={`${inpCls} mb-2`}
+                  />
+                  <select value={editForm.trip_id}
+                    onChange={e => handleEditTripChange(e.target.value)}
+                    className={inpCls}>
+                    <option value="">Sin viaje asociado</option>
+                    {trips
+                      .filter(t => t.id === editForm.trip_id || tripMatchesQuery(t, editTripSearch))
+                      .map(t => (
+                        <option key={t.id} value={t.id}>{formatTripOption(t)}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
+              {editError &&<p className="text-sm text-red-500">{editError}</p>}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={closeEdit}
                   className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-3 rounded-lg text-sm hover:bg-[#F8FAFC]">

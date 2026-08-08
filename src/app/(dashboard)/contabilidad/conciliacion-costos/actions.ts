@@ -142,6 +142,27 @@ export async function vincularFeBancoAction(
   return { ok: true, asiento: `CG-${asiento?.consecutivo}` }
 }
 
+/** Info de la FE ya vinculada a un egreso (para mostrar el estado bloqueado en el modal de banco). */
+export async function getVinculoInfoAction(
+  importId: string,
+): Promise<{ folio: string; emisor: string; asiento: string | null } | null> {
+  const { data: fe } = await supabase
+    .from('dian_invoices_import')
+    .select('folio, name_issuer, terceros(razon_social)')
+    .eq('id', importId).single()
+  if (!fe) return null
+  const { data: cg } = await supabase
+    .from('journal_entries').select('consecutivo')
+    .eq('origen_tabla', 'dian_invoices_import').eq('origen_id', importId)
+    .eq('tipo_comprobante', 'CG').eq('estado', 'CONTABILIZADO').maybeSingle()
+  const f = fe as any
+  return {
+    folio: String(f.folio ?? ''),
+    emisor: (f.terceros?.razon_social ?? f.name_issuer ?? '—') as string,
+    asiento: cg?.consecutivo ? `CG-${cg.consecutivo}` : null,
+  }
+}
+
 /** FE del mes con estado (para el selector "vincular factura DIAN" del modal de banco). periodo = 'YYYY-MM'. */
 export async function getFacturasVinculablesAction(periodo: string): Promise<FeEstado[]> {
   const m = /^(\d{4})-(\d{2})$/.exec(periodo)
