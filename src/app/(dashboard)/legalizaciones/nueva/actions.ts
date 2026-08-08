@@ -16,8 +16,9 @@ function buildLegalizationPayload(formData: FormData) {
 
   const weight_kg    = formData.get('weight_kg')     ? Number(formData.get('weight_kg'))     : null
   const price_per_ton = formData.get('price_per_ton') ? Number(formData.get('price_per_ton')) : null
-  // FE de combustible enlazada a mano a la línea de ACPM (opcional)
-  const acpm_matched_invoice_id = (formData.get('acpm_matched_invoice_id') as string) || null
+  // FE enlazadas a mano por línea (acpm_contado / cargue / descargue): { key: invoiceId }
+  const matchedRaw = formData.get('matched_invoices') as string | null
+  const matched: Record<string, string> = matchedRaw ? JSON.parse(matchedRaw) : {}
 
   const expenses: { expense_type: string; amount: number; description: string | null; matched_invoice_id?: string | null }[] = []
   let gastos_viaje = 0
@@ -30,8 +31,7 @@ function buildLegalizationPayload(formData: FormData) {
     if (amt > 0) {
       expenses.push({
         expense_type: key, amount: amt, description: null,
-        // el enlace solo aplica a la línea de ACPM
-        matched_invoice_id: key === 'acpm_contado' ? acpm_matched_invoice_id : null,
+        matched_invoice_id: matched[key] || null,   // enlace de la FE, si la línea tiene una
       })
       gastos_viaje += amt
     }

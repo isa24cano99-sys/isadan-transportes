@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { crearLegalizacionAction, actualizarLegalizacionAction, crearCuentaYCategoriaAction } from './actions'
 import { formatCOP, formatTripOption, tripMatchesQuery, tripManifiesto } from '@/lib/utils'
 import { FIXED_FIELDS } from '@/lib/legalizacion-fields'
-import type { FuelInvoice } from '@/lib/fuel-invoices'
+import { type FEClasificada, FE_LINEA_CUENTA } from '@/lib/fuel-invoices'
 import { X, Plus, Trash2 } from 'lucide-react'
 
 type TransactionCategory = {
@@ -51,14 +51,15 @@ export interface LegalizacionInitialData {
   comision: number
   fixedExpenses: Record<string, number>
   dynExpenses: DynExpenseInit[]
-  acpmMatchedInvoiceId?: string | null
+  // FE enlazada por línea (acpm_contado / cargue / descargue) → matched_invoice_id
+  matchedInvoices?: Record<string, string>
 }
 
 interface Props {
   trips: Trip[]
   initialData?: LegalizacionInitialData
   categories: TransactionCategory[]
-  combustibleFE: FuelInvoice[]
+  feClasificadas: FEClasificada[]
 }
 
 type DynRow = { _id: string; categoryId: string; description: string; amount: string }
@@ -67,7 +68,7 @@ let _rc = 0
 function mkId() { return `r${++_rc}` }
 function num(v: string) { return parseFloat(v) || 0 }
 
-export default function NuevaLegalizacionForm({ trips, initialData, categories, combustibleFE }: Props) {
+export default function NuevaLegalizacionForm({ trips, initialData, categories, feClasificadas }: Props) {
   const router = useRouter()
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState('')
@@ -93,14 +94,18 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   const [weightKg,    setWeightKg]    = useState(initTrip?.weight_kg     != null ? String(initTrip.weight_kg)     : '')
   const [pricePerTon, setPricePerTon] = useState(initTrip?.price_per_ton != null ? String(initTrip.price_per_ton) : '')
 
-  // ACPM: FE de combustible enlazada manualmente (dropdown filtrado por el mes de la
-  // legalización). Selección 100% manual — sin sugerencia ni cálculo de coincidencia.
-  const [acpmInvoiceId, setAcpmInvoiceId] = useState(initialData?.acpmMatchedInvoiceId ?? '')
-  const acpmFEOptions = useMemo(() => {
+  // FE enlazada manualmente por línea (ACPM/cargue/descargue). Selección 100% manual —
+  // sin sugerencia ni cálculo de coincidencia. matched[key] = id de la FE elegida.
+  const [matched, setMatched] = useState<Record<string, string>>(initialData?.matchedInvoices ?? {})
+  const setMatch = (key: string, id: string) => setMatched(prev => ({ ...prev, [key]: id }))
+  // opciones para una línea: FE del mes de la legalización cuyo tercero está clasificado
+  // en la cuenta de esa línea (combustible/cargue/descargue).
+  const feOptionsDe = (key: string) => {
+    const cuenta = FE_LINEA_CUENTA[key]
     const mes = (tripDate ?? '').slice(0, 7)               // 'YYYY-MM'
-    if (!mes) return [] as FuelInvoice[]
-    return combustibleFE.filter(fe => (fe.issue_date ?? '').slice(0, 7) === mes)
-  }, [combustibleFE, tripDate])
+    if (!cuenta || !mes) return [] as FEClasificada[]
+    return feClasificadas.filter(fe => fe.cuenta === cuenta && (fe.issue_date ?? '').slice(0, 7) === mes)
+  }
 
   // ── Fixed expense fields (always visible) ───────────────────────────────────
   const [fixed, setFixed] = useState<Record<string, string>>(() => {
@@ -213,7 +218,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
     fd.set('comision_empresa', comision)
     fd.set('weight_kg',     weightKg)
     fd.set('price_per_ton', pricePerTon)
-    fd.set('acpm_matched_invoice_id', acpmInvoiceId)
+    fd.set('matched_invoices', JSON.stringify(matched))
     fd.set('fixed_expenses', JSON.stringify(
       Object.fromEntries(FIXED_FIELDS.map(f => [f.key, num(fixed[f.key])]).filter(([, v]) => (v as number) > 0)),
     ))
@@ -338,22 +343,22 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
                 placeholder="0"
                 className={inputCls}
               />
-              {f.key === 'acpm_contado' && (
+              {f.key in FE_LINEA_CUENTA && (
                 <div className="mt-1.5">
                   <select
-                    value={acpmInvoiceId}
-                    onChange={e => setAcpmInvoiceId(e.target.value)}
+                    value={matched[f.key] ?? ''}
+                    onChange={e => setMatch(f.key, e.target.value)}
                     className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-2 text-xs bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   >
-                    <option value="">FE de combustible del mes (opcional)…</option>
-                    {acpmFEOptions.map(fe => (
+                    <option value="">FE del mes (opcional)…</option>
+                    {feOptionsDe(f.key).map(fe => (
                       <option key={fe.id} value={fe.id}>
                         {fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
                       </option>
                     ))}
                   </select>
                   <p className="text-[10px] text-[#94A3B8] mt-0.5">
-                    Enlaza la factura física del conductor. Da el proveedor real y la placa al costo.
+                    Enlaza la factura del proveedor. Da el proveedor real y la placa al costo.
                   </p>
                 </div>
               )}
