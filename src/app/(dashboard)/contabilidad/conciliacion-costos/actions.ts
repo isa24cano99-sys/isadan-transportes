@@ -6,6 +6,7 @@ import { resolverTerceroPorNitCrudo } from '@/lib/terceros'
 import { normalizarIdentificacion } from '@/lib/nit'
 import type { DianRow } from '@/lib/dian-xlsx'
 import { facturasConEstado, type FeEstado } from '@/lib/facturas-estado'
+import { formatCOP } from '@/lib/utils'
 
 export type CostoResultado = { id: string; ref: string; ok: boolean; mensaje: string }
 
@@ -111,6 +112,22 @@ export async function vincularFeBancoAction(
 ): Promise<VincularResult> {
   if (!input.bankTxnId || !input.importId || !input.cuentaPuc) {
     return { ok: false, error: 'Faltan datos (banco, factura o cuenta de costo).' }
+  }
+
+  // Guard de monto: el asiento acredita al banco el TOTAL de la FE (no el monto del egreso). Si el
+  // egreso real y el total de la FE no coinciden (±1 peso), vincular divergiría la contabilidad del
+  // banco del movimiento real → se rechaza. (Pendiente a definir: caso de "pago parcial real"/descuento.)
+  const [{ data: bt }, { data: feChk }] = await Promise.all([
+    supabase.from('bank_transactions').select('amount').eq('id', input.bankTxnId).single(),
+    supabase.from('dian_invoices_import').select('total, folio').eq('id', input.importId).single(),
+  ])
+  const bankAmt = Number(bt?.amount ?? 0)
+  const feTotal = Number(feChk?.total ?? 0)
+  if (Math.abs(bankAmt - feTotal) > 1) {
+    return {
+      ok: false,
+      error: `El monto de este movimiento bancario (${formatCOP(bankAmt)}) no coincide con el total de la factura FE ${(feChk as { folio?: string } | null)?.folio ?? ''} (${formatCOP(feTotal)}) — verifica cuál es el correcto antes de vincular.`,
+    }
   }
 
   // 1) postear el costo (pago directo, CR 11100510). El guard rechaza si la FE ya está causada.
