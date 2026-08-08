@@ -4,23 +4,14 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
 import { parseXlsx, mapDian, type DianRow } from '@/lib/dian-xlsx'
-import { postearCostoDianAction, importarDianConciliacionAction, type CostoResultado, type DianImportResult } from './actions'
+import { type EstadoFE, type FeEstado } from '@/lib/facturas-estado'
+import { postearCostoDianAction, importarDianConciliacionAction, vincularFeBancoAction, type CostoResultado, type DianImportResult } from './actions'
 import { Upload, CheckCircle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
+export type { EstadoFE }
 export type CuentaCosto = { codigo: string; nombre: string }
-export type EstadoFE = 'legalizacion' | 'banco' | 'contabilizada' | 'sin_asignar'
-export type ItemCosto = {
-  id: string
-  emisor: string
-  folio: string
-  fecha: string
-  monto: number
-  terceroId: string | null
-  cuentaSugerida: string | null
-  tratamiento: 'a' | 'c'
-  estado: EstadoFE
-  etiqueta: string | null   // manifiesto (legalización) o fecha (banco)
-}
+export type EgresoBanco = { id: string; date: string; amount: number; description: string }
+export type ItemCosto = FeEstado & { tratamiento: 'a' | 'c' }
 
 function EstadoBadge({ estado, etiqueta }: { estado: EstadoFE; etiqueta: string | null }) {
   const verde = 'text-emerald-700 bg-emerald-100'
@@ -38,9 +29,14 @@ function EstadoBadge({ estado, etiqueta }: { estado: EstadoFE; etiqueta: string 
   )
 }
 
-function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; onDone: (r: CostoResultado) => void }) {
+const days = (a: string, b: string) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000)
+
+function Fila({ it, cuentas, egresos, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; onDone: (r: CostoResultado) => void }) {
   const [cuenta, setCuenta] = useState(it.cuentaSugerida ?? '')
   const [trat, setTrat] = useState<'a' | 'c'>(it.tratamiento)
+  // egreso sugerido por defecto: mismo monto ±7 días (la heurística que ya marcó el tratamiento)
+  const sugeridoBanco = egresos.find(e => Math.round(e.amount) === Math.round(it.monto) && days(e.date, it.fecha) <= 7)?.id ?? ''
+  const [bancoId, setBancoId] = useState(sugeridoBanco)
   const [loading, setLoading] = useState(false)
   const sinClasificar = !it.cuentaSugerida
   const accionable = it.estado === 'sin_asignar'     // solo las sin asignar se contabilizan aquí
@@ -48,16 +44,22 @@ function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; 
 
   const contabilizar = async () => {
     if (!cuenta || loading) return
+    if (trat === 'a' && !bancoId) return   // pago directo exige elegir el egreso
     setLoading(true)
-    const res = await postearCostoDianAction({
-      importId: it.id, terceroId: it.terceroId, cuentaPuc: cuenta, tratamiento: trat,
-      ref: `${it.emisor} · FE ${it.folio}`,
-    })
+    const ref = `${it.emisor} · FE ${it.folio}`
+    let res: CostoResultado
+    if (trat === 'a') {
+      const v = await vincularFeBancoAction({ bankTxnId: bancoId, importId: it.id, cuentaPuc: cuenta })
+      res = { id: it.id, ref, ok: v.ok, mensaje: v.ok ? `Pago directo contabilizado · ${v.asiento} (egreso vinculado)` : v.error }
+    } else {
+      res = await postearCostoDianAction({ importId: it.id, terceroId: it.terceroId, cuentaPuc: cuenta, tratamiento: 'c', ref })
+    }
     setLoading(false)
     onDone(res)
   }
 
   const selCls = 'border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-xs bg-white text-[#0F172A]'
+  const fmtEgreso = (e: EgresoBanco) => `${e.date} · ${formatCOP(e.amount)}${e.description ? ' · ' + e.description.slice(0, 22) : ''}`
 
   return (
     <tr className="border-b border-[#E2E8F0] last:border-0 align-top">
@@ -86,12 +88,19 @@ function Fila({ it, cuentas, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; 
               <option value="c">Causación (CR proveedor)</option>
               <option value="a">Pago directo (CR banco)</option>
             </select>
-            <button onClick={contabilizar} disabled={!cuenta || loading}
+            {trat === 'a' && (
+              <select value={bancoId} onChange={e => setBancoId(e.target.value)} className={`${selCls} max-w-[240px]`}>
+                <option value="">— ¿Cuál egreso lo pagó? —</option>
+                {egresos.map(e => <option key={e.id} value={e.id}>{fmtEgreso(e)}</option>)}
+              </select>
+            )}
+            <button onClick={contabilizar} disabled={!cuenta || loading || (trat === 'a' && !bancoId)}
               className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-40 disabled:no-underline">
               {loading ? '…' : 'Contabilizar'}
             </button>
             {it.cuentaSugerida && <div className="text-[10px] text-emerald-600 w-full">Sugerido del proveedor · editable</div>}
             {fijaraFuturo && <div className="text-[10px] text-amber-700 w-full">⚠ Se fija como cuenta de este proveedor para el futuro</div>}
+            {trat === 'a' && !bancoId && <div className="text-[10px] text-amber-700 w-full">Elige el egreso que pagó esta factura para dejar la trazabilidad.</div>}
           </div>
         ) : (
           <span className="text-xs text-[#CBD5E1]">—</span>
@@ -176,7 +185,7 @@ function ImportDian({ onImported }: { onImported: () => void }) {
   )
 }
 
-export default function ConciliacionCostosClient({ items, cuentas }: { items: ItemCosto[]; cuentas: CuentaCosto[] }) {
+export default function ConciliacionCostosClient({ items, cuentas, egresos }: { items: ItemCosto[]; cuentas: CuentaCosto[]; egresos: EgresoBanco[] }) {
   const router = useRouter()
   const [resultados, setResultados] = useState<CostoResultado[]>([])
 
@@ -221,7 +230,7 @@ export default function ConciliacionCostosClient({ items, cuentas }: { items: It
                 </tr>
               </thead>
               <tbody>
-                {items.map(it => <Fila key={it.id} it={it} cuentas={cuentas} onDone={onDone} />)}
+                {items.map(it => <Fila key={it.id} it={it} cuentas={cuentas} egresos={egresos} onDone={onDone} />)}
               </tbody>
               <tfoot>
                 <tr className="bg-[#F8FAFC] font-semibold border-t-2 border-[#E2E8F0]">

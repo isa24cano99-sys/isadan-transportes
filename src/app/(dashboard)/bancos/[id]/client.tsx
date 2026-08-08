@@ -11,6 +11,8 @@ import {
 import * as XLSX from 'xlsx'
 import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, asignarProveedorMasivoAction, obtenerClienteViajeAction } from '../transaccion/actions'
 import { recategorizarAction, sugerirCategoriaAction, type SugerirResult } from '../category-actions'
+import { getFacturasVinculablesAction, vincularFeBancoAction } from '../../contabilidad/conciliacion-costos/actions'
+import type { FeEstado } from '@/lib/facturas-estado'
 import type { Trip } from '@/lib/types'
 
 function SourceBadge({ source }: { source: SugerirResult['source'] }) {
@@ -109,6 +111,12 @@ export default function BankDetailClient({
   const [saving,         setSaving]         = useState(false)
   const [editError,      setEditError]      = useState('')
   const [editSuggestion, setEditSuggestion] = useState<SugerirResult | null>(null)
+  // Vincular factura DIAN (pago directo) — solo egresos
+  const [feList,    setFeList]    = useState<FeEstado[]>([])
+  const [feSel,     setFeSel]     = useState('')
+  const [feCuenta,  setFeCuenta]  = useState('')
+  const [feLoading, setFeLoading] = useState(false)
+  const [feMsg,     setFeMsg]     = useState<string | null>(null)
   const editDescDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [deleteTxn,      setDeleteTxn]      = useState<Transaction | null>(null)
   const [deleting,       setDeleting]       = useState(false)
@@ -254,6 +262,8 @@ export default function BankDetailClient({
     setEditTripClientSug(null)
     setEditError('')
     setEditSuggestion(null)
+    setFeList([]); setFeSel(''); setFeCuenta(''); setFeMsg(null)
+    if (t.type === 'EGRESO') getFacturasVinculablesAction((t.date ?? '').slice(0, 7)).then(setFeList)
     if (editDescDebounce.current) clearTimeout(editDescDebounce.current)
   }
 
@@ -295,6 +305,22 @@ export default function BankDetailClient({
     const result = await actualizarTransaccionAction(editTxn.id, fd)
     if (result.ok) { closeEdit(); window.location.reload() }
     else { setEditError(result.error ?? 'Error al guardar'); setSaving(false) }
+  }
+
+  // ── Vincular factura DIAN al egreso (pago directo) — mismo núcleo que la conciliación ──
+  const feCuentas = useMemo(() => pucAccounts.filter(p => p.codigo.startsWith('6145')), [pucAccounts])
+  const feSelObj = feList.find(f => f.id === feSel)
+  const selectFe = (id: string) => {
+    setFeSel(id)
+    setFeCuenta(feList.find(x => x.id === id)?.cuentaSugerida ?? '')
+    setFeMsg(null)
+  }
+  const vincularFe = async () => {
+    if (!editTxn || !feSel || !feCuenta || feLoading) return
+    setFeLoading(true); setFeMsg(null)
+    const res = await vincularFeBancoAction({ bankTxnId: editTxn.id, importId: feSel, cuentaPuc: feCuenta })
+    if (res.ok) { closeEdit(); window.location.reload() }
+    else { setFeMsg(res.error); setFeLoading(false) }
   }
 
   const clearFilters = () => {
@@ -854,6 +880,42 @@ export default function BankDetailClient({
                   </div>
                 )}
               </div>
+              {editForm.type === 'EGRESO' && (
+                <div className="border border-[#E2E8F0] rounded-xl p-3 bg-[#F8FAFC]">
+                  <p className="text-xs font-semibold text-[#0F172A] mb-0.5">Pago directo de factura DIAN (opcional)</p>
+                  <p className="text-[10px] text-[#94A3B8] mb-2">
+                    Si este egreso pagó una factura de proveedor, vincúlala: contabiliza el costo (CR banco) y deja la
+                    trazabilidad. Sobrescribe tercero y categoría con los de la factura.
+                  </p>
+                  <select value={feSel} onChange={e => selectFe(e.target.value)} className={`${inpCls} mb-2`}>
+                    <option value="">— Sin vincular —</option>
+                    {feList.map(f => {
+                      const asignada = f.estado !== 'sin_asignar'
+                      const et = f.estado === 'legalizacion' ? `Legalización ${f.etiqueta ?? ''}`
+                        : f.estado === 'banco' ? `Pago banco ${f.etiqueta ?? ''}`
+                        : f.estado === 'contabilizada' ? 'Contabilizada' : ''
+                      return (
+                        <option key={f.id} value={f.id} disabled={asignada}>
+                          {asignada ? '🟢' : '🔴'} {f.emisor} · FE {f.folio} · {formatCOP(f.monto)}{asignada ? ` · ${et}` : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                  {feSel && (
+                    <>
+                      <select value={feCuenta} onChange={e => setFeCuenta(e.target.value)} className={`${inpCls} mb-2`}>
+                        <option value="">{feSelObj && !feSelObj.cuentaSugerida ? '— Elige cuenta (proveedor sin clasificar) —' : 'Cuenta de costo…'}</option>
+                        {feCuentas.map(c => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+                      </select>
+                      <button type="button" onClick={vincularFe} disabled={!feCuenta || feLoading}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-medium py-2.5 rounded-lg">
+                        {feLoading ? 'Vinculando…' : 'Vincular y contabilizar (pago directo)'}
+                      </button>
+                    </>
+                  )}
+                  {feMsg && <p className="text-xs text-red-600 mt-2">{feMsg}</p>}
+                </div>
+              )}
               {trips.length > 0 && (
                 <div>
                   <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Viaje asociado (opcional)</label>
