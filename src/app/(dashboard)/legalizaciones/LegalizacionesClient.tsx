@@ -3,8 +3,8 @@
 import { useState, useMemo } from 'react'
 import { formatCOP, formatDate, legalizacionBalance, tripManifiesto } from '@/lib/utils'
 import Link from 'next/link'
-import { FileText, Search, Pencil, Trash2, Filter, X } from 'lucide-react'
-import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction } from './actions'
+import { FileText, Search, Pencil, Trash2, Filter, X, RotateCcw } from 'lucide-react'
+import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction, reabrirLegalizacionAction } from './actions'
 import { ExportComprobanteButton } from './ExportComprobanteButton'
 import { useUrlState } from '@/lib/useUrlState'
 
@@ -48,6 +48,20 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
   const [deleting, setDeleting] = useState(false)
   const [changingStatus, setChangingStatus] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<{ ok: boolean; text: string } | null>(null)
+  const [reabriendo, setReabriendo] = useState<string | null>(null)
+
+  const handleReabrir = async (leg: Legalizacion) => {
+    if (!window.confirm('Reabrir para corregir: se borra el asiento contabilizado y la legalización vuelve a BORRADOR para editar (incl. el enlace de FE). Al volver a aprobar se regenera. ¿Continuar?')) return
+    setReabriendo(leg.id); setMensaje(null)
+    const res = await reabrirLegalizacionAction(leg.id)
+    if (res.ok) {
+      setLegalizaciones(prev => prev.map(l => l.id === leg.id ? { ...l, status: 'BORRADOR' } : l))
+      setMensaje({ ok: true, text: `Legalización reabierta (${res.asientosBorrados ?? 0} asiento borrado). Edítala y vuelve a aprobar para regenerar.` })
+    } else {
+      setMensaje({ ok: false, text: res.error ?? 'Error al reabrir' })
+    }
+    setReabriendo(null)
+  }
 
   const handleCambiarEstado = async (id: string, status: Status) => {
     setChangingStatus(id); setMensaje(null)
@@ -244,10 +258,17 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                         className="text-xs text-[#64748B] hover:text-[#0F172A] transition-colors font-medium px-1">
                         Ver
                       </Link>
-                      <Link href={`/legalizaciones/${leg.id}/editar`}
-                        className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline font-medium">
-                        <Pencil size={11} /> Editar
-                      </Link>
+                      {leg.status === 'APROBADA' ? (
+                        <button onClick={() => handleReabrir(leg)} disabled={reabriendo === leg.id}
+                          className="inline-flex items-center gap-1 text-xs text-amber-700 hover:underline font-medium disabled:opacity-40">
+                          <RotateCcw size={11} /> {reabriendo === leg.id ? 'Reabriendo…' : 'Reabrir para corregir'}
+                        </button>
+                      ) : (
+                        <Link href={`/legalizaciones/${leg.id}/editar`}
+                          className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline font-medium">
+                          <Pencil size={11} /> Editar
+                        </Link>
+                      )}
                       <ExportComprobanteButton legId={leg.id} compact />
                       <button onClick={() => setDeleteTarget(leg)}
                         className="text-[#94A3B8] hover:text-red-500 transition-colors p-1">
@@ -312,8 +333,15 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                   </select>
                   <Link href={`/legalizaciones/${leg.id}`}
                     className="text-xs text-[#64748B] font-medium min-h-[36px] flex items-center px-1">Ver</Link>
-                  <Link href={`/legalizaciones/${leg.id}/editar`}
-                    className="text-xs text-[#2563EB] font-medium min-h-[36px] flex items-center px-1">Editar</Link>
+                  {leg.status === 'APROBADA' ? (
+                    <button onClick={() => handleReabrir(leg)} disabled={reabriendo === leg.id}
+                      className="inline-flex items-center gap-1 text-xs text-amber-700 font-medium min-h-[36px] px-1 disabled:opacity-40">
+                      <RotateCcw size={11} /> Reabrir
+                    </button>
+                  ) : (
+                    <Link href={`/legalizaciones/${leg.id}/editar`}
+                      className="text-xs text-[#2563EB] font-medium min-h-[36px] flex items-center px-1">Editar</Link>
+                  )}
                   <ExportComprobanteButton legId={leg.id} compact />
                   <button onClick={() => setDeleteTarget(leg)}
                     className="text-[#94A3B8] hover:text-red-500 min-h-[36px] px-1">

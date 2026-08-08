@@ -110,6 +110,13 @@ export async function crearLegalizacionAction(formData: FormData): Promise<{ ok:
 }
 
 export async function actualizarLegalizacionAction(id: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  // Guard de inmutabilidad: una legalización APROBADA ya tiene su CG contabilizado. No se edita
+  // en silencio (divergiría del asiento). Corrección solo por "Reabrir para corregir".
+  const { data: actual } = await supabase.from('legalizations').select('status').eq('id', id).single()
+  if (actual?.status === 'APROBADA') {
+    return { ok: false, error: 'Esta legalización está aprobada (contabilizada). Usa "Reabrir para corregir" para modificarla.' }
+  }
+
   const { trip_id, driver_id, date, freight, advance, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
