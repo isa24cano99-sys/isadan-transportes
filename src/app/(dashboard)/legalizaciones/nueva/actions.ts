@@ -17,22 +17,28 @@ function buildLegalizationPayload(formData: FormData) {
   const weight_kg    = formData.get('weight_kg')     ? Number(formData.get('weight_kg'))     : null
   const price_per_ton = formData.get('price_per_ton') ? Number(formData.get('price_per_ton')) : null
   // FE enlazadas a mano por línea (acpm_contado / cargue / descargue): { key: invoiceId }
-  const matchedRaw = formData.get('matched_invoices') as string | null
-  const matched: Record<string, string> = matchedRaw ? JSON.parse(matchedRaw) : {}
-
   const expenses: { expense_type: string; amount: number; description: string | null; matched_invoice_id?: string | null }[] = []
   let gastos_viaje = 0
 
-  // 1. Gastos fijos: { expense_type: monto }. La clave (ej. 'acpm_contado') se guarda tal cual.
+  // 1a. Gastos fijos SIN FE: { expense_type: monto } (una fila por tipo, sin enlace).
   const fixedRaw = formData.get('fixed_expenses') as string | null
   const fixed: Record<string, number> = fixedRaw ? JSON.parse(fixedRaw) : {}
   for (const [key, rawAmount] of Object.entries(fixed)) {
     const amt = Number(rawAmount) || 0
     if (amt > 0) {
-      expenses.push({
-        expense_type: key, amount: amt, description: null,
-        matched_invoice_id: matched[key] || null,   // enlace de la FE, si la línea tiene una
-      })
+      expenses.push({ expense_type: key, amount: amt, description: null, matched_invoice_id: null })
+      gastos_viaje += amt
+    }
+  }
+
+  // 1b. Líneas CON FE (acpm/cargue/descargue): pueden ser VARIAS del mismo tipo, cada una
+  //     con su propio monto y su propio matched_invoice_id (dos tanqueadas = dos filas + dos FE).
+  const feRaw = formData.get('fe_lines') as string | null
+  const feLines: { tipo: string; amount: number; matched_invoice_id: string | null }[] = feRaw ? JSON.parse(feRaw) : []
+  for (const l of feLines) {
+    const amt = Number(l.amount) || 0
+    if (amt > 0) {
+      expenses.push({ expense_type: l.tipo, amount: amt, description: null, matched_invoice_id: l.matched_invoice_id || null })
       gastos_viaje += amt
     }
   }

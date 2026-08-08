@@ -61,19 +61,16 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
   const { leg, expenses, trips, categories, feClasificadas } = await getData(id)
   if (!leg) notFound()
 
-  // FE enlazada por línea (acpm/cargue/descargue) para precargar los dropdowns al editar
-  const matchedInvoices: Record<string, string> = {}
-  for (const e of expenses as any[]) {
-    if (e.expense_type in FE_LINEA_CUENTA && e.matched_invoice_id) matchedInvoices[e.expense_type] = e.matched_invoice_id
-  }
-
-  // Reconstruir gastos fijos + adicionales desde legalization_expenses
+  // Reconstruir desde legalization_expenses. Los tipos CON FE (acpm/cargue/descargue) van a
+  // feLines — UNA por fila, con su propio enlace (NO se suman, para conservar cada tanqueada
+  // y su factura). Los demás fijos se suman en fixedExpenses.
   let percentage = 0
   let comision = 0
   const fixedExpenses: Record<string, number> = {}
+  const feLines: { tipo: string; amount: number; matchedInvoiceId: string | null }[] = []
   const dynExpenses: DynExpenseInit[] = []
 
-  for (const e of expenses) {
+  for (const e of expenses as any[]) {
     if (e.expense_type === 'porcentaje') {
       percentage = e.description ? Number(e.description) : 0
       continue
@@ -85,14 +82,14 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
 
     const amt = e.amount ?? 0
 
-    // Campo fijo por clave directa, o por PUC (datos legacy guardados por código).
-    if (FIXED_KEYS.has(e.expense_type)) {
-      fixedExpenses[e.expense_type] = (fixedExpenses[e.expense_type] ?? 0) + amt
-      continue
-    }
-    if (PUC_TO_FIXED[e.expense_type]) {
-      const k = PUC_TO_FIXED[e.expense_type]
-      fixedExpenses[k] = (fixedExpenses[k] ?? 0) + amt
+    // Clave fija por clave directa, o por PUC (datos legacy guardados por código).
+    const key = FIXED_KEYS.has(e.expense_type) ? e.expense_type : (PUC_TO_FIXED[e.expense_type] ?? null)
+    if (key) {
+      if (key in FE_LINEA_CUENTA) {
+        feLines.push({ tipo: key, amount: amt, matchedInvoiceId: e.matched_invoice_id ?? null })
+      } else {
+        fixedExpenses[key] = (fixedExpenses[key] ?? 0) + amt
+      }
       continue
     }
 
@@ -126,7 +123,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
     comision,
     fixedExpenses,
     dynExpenses,
-    matchedInvoices,
+    feLines,
   }
 
   return (

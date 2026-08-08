@@ -49,10 +49,10 @@ export interface LegalizacionInitialData {
   advance: number
   percentage: number
   comision: number
-  fixedExpenses: Record<string, number>
+  fixedExpenses: Record<string, number>   // solo tipos SIN FE (los demás fijos)
   dynExpenses: DynExpenseInit[]
-  // FE enlazada por línea (acpm_contado / cargue / descargue) → matched_invoice_id
-  matchedInvoices?: Record<string, string>
+  // líneas de gasto con FE (acpm/cargue/descargue), una por fila con su propio enlace
+  feLines?: { tipo: string; amount: number; matchedInvoiceId: string | null }[]
 }
 
 interface Props {
@@ -63,6 +63,11 @@ interface Props {
 }
 
 type DynRow = { _id: string; categoryId: string; description: string; amount: string }
+// Línea de gasto con FE (acpm/cargue/descargue): monto + su propia FE enlazada.
+type FeLine = { _id: string; tipo: string; amount: string; matchedInvoiceId: string }
+const FE_KEYS = Object.keys(FE_LINEA_CUENTA)                      // acpm_contado, cargue, descargue
+const FE_FIELDS = FIXED_FIELDS.filter(f => f.key in FE_LINEA_CUENTA)
+const NON_FE_FIELDS = FIXED_FIELDS.filter(f => !(f.key in FE_LINEA_CUENTA))
 
 let _rc = 0
 function mkId() { return `r${++_rc}` }
@@ -94,14 +99,10 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   const [weightKg,    setWeightKg]    = useState(initTrip?.weight_kg     != null ? String(initTrip.weight_kg)     : '')
   const [pricePerTon, setPricePerTon] = useState(initTrip?.price_per_ton != null ? String(initTrip.price_per_ton) : '')
 
-  // FE enlazada manualmente por línea (ACPM/cargue/descargue). Selección 100% manual —
-  // sin sugerencia ni cálculo de coincidencia. matched[key] = id de la FE elegida.
-  const [matched, setMatched] = useState<Record<string, string>>(initialData?.matchedInvoices ?? {})
-  const setMatch = (key: string, id: string) => setMatched(prev => ({ ...prev, [key]: id }))
-  // opciones para una línea: FE del mes de la legalización cuyo tercero está clasificado
-  // en la cuenta de esa línea (combustible/cargue/descargue).
-  const feOptionsDe = (key: string) => {
-    const cuenta = FE_LINEA_CUENTA[key]
+  // opciones de FE para una línea de un tipo: FE del mes cuyo tercero está clasificado en
+  // la cuenta de ese tipo (combustible/cargue/descargue). Selección 100% manual.
+  const feOptionsDe = (tipo: string) => {
+    const cuenta = FE_LINEA_CUENTA[tipo]
     const mes = (tripDate ?? '').slice(0, 7)               // 'YYYY-MM'
     if (!cuenta || !mes) return [] as FEClasificada[]
     return feClasificadas.filter(fe => fe.cuenta === cuenta && (fe.issue_date ?? '').slice(0, 7) === mes)
@@ -110,10 +111,25 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   const currentLegId = initialData?.id ?? null
   const asignadaAOtra = (fe: FEClasificada) => !!fe.asignadaLegalizacionId && fe.asignadaLegalizacionId !== currentLegId
 
-  // ── Fixed expense fields (always visible) ───────────────────────────────────
+  // ── Líneas de gasto CON FE (acpm/cargue/descargue): repetibles, cada una su monto y su
+  //    propia FE — un viaje puede tener 2 tanqueadas, cada una con su factura real. ────────
+  const [feLines, setFeLines] = useState<FeLine[]>(() => {
+    const loaded = (initialData?.feLines ?? []).map(l => ({ _id: mkId(), tipo: l.tipo, amount: String(l.amount), matchedInvoiceId: l.matchedInvoiceId ?? '' }))
+    const out: FeLine[] = []
+    for (const k of FE_KEYS) {                              // ≥1 línea por tipo (para el input base)
+      const del = loaded.filter(l => l.tipo === k)
+      out.push(...(del.length ? del : [{ _id: mkId(), tipo: k, amount: '', matchedInvoiceId: '' }]))
+    }
+    return out
+  })
+  const addFeLine    = (tipo: string) => setFeLines(prev => [...prev, { _id: mkId(), tipo, amount: '', matchedInvoiceId: '' }])
+  const updateFeLine = (id: string, patch: Partial<FeLine>) => setFeLines(prev => prev.map(l => l._id === id ? { ...l, ...patch } : l))
+  const removeFeLine = (id: string) => setFeLines(prev => prev.filter(l => l._id !== id))
+
+  // ── Gastos fijos SIN FE (lavada, parqueos, etc.): un input por tipo, se suman ─────────────
   const [fixed, setFixed] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    for (const f of FIXED_FIELDS) {
+    for (const f of NON_FE_FIELDS) {
       const v = initialData?.fixedExpenses?.[f.key]
       init[f.key] = v != null && v > 0 ? String(v) : ''
     }
@@ -199,7 +215,8 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   }, [trips])
 
   // ── Calculated totals ───────────────────────────────────────────────────────
-  const gastosFijos       = FIXED_FIELDS.reduce((s, f) => s + num(fixed[f.key]), 0)
+  const gastosFijos       = NON_FE_FIELDS.reduce((s, f) => s + num(fixed[f.key]), 0)
+                          + feLines.reduce((s, l) => s + num(l.amount), 0)
   const gastosAdicionales = dynExpenses.reduce((s, r) => s + num(r.amount), 0)
   const gastosViaje       = gastosFijos + gastosAdicionales               // sin porcentaje ni comisión
   const porcentajeCalc    = num(freight) * (num(percentage) / 100)
@@ -221,9 +238,14 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
     fd.set('comision_empresa', comision)
     fd.set('weight_kg',     weightKg)
     fd.set('price_per_ton', pricePerTon)
-    fd.set('matched_invoices', JSON.stringify(matched))
+    // gastos fijos SIN FE: {key: monto}
     fd.set('fixed_expenses', JSON.stringify(
-      Object.fromEntries(FIXED_FIELDS.map(f => [f.key, num(fixed[f.key])]).filter(([, v]) => (v as number) > 0)),
+      Object.fromEntries(NON_FE_FIELDS.map(f => [f.key, num(fixed[f.key])]).filter(([, v]) => (v as number) > 0)),
+    ))
+    // líneas con FE (acpm/cargue/descargue): una por fila, con su monto y su enlace
+    fd.set('fe_lines', JSON.stringify(
+      feLines.filter(l => num(l.amount) > 0)
+        .map(l => ({ tipo: l.tipo, amount: num(l.amount), matched_invoice_id: l.matchedInvoiceId || null })),
     ))
     fd.set('dynamic_expenses', JSON.stringify(
       dynExpenses.filter(r => num(r.amount) > 0).map(r => {
@@ -243,7 +265,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
 
   const handleConfirm = async () => {
     // Aviso (no bloqueo): si alguna FE seleccionada ya está asignada a OTRA legalización.
-    const conflictos = Object.values(matched).filter(Boolean)
+    const conflictos = feLines.map(l => l.matchedInvoiceId).filter(Boolean)
       .map(id => feClasificadas.find(fe => fe.id === id))
       .filter((fe): fe is FEClasificada => !!fe && asignadaAOtra(fe))
     if (conflictos.length) {
@@ -343,8 +365,9 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
       {/* ── GASTOS FIJOS ──────────────────────────────────────────────────── */}
       <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
         <h2 className="text-sm font-semibold text-[#0F172A] mb-4">Gastos del viaje</h2>
+        {/* Gastos fijos SIN FE (un input por tipo) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
-          {FIXED_FIELDS.map(f => (
+          {NON_FE_FIELDS.map(f => (
             <div key={f.key}>
               <label className={labelCls}>{f.label}</label>
               <input
@@ -354,28 +377,54 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
                 placeholder="0"
                 className={inputCls}
               />
-              {f.key in FE_LINEA_CUENTA && (
-                <div className="mt-1.5">
-                  <select
-                    value={matched[f.key] ?? ''}
-                    onChange={e => setMatch(f.key, e.target.value)}
-                    className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-2 text-xs bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">FE del mes (opcional)…</option>
-                    {feOptionsDe(f.key).map(fe => (
-                      <option key={fe.id} value={fe.id}>
-                        {fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
-                        {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-[#94A3B8] mt-0.5">
-                    Enlaza la factura del proveedor. Da el proveedor real y la placa al costo.
-                  </p>
-                </div>
-              )}
             </div>
           ))}
+        </div>
+
+        {/* Líneas con FE (acpm/cargue/descargue): repetibles, cada una su monto + su factura */}
+        <div className="mt-5 pt-4 border-t border-[#E2E8F0] space-y-4">
+          {FE_FIELDS.map(f => {
+            const lines = feLines.filter(l => l.tipo === f.key)
+            return (
+              <div key={f.key}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={labelCls}>{f.label}</label>
+                  <button type="button" onClick={() => addFeLine(f.key)}
+                    className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium inline-flex items-center gap-1">
+                    <Plus size={12} /> Agregar
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {lines.map(line => (
+                    <div key={line._id} className="grid grid-cols-[120px_1fr_28px] gap-2 items-center">
+                      <input type="number" min="0" inputMode="numeric" value={line.amount}
+                        onChange={e => updateFeLine(line._id, { amount: e.target.value })}
+                        placeholder="Monto" className={inputCls} />
+                      <select value={line.matchedInvoiceId}
+                        onChange={e => updateFeLine(line._id, { matchedInvoiceId: e.target.value })}
+                        className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-2.5 text-xs bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                        <option value="">FE del mes (opcional)…</option>
+                        {feOptionsDe(f.key).map(fe => (
+                          <option key={fe.id} value={fe.id}>
+                            {fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
+                            {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => removeFeLine(line._id)}
+                        className="text-[#CBD5E1] hover:text-red-500 transition-colors p-1" title="Quitar línea">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+          <p className="text-[10px] text-[#94A3B8]">
+            Cada línea se enlaza a su propia factura (proveedor real + placa). Sin FE → Consumidor Final.
+            Agrega varias del mismo tipo si el viaje tuvo, p.ej., dos tanqueadas con dos facturas.
+          </p>
         </div>
         <div className="mt-4 pt-3 border-t border-[#E2E8F0] flex items-center justify-between">
           <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">Subtotal gastos fijos</span>
@@ -553,9 +602,15 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
 
             {totalGastos > 0 && (
               <Section title="Detalle de gastos">
-                {FIXED_FIELDS.filter(f => num(fixed[f.key]) > 0).map(f => (
+                {NON_FE_FIELDS.filter(f => num(fixed[f.key]) > 0).map(f => (
                   <PreviewRow key={f.key} label={f.label} value={formatCOP(num(fixed[f.key]))} />
                 ))}
+                {feLines.filter(l => num(l.amount) > 0).map(l => {
+                  const f = FE_FIELDS.find(x => x.key === l.tipo)
+                  const fe = l.matchedInvoiceId ? feClasificadas.find(x => x.id === l.matchedInvoiceId) : null
+                  const label = (f?.label ?? l.tipo) + (fe ? ` · FE ${fe.name_issuer}` : ' · sin FE')
+                  return <PreviewRow key={l._id} label={label} value={formatCOP(num(l.amount))} />
+                })}
                 {dynExpenses.filter(r => num(r.amount) > 0).map(r => {
                   const cat   = localCats.find(c => c.id === r.categoryId)
                   const label = (cat?.name ?? 'Gasto') + (r.description ? ` · ${r.description}` : '')
