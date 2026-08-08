@@ -106,6 +106,9 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
     if (!cuenta || !mes) return [] as FEClasificada[]
     return feClasificadas.filter(fe => fe.cuenta === cuenta && (fe.issue_date ?? '').slice(0, 7) === mes)
   }
+  // ¿esta FE ya está enlazada a OTRA legalización distinta a la que se edita? (la propia no cuenta)
+  const currentLegId = initialData?.id ?? null
+  const asignadaAOtra = (fe: FEClasificada) => !!fe.asignadaLegalizacionId && fe.asignadaLegalizacionId !== currentLegId
 
   // ── Fixed expense fields (always visible) ───────────────────────────────────
   const [fixed, setFixed] = useState<Record<string, string>>(() => {
@@ -239,6 +242,14 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   }
 
   const handleConfirm = async () => {
+    // Aviso (no bloqueo): si alguna FE seleccionada ya está asignada a OTRA legalización.
+    const conflictos = Object.values(matched).filter(Boolean)
+      .map(id => feClasificadas.find(fe => fe.id === id))
+      .filter((fe): fe is FEClasificada => !!fe && asignadaAOtra(fe))
+    if (conflictos.length) {
+      const refs = [...new Set(conflictos.map(fe => fe.asignadaRef))].join(', ')
+      if (!window.confirm(`Una o más facturas ya están asignadas a otra legalización (${refs}). ¿Seguro que quieres reasignarlas aquí?`)) return
+    }
     setLoading(true)
     setError('')
     const fd  = buildFormData()
@@ -354,6 +365,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
                     {feOptionsDe(f.key).map(fe => (
                       <option key={fe.id} value={fe.id}>
                         {fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
+                        {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
                       </option>
                     ))}
                   </select>
