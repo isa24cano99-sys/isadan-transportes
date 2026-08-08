@@ -105,7 +105,8 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
     const cuenta = FE_LINEA_CUENTA[tipo]
     const mes = (tripDate ?? '').slice(0, 7)               // 'YYYY-MM'
     if (!cuenta || !mes) return [] as FEClasificada[]
-    return feClasificadas.filter(fe => fe.cuenta === cuenta && (fe.issue_date ?? '').slice(0, 7) === mes)
+    // clasificada en ESTA cuenta, o SIN clasificar (cuenta '') — candidata para cualquier tipo
+    return feClasificadas.filter(fe => (fe.cuenta === cuenta || fe.cuenta === '') && (fe.issue_date ?? '').slice(0, 7) === mes)
   }
   // ¿esta FE ya está enlazada a OTRA legalización distinta a la que se edita? (la propia no cuenta)
   const currentLegId = initialData?.id ?? null
@@ -411,7 +412,8 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
                         <option value="">FE del mes (opcional)…</option>
                         {feOptionsDe(f.key).map(fe => (
                           <option key={fe.id} value={fe.id}>
-                            {fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
+                            {fe.cuenta === '' ? '⚠ ' : ''}{fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
+                            {fe.cuenta === '' ? ' · sin clasificar' : ''}
                             {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
                           </option>
                         ))}
