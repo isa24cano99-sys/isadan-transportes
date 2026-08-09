@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import NominaClient from './NominaClient'
+import { getEstadoPagoNominaAction } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,11 +37,12 @@ async function getData() {
     auxilio: Number((d as { auxilio_transporte?: number }).auxilio_transporte ?? 0),
   }))
 
-  return { conductores, fondos }
+  const pagoNomina = await getEstadoPagoNominaAction()
+  return { conductores, fondos, pagoNomina }
 }
 
 export default async function NominaMensualPage() {
-  const { conductores, fondos } = await getData()
+  const { conductores, fondos, pagoNomina } = await getData()
   return (
     <div className="p-6 max-w-3xl">
       <div className="mb-5">
@@ -56,7 +58,7 @@ export default async function NominaMensualPage() {
           usa <strong>&ldquo;Ajustar manualmente&rdquo;</strong> para excepciones reales.
         </p>
       </div>
-      <NominaClient conductores={conductores} fondos={fondos} />
+      <NominaClient conductores={conductores} fondos={fondos} pagoNomina={pagoNomina} />
     </div>
   )
 }

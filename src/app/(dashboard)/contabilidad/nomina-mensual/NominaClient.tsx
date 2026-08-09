@@ -3,7 +3,8 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { postearNominaAction, type NominaResultado } from './actions'
+import { CheckCircle2 } from 'lucide-react'
+import { postearNominaAction, getEstadoPagoNominaAction, postearPagoNominaAction, type NominaResultado, type PagoNominaConductor } from './actions'
 
 type Conductor = { terceroId: string; nombre: string; salario: number; auxilio: number }
 type Fondo = { id: string; nombre: string; esDefault: boolean }
@@ -43,9 +44,11 @@ const DERIV_LABELS: { key: DerivKey; label: string; formula: string }[] = [
   { key: 'aporteCaja', label: 'Aporte caja',         formula: 'sueldo × 4%' },
 ]
 
-export default function NominaClient({ conductores, fondos }: { conductores: Conductor[]; fondos: Fondo[] }) {
+export default function NominaClient({ conductores, fondos, pagoNomina }: { conductores: Conductor[]; fondos: Fondo[]; pagoNomina: PagoNominaConductor[] }) {
   const router = useRouter()
   const [terceroId, setTerceroId] = useState(conductores[0]?.terceroId ?? '')
+  const [pagos, setPagos] = useState<PagoNominaConductor[]>(pagoNomina)
+  const [payingId, setPayingId] = useState<string | null>(null)
   const [year, setYear] = useState(2026)
   const [month, setMonth] = useState(7) // julio por defecto (primer mes post-corte)
   const [dias, setDias] = useState(30)  // días trabajados (30 = mes completo)
@@ -84,6 +87,16 @@ export default function NominaClient({ conductores, fondos }: { conductores: Con
     + DERIV_LABELS.reduce((s, d) => s + derivVal(d.key), 0)
     + pensionPatronal
 
+  const pagoSel = pagos.find(p => p.terceroId === terceroId)
+
+  const pagarNeto = async (id: string) => {
+    if (payingId) return
+    setPayingId(id); setResultado(null)
+    const res = await postearPagoNominaAction(id)
+    setResultado(res); setPayingId(null)
+    if (res.ok) { setPagos(await getEstadoPagoNominaAction()); router.refresh() }
+  }
+
   const onConductor = (id: string) => { setTerceroId(id); setSueldoManual(undefined); setAuxilioManual(undefined); setManual(false) }
   const onDias = (v: number) => { setDias(v); setSueldoManual(undefined); setAuxilioManual(undefined) } // re-prorratea
 
@@ -106,7 +119,7 @@ export default function NominaClient({ conductores, fondos }: { conductores: Con
     })
     setResultado(res)
     setLoading(false)
-    if (res.ok) { setSueldoManual(undefined); setAuxilioManual(undefined); setManual(false); router.refresh() }
+    if (res.ok) { setSueldoManual(undefined); setAuxilioManual(undefined); setManual(false); setPagos(await getEstadoPagoNominaAction()); router.refresh() }
   }
 
   const selCls = 'border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] bg-white'
@@ -217,6 +230,43 @@ export default function NominaClient({ conductores, fondos }: { conductores: Con
             {loading ? 'Contabilizando…' : 'Contabilizar nómina'}
           </button>
         </div>
+      </div>
+
+      {/* ── Pagar neto (250505) del conductor seleccionado — soporta parciales ── */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-3">
+        <h2 className="text-sm font-semibold text-[#0F172A]">Pagar neto al conductor</h2>
+        <div className="flex items-center justify-between text-sm bg-[#F8FAFC] border border-[#F1F5F9] rounded-lg px-3 py-2">
+          <span className="text-[#475569]">Saldo pendiente · <strong className="text-[#0F172A]">250505 · {cond?.nombre ?? '—'}</strong></span>
+          <span className="tabular-nums font-semibold text-[#0F172A]">{formatCOP(pagoSel?.saldo ?? 0)}</span>
+        </div>
+        {(pagoSel?.saldo ?? 0) <= 0 ? (
+          <div className="flex items-start gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
+            <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-600" />
+            <span>Al día — {cond?.nombre ?? 'este conductor'} no tiene neto pendiente de pago.</span>
+          </div>
+        ) : (pagoSel?.candidatos.length ?? 0) === 0 ? (
+          <p className="text-xs text-[#94A3B8]">
+            No hay movimientos bancarios de pago sin contabilizar. Cuando pagues el neto desde el banco y
+            lo categorices como &ldquo;Pago nómina conductor&rdquo; (con este conductor como tercero), aparecerá
+            aquí para confirmarlo. Admite pagos parciales (varios desembolsos).
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-[#64748B]">Movimientos &ldquo;Pago nómina conductor&rdquo; sin contabilizar — confirma cada uno (el saldo baja parcial):</p>
+            {pagoSel!.candidatos.map(c => (
+              <div key={c.id} className="flex items-center justify-between gap-3 border border-[#E2E8F0] rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-[#0F172A] tabular-nums">{formatCOP(c.amount)}</p>
+                  <p className="text-[11px] text-[#94A3B8] truncate">{c.date} · {c.description || '—'}</p>
+                </div>
+                <button onClick={() => pagarNeto(c.id)} disabled={!!payingId}
+                  className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                  {payingId === c.id ? 'Confirmando…' : 'Confirmar pago'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
