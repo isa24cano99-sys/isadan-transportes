@@ -13,6 +13,7 @@ interface Conductor {
   phone: string | null
   hire_date: string
   salary: number
+  auxilio_transporte: number
   active: boolean
   address: string | null
   eps: string | null
@@ -22,12 +23,12 @@ interface Conductor {
 }
 
 type FormState = {
-  full_name: string; document: string; phone: string; hire_date: string; salary: string; active: string
+  full_name: string; document: string; phone: string; hire_date: string; salary: string; auxilio_transporte: string; active: string
   address: string; eps: string; arl: string; personal_references: string; work_references: string
 }
 
 const EMPTY_FORM: FormState = {
-  full_name: '', document: '', phone: '', hire_date: '', salary: '', active: 'true',
+  full_name: '', document: '', phone: '', hire_date: '', salary: '', auxilio_transporte: '', active: 'true',
   address: '', eps: '', arl: '', personal_references: '', work_references: '',
 }
 
@@ -61,7 +62,8 @@ export default function ConductoresClient({ conductores: initial }: { conductore
     setEditing(c)
     setForm({
       full_name: c.full_name, document: c.document, phone: c.phone ?? '',
-      hire_date: c.hire_date, salary: c.salary.toString(), active: c.active.toString(),
+      hire_date: c.hire_date, salary: c.salary.toString(),
+      auxilio_transporte: (c.auxilio_transporte ?? 0).toString(), active: c.active.toString(),
       address: c.address ?? '', eps: c.eps ?? '', arl: c.arl ?? '',
       personal_references: c.personal_references ?? '', work_references: c.work_references ?? '',
     })
@@ -78,7 +80,7 @@ export default function ConductoresClient({ conductores: initial }: { conductore
       const result = await actualizarConductorAction(fd)
       if (result.ok) {
         setConductores(prev => prev.map(c => c.id === editing.id
-          ? { ...c, ...form, salary: Number(form.salary), active: form.active === 'true' } : c))
+          ? { ...c, ...form, salary: Number(form.salary), auxilio_transporte: Number(form.auxilio_transporte) || 0, active: form.active === 'true' } : c))
         setShowForm(false)
       }
     } else {
@@ -279,8 +281,14 @@ export default function ConductoresClient({ conductores: initial }: { conductore
                 <div>
                   <label className={LBL}>Salario *</label>
                   <input value={form.salary} onChange={e => set('salary', e.target.value)}
-                    required type="number" min="0" placeholder="2800000" className={INP} />
+                    required type="number" min="0" placeholder="1750905" className={INP} />
                 </div>
+              </div>
+              <div>
+                <label className={LBL}>Auxilio de transporte</label>
+                <input value={form.auxilio_transporte} onChange={e => set('auxilio_transporte', e.target.value)}
+                  type="number" min="0" placeholder="249095" className={INP} />
+                <p className="text-[11px] text-[#94A3B8] mt-1">Valor pleno mensual (2026: $249.095). Solo para quienes ganan ≤ 2 SMMLV; deja 0 si no aplica.</p>
               </div>
               <div>
                 <label className={LBL}>Estado</label>

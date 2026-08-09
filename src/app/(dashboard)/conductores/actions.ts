@@ -22,6 +22,7 @@ function extractFields(formData: FormData) {
     phone:               (formData.get('phone') as string) || null,
     hire_date:           formData.get('hire_date') as string,
     salary:              Number(formData.get('salary')),
+    auxilio_transporte:  Number(formData.get('auxilio_transporte')) || 0,
     active:              formData.get('active') === 'true',
     address:             (formData.get('address') as string) || null,
     eps:                 (formData.get('eps') as string) || null,
