@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { hoyColombia } from '@/lib/fecha'
 import { calcularDV } from '@/lib/nit'
+import { formatCOP } from '@/lib/utils'
 import {
   parseNIT,
   findDataicoCustomer,
@@ -230,25 +231,36 @@ export async function generarFacturaAction(tripId: string): Promise<
   }
 }
 
+export type RegistroManualResult =
+  | { status: 'ok'; invoiceNumber: string; reactivated?: boolean }
+  | { status: 'reactivable'; invoiceNumber: string; message: string }
+  | { status: 'blocked'; message: string }
+
 /**
  * Marca un viaje como facturado MANUALMENTE: la factura se generó por fuera del flujo
  * automático (Dataico u otro medio) y el usuario solo registra el folio. Deriva
- * cliente/tercero del propio viaje (no los pide el formulario) e inserta la fila en
- * `invoices` (invoice_number=folio sin guion) + pone trips.status='FACTURADO'.
- * Al ser manual no hay UUID de Dataico → dataico_id/dataico_invoice_id = el folio
- * (mismo criterio que la anulación manual). El folio queda listo para que el
+ * cliente/tercero del propio viaje (no los pide el formulario). Al ser manual no hay UUID
+ * de Dataico → dataico_id/dataico_invoice_id = el folio. El folio queda listo para que el
  * auto-sugerido de /contabilidad/facturacion lo cruce con la DIAN por invoice_number.
+ *
+ * Manejo de folio existente (opción C acotada):
+ *  · Con CARTERA viva o vinculado a OTRO viaje activo → BLOQUEA con mensaje explicativo
+ *    (el usuario decide fuera de este flujo; no se toca cartera ni el otro viaje).
+ *  · ANULADA sin cartera → REACTIVABLE: en un 2º paso confirmado reactiva y re-vincula la
+ *    fila existente (limpia dian_status/credit_note_*, fija trip_id/total/fecha).
+ *  · No existe → INSERT normal.
  */
 export async function registrarFacturaManualAction(params: {
   tripId: string
   invoiceNumber: string
   totalAmount: number
   date: string
-}): Promise<{ ok: boolean; error?: string; invoiceNumber?: string }> {
+  confirmReactivate?: boolean
+}): Promise<RegistroManualResult> {
   // Folio normalizado: sin guion, sin espacios, en mayúsculas (consistente con el resto).
   const invoiceNumber = String(params.invoiceNumber ?? '').replace(/-/g, '').replace(/\s+/g, '').toUpperCase()
-  if (!invoiceNumber) return { ok: false, error: 'Ingresa el número de factura (folio).' }
-  if (!(params.totalAmount > 0)) return { ok: false, error: 'El monto facturado debe ser mayor que cero.' }
+  if (!invoiceNumber) return { status: 'blocked', message: 'Ingresa el número de factura (folio).' }
+  if (!(params.totalAmount > 0)) return { status: 'blocked', message: 'El monto facturado debe ser mayor que cero.' }
 
   // Cliente/tercero autoritativos desde el viaje: tercero enlazado → fallback a clients.
   const { data: raw, error: tripErr } = await supabase
@@ -256,13 +268,82 @@ export async function registrarFacturaManualAction(params: {
     .select('id, clients(name, nit, tercero_id, terceros(numero_identificacion, razon_social))')
     .eq('id', params.tripId)
     .single()
-  if (tripErr || !raw) return { ok: false, error: 'Viaje no encontrado' }
+  if (tripErr || !raw) return { status: 'blocked', message: 'Viaje no encontrado' }
   const client = Array.isArray((raw as any).clients) ? (raw as any).clients[0] : (raw as any).clients
   const tercero = client && (Array.isArray(client.terceros) ? client.terceros[0] : client.terceros)
   const clientName = tercero?.razon_social || client?.name || 'Cliente'
   const clientNit  = tercero?.numero_identificacion || client?.nit || ''
   const terceroId  = client?.tercero_id ?? null
 
+  // ¿El folio ya existe en invoices?
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('id, trip_id, dian_status')
+    .eq('invoice_number', invoiceNumber)
+    .maybeSingle()
+
+  if (existing) {
+    // ¿Hay cartera viva contra ese folio? (no PAGADA con saldo > 0)
+    const { data: ar } = await supabase
+      .from('accounts_receivable_entries')
+      .select('balance, status')
+      .eq('invoice_number', invoiceNumber)
+    const carteraViva = (ar ?? []).find((e: any) => e.status !== 'PAGADA' && Number(e.balance) > 0)
+    const isAnulada = /anul/i.test(existing.dian_status ?? '')
+
+    // (2) Cartera viva → bloquear, sin acción automática
+    if (carteraViva) {
+      return { status: 'blocked', message:
+        `El folio ${invoiceNumber} ya existe, con cartera pendiente de ${formatCOP(Number((carteraViva as any).balance))}`
+        + `${existing.trip_id ? '' : ' sin viaje asociado'} — no se puede reutilizar este folio para otro viaje `
+        + `sin revisar antes qué pasó con esa cartera.` }
+    }
+
+    // (1) Anulada sin cartera → reactivable
+    if (isAnulada) {
+      if (!params.confirmReactivate) {
+        let vinc = ''
+        if (existing.trip_id) {
+          const { data: t } = await supabase.from('trips').select('trip_number').eq('id', existing.trip_id).maybeSingle()
+          vinc = t?.trip_number ? ` (estaba vinculada a ${t.trip_number})` : ''
+        }
+        return { status: 'reactivable', invoiceNumber, message:
+          `El folio ${invoiceNumber} ya existe pero está anulado${vinc}, sin cartera activa. ¿Reactivar y vincular a este viaje?` }
+      }
+      // Confirmado → reactivar la fila existente (no se inserta una segunda)
+      const { error: upErr } = await supabase.from('invoices').update({
+        trip_id:            params.tripId,
+        total_amount:       params.totalAmount,
+        issue_date:         params.date,
+        client_name:        clientName,
+        client_nit:         clientNit,
+        tercero_id:         terceroId,
+        dian_status:        null,   // reactivar: quitar marca ANULADA
+        credit_note_id:     null,   // quitar marca de anulación manual ('MANUAL')
+        credit_note_number: null,
+      }).eq('id', existing.id)
+      if (upErr) return { status: 'blocked', message: upErr.message }
+      const { error: tErr } = await supabase.from('trips')
+        .update({ status: 'FACTURADO', dataico_invoice_id: invoiceNumber }).eq('id', params.tripId)
+      if (tErr) return { status: 'blocked', message: tErr.message }
+      revalidatePath('/viajes'); revalidatePath(`/viajes/${params.tripId}`)
+      return { status: 'ok', invoiceNumber, reactivated: true }
+    }
+
+    // Activa (no anulada), sin cartera → vinculada a otro viaje / a este / huérfana: bloquear con contexto
+    if (existing.trip_id && existing.trip_id !== params.tripId) {
+      const { data: t } = await supabase.from('trips').select('trip_number').eq('id', existing.trip_id).maybeSingle()
+      return { status: 'blocked', message:
+        `El folio ${invoiceNumber} ya existe y está vinculado al viaje ${t?.trip_number ?? 'otro'} (activo) — no se puede reutilizar para este viaje.` }
+    }
+    if (existing.trip_id === params.tripId) {
+      return { status: 'blocked', message: `El folio ${invoiceNumber} ya está registrado para este viaje.` }
+    }
+    return { status: 'blocked', message:
+      `El folio ${invoiceNumber} ya existe (sin viaje, sin cartera) pero no está anulado — revísalo antes de reutilizarlo.` }
+  }
+
+  // No existe → INSERT normal
   const { error: invErr } = await supabase.from('invoices').insert({
     trip_id:        params.tripId,
     invoice_number: invoiceNumber,
@@ -276,22 +357,21 @@ export async function registrarFacturaManualAction(params: {
     tercero_id:     terceroId,
   })
   if (invErr) {
-    // 23505 = unique_violation sobre invoice_number → folio ya registrado (mensaje amigable)
     if (invErr.code === '23505' || /duplicate|unique/i.test(invErr.message)) {
-      return { ok: false, error: `El folio ${invoiceNumber} ya está registrado en otra factura.` }
+      return { status: 'blocked', message: `El folio ${invoiceNumber} ya está registrado en otra factura.` }
     }
-    return { ok: false, error: invErr.message }
+    return { status: 'blocked', message: invErr.message }
   }
 
   const { error: tripUpErr } = await supabase
     .from('trips')
     .update({ status: 'FACTURADO', dataico_invoice_id: invoiceNumber })
     .eq('id', params.tripId)
-  if (tripUpErr) return { ok: false, error: tripUpErr.message }
+  if (tripUpErr) return { status: 'blocked', message: tripUpErr.message }
 
   revalidatePath('/viajes')
   revalidatePath(`/viajes/${params.tripId}`)
-  return { ok: true, invoiceNumber }
+  return { status: 'ok', invoiceNumber }
 }
 
 export async function eliminarViajeAction(tripId: string): Promise<{ ok: boolean; error?: string }> {
