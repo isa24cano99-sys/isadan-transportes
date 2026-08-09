@@ -4,10 +4,12 @@ import PagoProveedoresClient from './PagoProveedoresClient'
 
 export const dynamic = 'force-dynamic'
 
-// Cuentas 5/6 que NO van por gasto directo (tienen mecanismo propio): 6145xx (legalización),
-// nómina-devengo, IVA asumido. Deben coincidir con los guards de postear_gasto_bancario_directo.
+// Cuentas 5/6 que NO van por gasto directo (tienen mecanismo propio): nómina-devengo e
+// IVA asumido. Deben coincidir con los guards de postear_gasto_bancario_directo.
+// 6145xx SÍ se permiten: un costo operativo pagado directo del banco (sin anticipo de
+// conductor) es un gasto bancario directo; solo lo pagado con anticipo va por legalización.
 const NOMINA = ['52050610', '52052710', '52053010', '52053310', '52053610', '52053910', '52056810', '52056910', '52057010', '52057210']
-const excluidoGasto = (puc: string) => puc.startsWith('6145') || puc === '53152010' || NOMINA.includes(puc)
+const excluidoGasto = (puc: string) => puc === '53152010' || NOMINA.includes(puc)
 
 async function getMovimientos() {
   const [{ data: cats }, { data: cb }] = await Promise.all([
