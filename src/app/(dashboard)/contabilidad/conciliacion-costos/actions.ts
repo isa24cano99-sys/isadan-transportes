@@ -10,9 +10,8 @@ import { formatCOP } from '@/lib/utils'
 
 export type CostoResultado = { id: string; ref: string; ok: boolean; mensaje: string }
 
-const ISADAN = '902030120'                       // receptor: ISADAN TRANSPORTES
-const ACUSE  = 'Application response'             // acuses de recibo (no son facturas)
-const NC     = 'Nota de crédito electrónica'      // fuera de alcance por ahora (pieza propia)
+const ISADAN = '902030120'                       // ISADAN TRANSPORTES (emisor o receptor)
+const ACUSE  = 'Application response'             // acuses de recibo (no son facturas ni NC)
 
 export type DianImportResult =
   | { ok: true
@@ -39,12 +38,13 @@ export async function importarDianConciliacionAction(rows: DianRow[]): Promise<D
   if (!rows.length) return { ok: true, recibidas: 0, emitidas: 0, duplicados: 0, omitidos: 0, tercerosNuevos: [], revisar: [] }
 
   // a) Clasificar cada fila del archivo ÚNICO en RECIBIDO (receptor ISADAN → costo, tercero=proveedor)
-  //    o EMITIDO (emisor ISADAN → venta, tercero=cliente). Excluir acuses/NC. El resto se omite.
+  //    o EMITIDO (emisor ISADAN → venta, tercero=cliente). FE y NC se GUARDAN ambas (el neteo de
+  //    peajes F2X y el evento de nota crédito emitida las necesitan); solo se excluyen los acuses.
   type Clasif = { row: DianRow; grupo: 'RECIBIDO' | 'EMITIDO'; nitTercero: string; nombreTercero: string; rol: 'PROVEEDOR' | 'CLIENTE' }
   let omitidos = 0
   const clasificadas: Clasif[] = []
   for (const r of rows) {
-    if (r.document_type === ACUSE || r.document_type === NC) { omitidos++; continue }
+    if (r.document_type === ACUSE) { omitidos++; continue }
     if (normalizarIdentificacion(r.nit_receiver) === ISADAN) {
       clasificadas.push({ row: r, grupo: 'RECIBIDO', nitTercero: r.nit_issuer, nombreTercero: r.name_issuer, rol: 'PROVEEDOR' })
     } else if (normalizarIdentificacion(r.nit_issuer) === ISADAN) {
