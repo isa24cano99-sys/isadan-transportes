@@ -52,6 +52,17 @@ export async function postearGastoDirectoAction(
 }
 
 /**
+ * Transferencia interna banco ↔ caja (DB/CR 110505 vs 11100510 según la dirección del
+ * movimiento). postear_transferencia_interna valida categoría (→110505), monto, pre-corte,
+ * anti-dup, y decide la dirección por el type de la transacción (EGRESO/INGRESO).
+ */
+export async function postearTransferenciaInternaAction(
+  movimientos: { id: string; ref: string }[],
+): Promise<PagoResultado[]> {
+  return postearPorRpc('postear_transferencia_interna', movimientos)
+}
+
+/**
  * Consolida ≥2 gastos directos en UN solo asiento (patrón Dataico): una línea de débito
  * por transacción (a su cuenta/tercero) + una de crédito al banco por el total, bajo la
  * descripción que escribe el usuario. postear_gastos_consolidados valida cada bt y exige

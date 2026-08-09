@@ -36,24 +36,33 @@ async function getMovimientos() {
 
   // categorías por destino
   const catsPago = (cats ?? []).filter((c: any) => c.puc_code === '220501').map((c: any) => c.id)
+  const catsInterno = (cats ?? []).filter((c: any) => c.puc_code === '110505').map((c: any) => c.id)
   const catsGasto = (cats ?? []).filter((c: any) => c.puc_code && /^[56]/.test(c.puc_code) && !excluidoGasto(c.puc_code)).map((c: any) => c.id)
 
   const { data: bts } = await supabase
     .from('bank_transactions')
-    .select('id, date, amount, description, category_id, tercero_id, matched_invoice_id, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
-    .in('category_id', [...catsPago, ...catsGasto])
+    .select('id, date, amount, description, category_id, tercero_id, matched_invoice_id, type, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
+    .in('category_id', [...catsPago, ...catsInterno, ...catsGasto])
     .gte('date', '2026-07-01')
     .order('date')
 
   const catsPagoSet = new Set(catsPago)
+  const catsInternoSet = new Set(catsInterno)
   const pagos: any[] = []
   const gastos: any[] = []
+  const internos: any[] = []
   for (const b of (bts ?? []) as any[]) {
     if (contabilizado(b)) continue
     const cat = catById.get(b.category_id)
     if (catsPagoSet.has(b.category_id)) {
       if (!b.tercero_id) continue  // pago a proveedor exige tercero (proveedor)
       pagos.push({ id: b.id, fecha: b.date, monto: Number(b.amount), tercero: b.terceros ? nombreTercero(b.terceros) : '—', descripcion: b.description ?? '' })
+    } else if (catsInternoSet.has(b.category_id)) {
+      internos.push({
+        id: b.id, fecha: b.date, monto: Number(b.amount), descripcion: b.description ?? '',
+        categoria: cat?.name ?? '—',
+        direccion: b.type === 'EGRESO' ? 'banco → caja' : 'caja → banco',
+      })
     } else {
       gastos.push({
         id: b.id, fecha: b.date, monto: Number(b.amount),
@@ -64,7 +73,7 @@ async function getMovimientos() {
       })
     }
   }
-  return { pagos, gastos }
+  return { pagos, gastos, internos }
 }
 
 // Mes ABIERTO por defecto (el más reciente marcado ABIERTO en periodos_contables).
@@ -75,7 +84,7 @@ async function mesAbierto(): Promise<string> {
 }
 
 export default async function PagosGastosPage() {
-  const [{ pagos, gastos }, mesInicial, { data: veh }] = await Promise.all([
+  const [{ pagos, gastos, internos }, mesInicial, { data: veh }] = await Promise.all([
     getMovimientos(), mesAbierto(),
     supabase.from('vehicles').select('plate').order('plate'),
   ])
@@ -87,11 +96,12 @@ export default async function PagosGastosPage() {
         <p className="text-sm text-[#64748B] mt-0.5">
           Movimientos del banco por contabilizar, en dos mecanismos distintos:
           <strong> pago a proveedor</strong> (cancela un pasivo ya causado · DB 220501 / CR banco) y
-          <strong> gasto directo</strong> (reconoce el gasto en el mismo instante · DB cuenta 5/6 / CR banco).
+          <strong> gasto directo</strong> (reconoce el gasto en el mismo instante · DB cuenta 5/6 / CR banco) y
+          <strong> movimiento interno</strong> (traslado de la propia plata entre banco y caja · sin gasto ni ingreso).
           Nada se contabiliza sin tu confirmación.
         </p>
       </div>
-      <PagoProveedoresClient pagos={pagos} gastos={gastos} mesInicial={mesInicial} placas={placas} />
+      <PagoProveedoresClient pagos={pagos} gastos={gastos} internos={internos} mesInicial={mesInicial} placas={placas} />
     </div>
   )
 }
