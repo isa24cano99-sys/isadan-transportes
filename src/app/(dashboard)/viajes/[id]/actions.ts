@@ -230,41 +230,68 @@ export async function generarFacturaAction(tripId: string): Promise<
   }
 }
 
+/**
+ * Marca un viaje como facturado MANUALMENTE: la factura se generó por fuera del flujo
+ * automático (Dataico u otro medio) y el usuario solo registra el folio. Deriva
+ * cliente/tercero del propio viaje (no los pide el formulario) e inserta la fila en
+ * `invoices` (invoice_number=folio sin guion) + pone trips.status='FACTURADO'.
+ * Al ser manual no hay UUID de Dataico → dataico_id/dataico_invoice_id = el folio
+ * (mismo criterio que la anulación manual). El folio queda listo para que el
+ * auto-sugerido de /contabilidad/facturacion lo cruce con la DIAN por invoice_number.
+ */
 export async function registrarFacturaManualAction(params: {
   tripId: string
   invoiceNumber: string
-  cufe: string
-  clientName: string
-  clientNit: string
   totalAmount: number
   date: string
-}): Promise<{ ok: boolean; error?: string }> {
-  // Normalizar el número SIN guion para que sea consistente con el resto (display añade el guion).
-  const invoiceNumber = String(params.invoiceNumber ?? '').replace(/-/g, '')
+}): Promise<{ ok: boolean; error?: string; invoiceNumber?: string }> {
+  // Folio normalizado: sin guion, sin espacios, en mayúsculas (consistente con el resto).
+  const invoiceNumber = String(params.invoiceNumber ?? '').replace(/-/g, '').replace(/\s+/g, '').toUpperCase()
+  if (!invoiceNumber) return { ok: false, error: 'Ingresa el número de factura (folio).' }
+  if (!(params.totalAmount > 0)) return { ok: false, error: 'El monto facturado debe ser mayor que cero.' }
+
+  // Cliente/tercero autoritativos desde el viaje: tercero enlazado → fallback a clients.
+  const { data: raw, error: tripErr } = await supabase
+    .from('trips')
+    .select('id, clients(name, nit, tercero_id, terceros(numero_identificacion, razon_social))')
+    .eq('id', params.tripId)
+    .single()
+  if (tripErr || !raw) return { ok: false, error: 'Viaje no encontrado' }
+  const client = Array.isArray((raw as any).clients) ? (raw as any).clients[0] : (raw as any).clients
+  const tercero = client && (Array.isArray(client.terceros) ? client.terceros[0] : client.terceros)
+  const clientName = tercero?.razon_social || client?.name || 'Cliente'
+  const clientNit  = tercero?.numero_identificacion || client?.nit || ''
+  const terceroId  = client?.tercero_id ?? null
 
   const { error: invErr } = await supabase.from('invoices').insert({
     trip_id:        params.tripId,
     invoice_number: invoiceNumber,
-    cufe:           params.cufe || null,
     issue_date:     params.date,
-    client_name:    params.clientName,
-    client_nit:     params.clientNit,
+    client_name:    clientName,
+    client_nit:     clientNit,
     total_amount:   params.totalAmount,
     tax_amount:     0,
     invoice_type:   'EMITIDA',
     dataico_id:     invoiceNumber,
+    tercero_id:     terceroId,
   })
-  if (invErr) return { ok: false, error: invErr.message }
+  if (invErr) {
+    // 23505 = unique_violation sobre invoice_number → folio ya registrado (mensaje amigable)
+    if (invErr.code === '23505' || /duplicate|unique/i.test(invErr.message)) {
+      return { ok: false, error: `El folio ${invoiceNumber} ya está registrado en otra factura.` }
+    }
+    return { ok: false, error: invErr.message }
+  }
 
-  const { error: tripErr } = await supabase
+  const { error: tripUpErr } = await supabase
     .from('trips')
     .update({ status: 'FACTURADO', dataico_invoice_id: invoiceNumber })
     .eq('id', params.tripId)
-  if (tripErr) return { ok: false, error: tripErr.message }
+  if (tripUpErr) return { ok: false, error: tripUpErr.message }
 
   revalidatePath('/viajes')
   revalidatePath(`/viajes/${params.tripId}`)
-  return { ok: true }
+  return { ok: true, invoiceNumber }
 }
 
 export async function eliminarViajeAction(tripId: string): Promise<{ ok: boolean; error?: string }> {

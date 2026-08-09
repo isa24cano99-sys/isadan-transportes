@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, FileText, CheckCircle, ExternalLink, RefreshCw, Pencil, ScrollText, Trash2, ReceiptText, Loader2, AlertTriangle } from 'lucide-react'
-import { cambiarEstadoAction, generarFacturaAction, asignarVehiculoAction, asignarConductorAction, eliminarViajeAction, marcarFacturaAnuladaManualAction } from './actions'
+import { ArrowLeft, FileText, FilePlus, CheckCircle, ExternalLink, RefreshCw, Pencil, ScrollText, Trash2, ReceiptText, Loader2, AlertTriangle } from 'lucide-react'
+import { cambiarEstadoAction, generarFacturaAction, registrarFacturaManualAction, asignarVehiculoAction, asignarConductorAction, eliminarViajeAction, marcarFacturaAnuladaManualAction } from './actions'
 import type { TripDetail } from './actions'
 import { formatCOP, formatDate, formatInvoiceNumber } from '@/lib/utils'
 
@@ -74,6 +74,14 @@ export default function ViajeDetailClient({
   )
   const [showAnularModal, setShowAnularModal] = useState(false)
   const [anulando,        setAnulando]        = useState(false)
+  // Facturación manual (viaje ya facturado por fuera de la app)
+  const [showManualModal, setShowManualModal] = useState(false)
+  const [savingManual,    setSavingManual]    = useState(false)
+  const [manualError,     setManualError]     = useState<string | null>(null)
+  const [manualFolio,     setManualFolio]     = useState('')
+  // Monto prellenado: flete de la legalización aprobada si difiere del manifiesto, si no el del viaje
+  const [manualMonto,     setManualMonto]     = useState(String(fleteWarning?.legFreight ?? initial.freight_value ?? ''))
+  const [manualFecha,     setManualFecha]     = useState(new Date().toISOString().slice(0, 10))
 
   const currentStatus   = STATUS_FLOW.find(s => s.key === trip.status)
   const canInvoice      = ['FINALIZADO', 'FACTURADO'].includes(trip.status)
@@ -151,6 +159,26 @@ export default function ViajeDetailClient({
     setInvoicing(false)
   }
 
+  const handleRegistrarManual = async () => {
+    setSavingManual(true)
+    setManualError(null)
+    const res = await registrarFacturaManualAction({
+      tripId: trip.id,
+      invoiceNumber: manualFolio,
+      totalAmount: Number(manualMonto),
+      date: manualFecha,
+    })
+    setSavingManual(false)
+    if (res.ok && res.invoiceNumber) {
+      setInvoiceResult({ number: res.invoiceNumber, pdfUrl: '' })
+      setInvoiceError(null)
+      setTrip(prev => ({ ...prev, status: 'FACTURADO', dataico_invoice_id: res.invoiceNumber! }))
+      setShowManualModal(false)
+    } else {
+      setManualError(res.error ?? 'No se pudo registrar la factura')
+    }
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-4xl">
       {/* Advertencia: flete de legalización distinto al manifiesto */}
@@ -187,15 +215,24 @@ export default function ViajeDetailClient({
             </span>
           )}
           {trip.status === 'FINALIZADO' && !alreadyInvoiced && (
-            <button
-              onClick={handleGenerarFactura}
-              disabled={invoicing}
-              className="flex items-center gap-1.5 text-xs text-white font-semibold px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 rounded-lg transition-colors"
-            >
-              {invoicing
-                ? <><RefreshCw size={11} className="animate-spin" /> Generando factura...</>
-                : <><FileText size={11} /> Generar factura DIAN</>}
-            </button>
+            <>
+              <button
+                onClick={handleGenerarFactura}
+                disabled={invoicing}
+                className="flex items-center gap-1.5 text-xs text-white font-semibold px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 rounded-lg transition-colors"
+              >
+                {invoicing
+                  ? <><RefreshCw size={11} className="animate-spin" /> Generando factura...</>
+                  : <><FileText size={11} /> Generar factura DIAN</>}
+              </button>
+              <button
+                onClick={() => setShowManualModal(true)}
+                disabled={invoicing}
+                className="flex items-center gap-1.5 text-xs text-[#2563EB] font-medium px-3 py-1.5 border border-[#2563EB]/30 hover:bg-blue-50 disabled:opacity-50 rounded-lg transition-colors"
+              >
+                <FilePlus size={11} /> Ya facturé (manual)
+              </button>
+            </>
           )}
           {alreadyInvoiced && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-50 text-green-700 border border-green-200">
@@ -512,7 +549,7 @@ export default function ViajeDetailClient({
                   {invoiceError}
                 </div>
               )}
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleGenerarFactura}
                   disabled={invoicing}
@@ -523,6 +560,13 @@ export default function ViajeDetailClient({
                     : <><FileText size={14} /> Generar factura DIAN</>
                   }
                 </button>
+                <button
+                  onClick={() => setShowManualModal(true)}
+                  disabled={invoicing}
+                  className="flex items-center gap-2 text-[#2563EB] text-sm font-medium px-5 py-2.5 border border-[#2563EB]/30 hover:bg-blue-50 disabled:opacity-50 rounded-lg transition-colors"
+                >
+                  <FilePlus size={14} /> Ya facturé (manual)
+                </button>
                 <p className="text-xs text-[#94A3B8]">
                   Se facturará {formatCOP(trip.freight_value)} a{' '}
                   {trip.clients?.name ?? 'el cliente'}
@@ -530,6 +574,77 @@ export default function ViajeDetailClient({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Marcar como facturada manualmente */}
+      {showManualModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !savingManual && setShowManualModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl space-y-4" onClick={e => e.stopPropagation()}>
+            <div>
+              <h2 className="font-semibold text-[#0F172A]">Marcar como facturada manualmente</h2>
+              <p className="text-sm text-[#64748B] mt-1">
+                El viaje ya tiene factura hecha por fuera de la app. Registra el folio para que el sistema
+                la reconozca y la cruce con la DIAN.
+              </p>
+            </div>
+            {manualError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">{manualError}</div>
+            )}
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide">N° de factura (folio)</label>
+                <input
+                  value={manualFolio}
+                  onChange={e => setManualFolio(e.target.value)}
+                  placeholder="FEIT25"
+                  className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide">Monto facturado</label>
+                <input
+                  type="number"
+                  value={manualMonto}
+                  onChange={e => setManualMonto(e.target.value)}
+                  className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+                {fleteWarning ? (
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    Prellenado con el flete de la legalización aprobada ({formatCOP(fleteWarning.legFreight)}),
+                    distinto del manifiesto ({formatCOP(fleteWarning.manifestFreight)}). Ajústalo si la factura difiere.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-[#94A3B8] mt-1">Prellenado con el flete del viaje. Ajústalo si la factura difiere.</p>
+                )}
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide">Fecha de la factura</label>
+                <input
+                  type="date"
+                  value={manualFecha}
+                  onChange={e => setManualFecha(e.target.value)}
+                  className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowManualModal(false)}
+                disabled={savingManual}
+                className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRegistrarManual}
+                disabled={savingManual || !manualFolio.trim() || !(Number(manualMonto) > 0)}
+                className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
+              >
+                {savingManual ? <><Loader2 size={13} className="animate-spin" /> Registrando…</> : 'Confirmar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
