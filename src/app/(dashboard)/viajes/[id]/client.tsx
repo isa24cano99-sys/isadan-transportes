@@ -665,9 +665,9 @@ export default function ViajeDetailClient({
                 <button
                   onClick={() => handleRegistrarManual('vincular')}
                   disabled={savingManual}
-                  className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
                 >
-                  {savingManual ? <><Loader2 size={13} className="animate-spin" /> Vinculando…</> : 'Vincular a este viaje'}
+                  {savingManual ? <><Loader2 size={13} className="animate-spin" /> Vinculando…</> : 'Sí, vincular a este viaje'}
                 </button>
               ) : (
                 <button
