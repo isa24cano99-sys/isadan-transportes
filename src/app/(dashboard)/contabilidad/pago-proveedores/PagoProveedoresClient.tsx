@@ -133,6 +133,7 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
           <div className="px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A]">
             <p className="text-sm font-semibold text-[#B45309]">Gasto directo</p>
             <p className="text-[11px] text-[#D97706]">Reconoce el gasto en el mismo instante · DB cuenta 5/6 / CR 11100510 Banco (sin pasivo intermedio)</p>
+            <p className="text-[11px] text-[#B45309] mt-1 font-medium">💡 Marca 2 o más para <span className="underline">agruparlas en un solo asiento</span> (aparece un panel para ponerle nombre), o postéalas una por una.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
