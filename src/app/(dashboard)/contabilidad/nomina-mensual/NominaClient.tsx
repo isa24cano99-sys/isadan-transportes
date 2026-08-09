@@ -11,15 +11,13 @@ type Fondo = { id: string; nombre: string; esDefault: boolean }
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 const CAMPOS: { key: string; label: string }[] = [
-  { key: 'sueldo',        label: 'Sueldo' },
+  { key: 'sueldo',        label: 'Sueldo (IBC)' },
   { key: 'auxilio',       label: 'Auxilio de transporte' },
   { key: 'cesantias',     label: 'Cesantías' },
   { key: 'intereses',     label: 'Intereses cesantías' },
   { key: 'prima',         label: 'Prima' },
   { key: 'vacaciones',    label: 'Vacaciones' },
-  { key: 'aporteEps',     label: 'Aporte EPS' },
   { key: 'aporteArl',     label: 'Aporte ARL' },
-  { key: 'aportePension', label: 'Aporte pensión' },
   { key: 'aporteCaja',    label: 'Aporte caja' },
 ]
 
@@ -36,7 +34,15 @@ export default function NominaClient({ conductores, fondos }: { conductores: Con
 
   const setMonto = (k: string, v: string) => setMontos(p => ({ ...p, [k]: v }))
   const num = (k: string) => Number(montos[k]) || 0
-  const total = CAMPOS.reduce((s, c) => s + num(c.key), 0)
+  // Derivados de reglas fijas sobre el IBC (Sueldo): EPS y pensión empleado 4%, pensión patronal 12%.
+  // EPS patronal = $0 (exoneración SIMPLE). Estos NO se digitan — se muestran para transparencia.
+  const sueldo           = num('sueldo')
+  const epsEmpleado      = Math.round(sueldo * 0.04)
+  const pensionEmpleado  = Math.round(sueldo * 0.04)
+  const pensionPatronal  = Math.round(sueldo * 0.12)
+  const neto             = sueldo + num('auxilio') - epsEmpleado - pensionEmpleado
+  // Total devengado + aportes patronales (incluye la pensión patronal derivada; EPS patronal = 0)
+  const total = CAMPOS.reduce((s, c) => s + num(c.key), 0) + pensionPatronal
 
   const submit = async () => {
     if (!terceroId || loading) return
@@ -48,8 +54,7 @@ export default function NominaClient({ conductores, fondos }: { conductores: Con
       year, month, fondoTerceroId: fondoId,
       sueldo: num('sueldo'), auxilio: num('auxilio'), cesantias: num('cesantias'),
       intereses: num('intereses'), prima: num('prima'), vacaciones: num('vacaciones'),
-      aporteEps: num('aporteEps'), aporteArl: num('aporteArl'),
-      aportePension: num('aportePension'), aporteCaja: num('aporteCaja'),
+      aporteArl: num('aporteArl'), aporteCaja: num('aporteCaja'),
     })
     setResultado(res)
     setLoading(false)
@@ -111,6 +116,19 @@ export default function NominaClient({ conductores, fondos }: { conductores: Con
               />
             </label>
           ))}
+        </div>
+
+        {/* Derivados del Sueldo (IBC) — reglas fijas, no se digitan */}
+        <div className="rounded-lg bg-[#F8FAFC] border border-[#F1F5F9] px-3 py-2.5 space-y-1">
+          <p className="text-[11px] font-medium text-[#64748B]">Derivado del Sueldo (no se digita)</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-[#475569] tabular-nums">
+            <span>EPS empleado (4%)</span><span className="text-right">{formatCOP(epsEmpleado)}</span>
+            <span>Pensión empleado (4%)</span><span className="text-right">{formatCOP(pensionEmpleado)}</span>
+            <span>Pensión patronal (12%)</span><span className="text-right">{formatCOP(pensionPatronal)}</span>
+            <span className="text-[#94A3B8]">EPS patronal (exonerado)</span><span className="text-right text-[#94A3B8]">{formatCOP(0)}</span>
+            <span className="font-medium text-[#0F172A] pt-0.5 border-t border-[#E2E8F0] mt-0.5">Neto a pagar (250505)</span>
+            <span className="text-right font-medium text-[#0F172A] pt-0.5 border-t border-[#E2E8F0] mt-0.5">{formatCOP(neto)}</span>
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#F1F5F9]">
