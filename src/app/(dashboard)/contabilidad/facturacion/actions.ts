@@ -10,7 +10,7 @@ const NC = 'Nota de crédito electrónica'
 export type EmitidaFE = {
   id: string; folio: string; prefix: string; issue_date: string | null
   cliente: string; terceroId: string | null; total: number; status: string
-  viaje: string | null; viajeAuto: boolean; matchedTripId: string | null
+  viaje: string | null; viajeId: string | null; viajeAuto: boolean; matchedTripId: string | null
   asiento: string | null
 }
 export type ViajeOption = { id: string; tripNumber: string; cliente: string; freight: number; terceroId: string | null }
@@ -60,6 +60,7 @@ export async function getEmitidasAction(): Promise<EmitidaFE[]> {
       terceroId: (r.tercero_id as string) ?? null,
       total: Number(r.total), status: (r.status as string) ?? '',
       viaje: viajeId ? (tripNum.get(viajeId) ?? null) : null,
+      viajeId,
       viajeAuto: !mtrip && !!autoTrip,
       matchedTripId: mtrip,
       asiento: cf.get(r.id as string) ?? null,
@@ -67,11 +68,13 @@ export async function getEmitidasAction(): Promise<EmitidaFE[]> {
   })
 }
 
-/** Viajes de julio (FACTURADO/FINALIZADO) para la selección manual del viaje de una FEIT. */
+/** TODOS los viajes — lista completa para elegir/corregir el viaje de una FEIT a mano. NO se
+ *  filtra por cliente NI por fecha: la factura de julio puede corresponder a un viaje de otro
+ *  mes (desfase) o a un cliente distinto del que el sistema asumió. El usuario elige el correcto. */
 export async function getViajesFacturablesAction(): Promise<ViajeOption[]> {
   const { data } = await supabase.from('trips')
     .select('id, trip_number, freight_value, tercero_id, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
-    .in('status', ['FINALIZADO', 'FACTURADO']).gte('load_date', '2026-07-01').order('trip_number')
+    .order('trip_number')
   return (data ?? []).map((t: unknown) => {
     const x = t as { id: string; trip_number: string; freight_value: number; tercero_id: string | null; terceros: Record<string, unknown> | null }
     return { id: x.id, tripNumber: x.trip_number, freight: Number(x.freight_value), terceroId: x.tercero_id, cliente: x.terceros ? nombreTercero(x.terceros) : '—' }

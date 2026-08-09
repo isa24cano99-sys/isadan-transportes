@@ -6,6 +6,7 @@ import { formatCOP, formatDate } from '@/lib/utils'
 import { FileText } from 'lucide-react'
 import {
   enlazarNotaCreditoAction, postearNotaCreditoAction, enlazarViajeFacturaAction, postearFacturacionAction,
+  getEmitidasAction, getNotasCreditoEmitidasAction,
   type EmitidaFE, type NotaCreditoFE, type ViajeOption,
 } from './actions'
 
@@ -23,7 +24,7 @@ export default function FacturacionClient({
     const res = await enlazarViajeFacturaAction(id, tripId || null)
     if (res.ok) {
       const v = viajes.find(x => x.id === tripId)
-      setFes(prev => prev.map(f => f.id === id ? { ...f, matchedTripId: tripId || null, viaje: v?.tripNumber ?? (f.viajeAuto ? f.viaje : null), viajeAuto: tripId ? false : f.viajeAuto } : f))
+      setFes(prev => prev.map(f => f.id === id ? { ...f, matchedTripId: tripId || null, viajeId: tripId || null, viaje: v?.tripNumber ?? null, viajeAuto: false } : f))
     } else setMsg({ ok: false, text: res.error ?? 'Error al enlazar' })
     setBusy(null)
   }
@@ -32,7 +33,7 @@ export default function FacturacionClient({
     const res = await postearFacturacionAction(id)
     setMsg({ ok: res.ok, text: res.mensaje })
     setBusy(null)
-    if (res.ok) router.refresh()
+    if (res.ok) { setFes(await getEmitidasAction()); router.refresh() }
   }
   const enlazarNC = async (ncId: string, feId: string) => {
     setBusy(ncId)
@@ -48,7 +49,7 @@ export default function FacturacionClient({
     const res = await postearNotaCreditoAction(ncId)
     setMsg({ ok: res.ok, text: res.mensaje })
     setBusy(null)
-    if (res.ok) router.refresh()
+    if (res.ok) { setNcs(await getNotasCreditoEmitidasAction()); router.refresh() }
   }
 
   const th = 'text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider'
@@ -87,20 +88,18 @@ export default function FacturacionClient({
                       <td className="px-3 py-1.5 text-xs">
                         {e.asiento ? (
                           <span className="text-[#64748B]">{e.viaje ?? '—'}</span>
-                        ) : e.viaje ? (
-                          <span className="inline-flex items-center gap-1">
-                            <span className="text-[#0F172A]">{e.viaje}</span>
-                            {e.viajeAuto && <span className="text-[9px] text-blue-600 bg-blue-50 px-1 rounded" title="sugerido por el folio">auto</span>}
-                          </span>
                         ) : (
-                          <select value={e.matchedTripId ?? ''} disabled={busy === e.id}
-                            onChange={ev => enlazarViaje(e.id, ev.target.value)}
-                            className="border border-[#E2E8F0] rounded-lg px-2 py-1 text-xs bg-white max-w-[190px]">
-                            <option value="">sin viaje asociado</option>
-                            {viajes.filter(v => v.terceroId === e.terceroId).map(v => (
-                              <option key={v.id} value={v.id}>{v.tripNumber} · {formatCOP(v.freight)}</option>
-                            ))}
-                          </select>
+                          <div className="flex items-center gap-1.5">
+                            <select value={e.matchedTripId ?? e.viajeId ?? ''} disabled={busy === e.id}
+                              onChange={ev => enlazarViaje(e.id, ev.target.value)}
+                              className="border border-[#E2E8F0] rounded-lg px-2 py-1 text-xs bg-white max-w-[240px]">
+                              <option value="">sin viaje asociado</option>
+                              {viajes.map(v => (
+                                <option key={v.id} value={v.id}>{v.tripNumber} · {v.cliente.slice(0, 16)} · {formatCOP(v.freight)}</option>
+                              ))}
+                            </select>
+                            {e.viajeAuto && <span className="text-[9px] text-blue-600 bg-blue-50 px-1 rounded shrink-0" title="sugerido por el folio — verifícalo/cámbialo">auto</span>}
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-1.5 text-right">
