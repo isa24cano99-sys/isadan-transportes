@@ -28,6 +28,18 @@ async function asientoContabilizadoDeTransaccion(id: string): Promise<string | n
     .maybeSingle()
   if (directo) return `${directo.tipo_comprobante}-${directo.consecutivo}`
 
+  // (a2) dentro de un asiento CONSOLIDADO: no usa origen_id, la transacción vive en la
+  //      tabla puente gasto_consolidado_items apuntando al CB del grupo.
+  const { data: consol } = await supabase
+    .from('gasto_consolidado_items')
+    .select('journal_entries!inner(tipo_comprobante, consecutivo, estado)')
+    .eq('bank_transaction_id', id)
+    .eq('journal_entries.estado', 'CONTABILIZADO')
+    .limit(1)
+    .maybeSingle()
+  const je = (consol as any)?.journal_entries
+  if (je) return `${je.tipo_comprobante}-${je.consecutivo}`
+
   // (b) FE vinculada: el CG se posteó desde la factura, no desde la fila de banco
   const { data: t } = await supabase.from('bank_transactions').select('matched_invoice_id').eq('id', id).maybeSingle()
   if (t?.matched_invoice_id) {
