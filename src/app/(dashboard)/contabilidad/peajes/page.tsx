@@ -11,6 +11,7 @@ async function getMeses(): Promise<MesPeaje[]> {
   const { data: imp } = await supabase
     .from('dian_invoices_import')
     .select('document_type, total, issue_date')
+    .eq('grupo', 'RECIBIDO')          // F2X (peajes) son recibidas; blindaje contra emitidas en la misma tabla
     .eq('nit_issuer', F2X_NIT)
     .gte('issue_date', '2026-07-01')
 

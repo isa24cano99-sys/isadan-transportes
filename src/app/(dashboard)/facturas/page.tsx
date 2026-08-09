@@ -61,11 +61,11 @@ export default async function FacturacionPage() {
       ],
     },
     {
-      href: '/facturas/importar',
+      href: '/contabilidad/conciliacion-costos',
       icon: Inbox,
       accent: 'bg-amber-50 text-amber-600',
-      title: 'Facturas DIAN recibidas',
-      desc: 'Importar facturas de proveedores (cruce CUFE)',
+      title: 'Importar DIAN (recibidas + emitidas)',
+      desc: 'Un solo archivo del mes, ambas direcciones — en Conciliar costos',
       stats: [
         { label: 'En sistema', value: String(s.dianCount) },
       ],

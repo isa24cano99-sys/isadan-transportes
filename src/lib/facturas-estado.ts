@@ -27,6 +27,7 @@ export async function facturasConEstado(desde: string, hasta: string): Promise<F
   const { data: inv } = await supabase
     .from('dian_invoices_import')
     .select('id, folio, issue_date, name_issuer, total, tercero_id, terceros(razon_social, cuenta_puc_sugerida)')
+    .eq('grupo', 'RECIBIDO')          // solo costos recibidos — las emitidas viven en la misma tabla
     .neq('nit_issuer', F2X)
     .gte('issue_date', desde).lt('issue_date', hasta)
     .neq('document_type', 'Application response')

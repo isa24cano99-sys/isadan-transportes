@@ -18,6 +18,7 @@ export async function getFEClasificadas(): Promise<FEClasificada[]> {
     supabase
       .from('dian_invoices_import')
       .select('id, issue_date, total, name_issuer, terceros!inner(cuenta_puc_sugerida)')
+      .eq('grupo', 'RECIBIDO')          // costos recibidos; las emitidas (issuer=ISADAN) no entran aquí
       .eq('document_type', 'Factura electrónica')
       .neq('nit_issuer', F2X)
       .order('issue_date', { ascending: false }),

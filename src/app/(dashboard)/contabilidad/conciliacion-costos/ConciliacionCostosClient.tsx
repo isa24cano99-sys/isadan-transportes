@@ -134,8 +134,9 @@ function ImportDian({ onImported }: { onImported: () => void }) {
         <div className="flex-1">
           <p className="text-sm font-semibold text-[#0F172A]">Subir reporte DIAN (.xlsx)</p>
           <p className="text-xs text-[#94A3B8] mt-0.5">
-            Facturas recibidas del mes. Filtra receptor ISADAN, excluye acuses y notas crédito,
-            evita duplicados por CUFE y resuelve/crea el proveedor por NIT.
+            Un solo archivo del mes — <strong>recibidas y emitidas</strong>. Clasifica por dirección
+            (receptor/emisor ISADAN), excluye acuses y notas crédito, evita duplicados por CUFE y
+            resuelve el proveedor o cliente por NIT.
           </p>
         </div>
         <label className="cursor-pointer shrink-0">
@@ -157,9 +158,9 @@ function ImportDian({ onImported }: { onImported: () => void }) {
       {res && res.ok && (
         <div className="mt-3 text-xs bg-[#F8FAFC] rounded-lg px-3 py-2.5 space-y-1.5">
           <p className="flex items-center gap-1.5 text-emerald-700 font-medium">
-            <CheckCircle size={13} /> {res.insertados} importadas
+            <CheckCircle size={13} /> {res.recibidas} recibidas · {res.emitidas} emitidas
             {res.duplicados > 0 ? ` · ${res.duplicados} duplicadas` : ''}
-            {res.omitidos > 0 ? ` · ${res.omitidos} omitidas (no-recibido/acuse/NC)` : ''}
+            {res.omitidos > 0 ? ` · ${res.omitidos} omitidas (ni recibida ni emitida/acuse/NC)` : ''}
           </p>
           {res.tercerosNuevos.length > 0 && (
             <div className="text-amber-700">

@@ -37,6 +37,7 @@ const sections: NavSection[] = [
   { title: 'Contabilidad', items: [
     { href: '/contabilidad/guia',              label: 'Guía / Mapa',      icon: Map },
     { href: '/contabilidad/causaciones',       label: 'Causaciones',      icon: Calculator },
+    { href: '/contabilidad/facturacion',       label: 'Facturación',      icon: FileCheck },
     { href: '/contabilidad/emision-facturas',  label: 'Emisión FEIT',     icon: FileCheck },
     { href: '/contabilidad/recibos-anticipo',  label: 'Recibos anticipo', icon: Banknote },
     { href: '/contabilidad/cruce-cartera',     label: 'Cruce cartera',    icon: ArrowLeftRight },

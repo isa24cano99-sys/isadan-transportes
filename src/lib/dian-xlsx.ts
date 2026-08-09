@@ -1,9 +1,9 @@
 /**
- * Parseo compartido del reporte .xlsx de la DIAN (bandeja "Recibidos" / consulta de
- * documentos). Único punto de mapeo de columnas → DianRow, reutilizado por:
- *   · /facturas/importar (subida general)
- *   · /contabilidad/conciliacion-costos (subida + filtro receptor + resolución de tercero)
- * No importa supabase — es client-safe (parseXlsx corre en el navegador con File API).
+ * Parseo compartido del reporte .xlsx de la DIAN (consulta de documentos, recibidas + emitidas).
+ * Único punto de mapeo de columnas → DianRow, consumido por el import UNIFICADO en
+ * /contabilidad/conciliacion-costos (un archivo, ambas direcciones: clasifica por grupo y
+ * resuelve proveedor/cliente por NIT). No importa supabase — es client-safe (parseXlsx corre
+ * en el navegador con File API).
  */
 import * as XLSX from 'xlsx'
 

@@ -16,9 +16,10 @@ const NC     = 'Nota de crédito electrónica'      // fuera de alcance por ahor
 
 export type DianImportResult =
   | { ok: true
-      insertados: number
+      recibidas: number                                             // insertadas grupo RECIBIDO (costos)
+      emitidas: number                                              // insertadas grupo EMITIDO (ventas)
       duplicados: number
-      omitidos: number                                              // no-receptor-ISADAN + acuses + NC
+      omitidos: number                                              // ni receptor ni emisor ISADAN + acuses + NC
       tercerosNuevos: { nombre: string; nit: string; warning: string | null }[]
       revisar: { folio: string; nombre: string; nit: string }[] }   // NIT no reconocido → sin tercero
   | { ok: false; error: string }
@@ -35,20 +36,25 @@ export type DianImportResult =
  *   f) inserta las nuevas con su tercero_id.
  */
 export async function importarDianConciliacionAction(rows: DianRow[]): Promise<DianImportResult> {
-  if (!rows.length) return { ok: true, insertados: 0, duplicados: 0, omitidos: 0, tercerosNuevos: [], revisar: [] }
+  if (!rows.length) return { ok: true, recibidas: 0, emitidas: 0, duplicados: 0, omitidos: 0, tercerosNuevos: [], revisar: [] }
 
-  // a) receptor ISADAN  +  b) excluir acuses / NC
+  // a) Clasificar cada fila del archivo ÚNICO en RECIBIDO (receptor ISADAN → costo, tercero=proveedor)
+  //    o EMITIDO (emisor ISADAN → venta, tercero=cliente). Excluir acuses/NC. El resto se omite.
+  type Clasif = { row: DianRow; grupo: 'RECIBIDO' | 'EMITIDO'; nitTercero: string; nombreTercero: string; rol: 'PROVEEDOR' | 'CLIENTE' }
   let omitidos = 0
-  const recibidas = rows.filter(r => {
-    if (normalizarIdentificacion(r.nit_receiver) !== ISADAN) { omitidos++; return false }
-    if (r.document_type === ACUSE || r.document_type === NC)  { omitidos++; return false }
-    return true
-  })
+  const clasificadas: Clasif[] = []
+  for (const r of rows) {
+    if (r.document_type === ACUSE || r.document_type === NC) { omitidos++; continue }
+    if (normalizarIdentificacion(r.nit_receiver) === ISADAN) {
+      clasificadas.push({ row: r, grupo: 'RECIBIDO', nitTercero: r.nit_issuer, nombreTercero: r.name_issuer, rol: 'PROVEEDOR' })
+    } else if (normalizarIdentificacion(r.nit_issuer) === ISADAN) {
+      clasificadas.push({ row: r, grupo: 'EMITIDO', nitTercero: r.nit_receiver, nombreTercero: r.name_receiver, rol: 'CLIENTE' })
+    } else { omitidos++ }
+  }
 
-  // c) dedupe por CUFE — POR LOTES. Un solo .in() con cientos de CUFEs revienta la URL (HTTP 400)
-  //    y, si se ignora el error, el dedupe se salta en silencio y el insert choca con el unique de
-  //    cufe. Chunks de 100 + chequeo explícito del error: si un lote falla, abortamos con mensaje.
-  const cufes = recibidas.map(r => r.cufe).filter((c): c is string => !!c && c.length > 0)
+  // b) dedupe por CUFE — POR LOTES. Un solo .in() con cientos de CUFEs revienta la URL (HTTP 400)
+  //    y, si se ignora el error, el dedupe se salta en silencio y el insert choca con el unique de cufe.
+  const cufes = clasificadas.map(c => c.row.cufe).filter((c): c is string => !!c && c.length > 0)
   const existentes = new Set<string>()
   const CHUNK = 100
   for (let i = 0; i < cufes.length; i += CHUNK) {
@@ -57,27 +63,29 @@ export async function importarDianConciliacionAction(rows: DianRow[]): Promise<D
     if (error) return { ok: false, error: `Error verificando duplicados (lote ${Math.floor(i / CHUNK) + 1}): ${error.message}` }
     for (const e of (data ?? [])) existentes.add((e as { cufe: string }).cufe)
   }
-  const nuevas = recibidas.filter(r => r.cufe && !existentes.has(r.cufe))
-  const duplicados = recibidas.length - nuevas.length
+  const nuevas = clasificadas.filter(c => c.row.cufe && !existentes.has(c.row.cufe))
+  const duplicados = clasificadas.length - nuevas.length
 
-  // d/e) resolver tercero por NIT (o marcar para revisión si el formato no calza)
+  // c) resolver tercero según dirección (proveedor por nit_issuer / cliente por nit_receiver)
   const tercerosNuevos: { nombre: string; nit: string; warning: string | null }[] = []
   const revisar: { folio: string; nombre: string; nit: string }[] = []
   const filas: Record<string, unknown>[] = []
+  let recibidas = 0, emitidas = 0
 
-  for (const r of nuevas) {
-    const base = normalizarIdentificacion(r.nit_issuer)
+  for (const c of nuevas) {
+    const r = c.row
+    const base = normalizarIdentificacion(c.nitTercero)
     let terceroId: string | null = null
     if (base && base.length >= 8 && base.length <= 10) {
       try {
-        const res = await resolverTerceroPorNitCrudo(r.nit_issuer, { nombre: r.name_issuer, rol: 'PROVEEDOR' })
+        const res = await resolverTerceroPorNitCrudo(c.nitTercero, { nombre: c.nombreTercero, rol: c.rol })
         terceroId = res.terceroId
-        if (res.created) tercerosNuevos.push({ nombre: r.name_issuer || res.base, nit: res.base, warning: res.warning })
+        if (res.created) tercerosNuevos.push({ nombre: c.nombreTercero || res.base, nit: res.base, warning: res.warning })
       } catch {
-        revisar.push({ folio: r.folio, nombre: r.name_issuer, nit: r.nit_issuer })
+        revisar.push({ folio: r.folio, nombre: c.nombreTercero, nit: c.nitTercero })
       }
     } else {
-      revisar.push({ folio: r.folio, nombre: r.name_issuer, nit: r.nit_issuer })
+      revisar.push({ folio: r.folio, nombre: c.nombreTercero, nit: c.nitTercero })
     }
     filas.push({
       document_type: r.document_type, cufe: r.cufe, folio: r.folio, prefix: r.prefix,
@@ -85,17 +93,20 @@ export async function importarDianConciliacionAction(rows: DianRow[]): Promise<D
       nit_issuer: r.nit_issuer, name_issuer: r.name_issuer,
       nit_receiver: r.nit_receiver, name_receiver: r.name_receiver,
       iva: r.iva, total: r.total, status: r.status, tercero_id: terceroId,
+      grupo: c.grupo,
     })
+    if (c.grupo === 'RECIBIDO') recibidas++; else emitidas++
   }
 
-  // f) insert
+  // d) insert (ambas direcciones en un solo pase)
   if (filas.length > 0) {
     const { error } = await supabase.from('dian_invoices_import').insert(filas)
     if (error) return { ok: false, error: error.message }
   }
 
   revalidatePath('/contabilidad/conciliacion-costos')
-  return { ok: true, insertados: filas.length, duplicados, omitidos, tercerosNuevos, revisar }
+  revalidatePath('/contabilidad/facturacion')
+  return { ok: true, recibidas, emitidas, duplicados, omitidos, tercerosNuevos, revisar }
 }
 
 export type VincularResult = { ok: true; asiento: string } | { ok: false; error: string }
