@@ -79,6 +79,7 @@ export default function ViajeDetailClient({
   const [savingManual,    setSavingManual]    = useState(false)
   const [manualError,     setManualError]     = useState<string | null>(null)
   const [reactivableMsg,  setReactivableMsg]  = useState<string | null>(null)
+  const [vinculableMsg,   setVinculableMsg]   = useState<string | null>(null)
   const [manualFolio,     setManualFolio]     = useState('')
   // Monto prellenado: flete de la legalización aprobada si difiere del manifiesto, si no el del viaje
   const [manualMonto,     setManualMonto]     = useState(String(fleteWarning?.legFreight ?? initial.freight_value ?? ''))
@@ -166,24 +167,27 @@ export default function ViajeDetailClient({
     setTrip(prev => ({ ...prev, status: 'FACTURADO', dataico_invoice_id: invoiceNumber }))
     setShowManualModal(false)
     setReactivableMsg(null)
+    setVinculableMsg(null)
     setManualError(null)
   }
 
-  const handleRegistrarManual = async (confirmReactivate = false) => {
+  const handleRegistrarManual = async (mode: 'submit' | 'reactivate' | 'vincular' = 'submit') => {
     setSavingManual(true)
     setManualError(null)
-    if (!confirmReactivate) setReactivableMsg(null)
+    if (mode === 'submit') { setReactivableMsg(null); setVinculableMsg(null) }
     const res = await registrarFacturaManualAction({
       tripId: trip.id,
       invoiceNumber: manualFolio,
       totalAmount: Number(manualMonto),
       date: manualFecha,
-      confirmReactivate,
+      confirmReactivate: mode === 'reactivate',
+      confirmVincular: mode === 'vincular',
     })
     setSavingManual(false)
     if (res.status === 'ok') aplicarFacturaManualOk(res.invoiceNumber)
     else if (res.status === 'reactivable') setReactivableMsg(res.message)
-    else { setManualError(res.message); setReactivableMsg(null) }
+    else if (res.status === 'vinculable') setVinculableMsg(res.message)
+    else { setManualError(res.message); setReactivableMsg(null); setVinculableMsg(null) }
   }
 
   return (
@@ -601,12 +605,15 @@ export default function ViajeDetailClient({
             {reactivableMsg && (
               <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2 rounded-lg">{reactivableMsg}</div>
             )}
+            {vinculableMsg && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm px-3 py-2 rounded-lg">{vinculableMsg}</div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide">N° de factura (folio)</label>
                 <input
                   value={manualFolio}
-                  onChange={e => { setManualFolio(e.target.value); setReactivableMsg(null); setManualError(null) }}
+                  onChange={e => { setManualFolio(e.target.value); setReactivableMsg(null); setVinculableMsg(null); setManualError(null) }}
                   placeholder="FEIT25"
                   className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
@@ -640,7 +647,7 @@ export default function ViajeDetailClient({
             </div>
             <div className="flex gap-3 pt-1">
               <button
-                onClick={() => { setShowManualModal(false); setReactivableMsg(null); setManualError(null) }}
+                onClick={() => { setShowManualModal(false); setReactivableMsg(null); setVinculableMsg(null); setManualError(null) }}
                 disabled={savingManual}
                 className="flex-1 border border-[#E2E8F0] text-[#64748B] font-medium py-2.5 rounded-lg text-sm hover:bg-[#F8FAFC] transition-colors disabled:opacity-50"
               >
@@ -648,15 +655,23 @@ export default function ViajeDetailClient({
               </button>
               {reactivableMsg ? (
                 <button
-                  onClick={() => handleRegistrarManual(true)}
+                  onClick={() => handleRegistrarManual('reactivate')}
                   disabled={savingManual}
                   className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
                 >
                   {savingManual ? <><Loader2 size={13} className="animate-spin" /> Reactivando…</> : 'Reactivar y vincular'}
                 </button>
+              ) : vinculableMsg ? (
+                <button
+                  onClick={() => handleRegistrarManual('vincular')}
+                  disabled={savingManual}
+                  className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
+                >
+                  {savingManual ? <><Loader2 size={13} className="animate-spin" /> Vinculando…</> : 'Vincular a este viaje'}
+                </button>
               ) : (
                 <button
-                  onClick={() => handleRegistrarManual(false)}
+                  onClick={() => handleRegistrarManual('submit')}
                   disabled={savingManual || !manualFolio.trim() || !(Number(manualMonto) > 0)}
                   className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1.5"
                 >
