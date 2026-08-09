@@ -57,6 +57,7 @@ interface Transaction {
   reference_type?: string | null
   reference_id?: string | null
   matched_invoice_id?: string | null
+  asiento_contable?: string | null   // 'CB-N'/'CG-N' si la fila ya es origen de un asiento contabilizado
   transaction_categories?: TxCategory | null
 }
 
@@ -324,6 +325,9 @@ export default function BankDetailClient({
   const feCuentas = useMemo(() => pucAccounts.filter(p => p.codigo.startsWith('6145')), [pucAccounts])
   const feSelObj = feList.find(f => f.id === feSel)
   const vinculada = !!editTxn?.matched_invoice_id   // transacción ya contabilizada vía FE → modal de solo lectura
+  // Contabilizada por posteo directo (CB pago-proveedor, etc.): monto y fecha bloqueados,
+  // el resto de campos siguen editables. (Si además es FE, `vinculada` ya bloquea todo.)
+  const bloqueadoContable = !vinculada && !!editTxn?.asiento_contable
   const selectFe = (id: string) => {
     setFeSel(id)
     setFeCuenta(feList.find(x => x.id === id)?.cuentaSugerida ?? '')
@@ -802,12 +806,14 @@ export default function BankDetailClient({
       {deleteTxn && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl p-5 md:p-6 w-full sm:max-w-sm shadow-xl space-y-4">
-            {deleteTxn.matched_invoice_id ? (
+            {(deleteTxn.matched_invoice_id || deleteTxn.asiento_contable) ? (
               <>
                 <h2 className="font-semibold text-[#0F172A]">No se puede eliminar</h2>
                 <p className="text-sm text-[#64748B]">
-                  <span className="font-medium text-[#0F172A]">{deleteTxn.description}</span> está vinculada a un asiento
-                  contabilizado — debes reversar el asiento antes de poder borrarla.
+                  <span className="font-medium text-[#0F172A]">{deleteTxn.description}</span>{' '}
+                  {deleteTxn.asiento_contable
+                    ? <>es el origen del asiento contabilizado <span className="font-semibold text-[#0F172A]">{deleteTxn.asiento_contable}</span> — debes reversarlo antes de poder borrarla.</>
+                    : <>está vinculada a un asiento contabilizado — debes reversar el asiento antes de poder borrarla.</>}
                 </p>
                 <div className="flex">
                   <button onClick={() => setDeleteTxn(null)}
@@ -878,6 +884,15 @@ export default function BankDetailClient({
                   <span>Vinculada a un asiento contabilizado — <span className="font-semibold">de solo lectura</span>. Para cambiarla, reversa el asiento.</span>
                 </div>
               )}
+              {bloqueadoContable && (
+                <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <span>
+                    <span className="font-semibold">Monto y fecha bloqueados</span>: esta transacción es el origen del asiento
+                    contabilizado <span className="font-semibold">{editTxn.asiento_contable}</span>. Para cambiarlos, reversa
+                    el asiento. Los demás campos (descripción, categoría, tercero) sí puedes editarlos.
+                  </span>
+                </div>
+              )}
               <fieldset disabled={vinculada} className="space-y-4 border-0 p-0 m-0 min-w-0">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -889,14 +904,16 @@ export default function BankDetailClient({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Monto (COP)</label>
-                  <input type="number" min="0.01" step="0.01" value={editForm.amount}
-                    onChange={e => setEditForm(p => p && ({ ...p, amount: e.target.value }))} className={inpCls} />
+                  <input type="number" min="0.01" step="0.01" value={editForm.amount} disabled={bloqueadoContable}
+                    onChange={e => setEditForm(p => p && ({ ...p, amount: e.target.value }))}
+                    className={`${inpCls} disabled:bg-[#F1F5F9] disabled:text-[#94A3B8] disabled:cursor-not-allowed`} />
                 </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Fecha</label>
-                <input type="date" value={editForm.date}
-                  onChange={e => setEditForm(p => p && ({ ...p, date: e.target.value }))} className={inpCls} />
+                <input type="date" value={editForm.date} disabled={bloqueadoContable}
+                  onChange={e => setEditForm(p => p && ({ ...p, date: e.target.value }))}
+                  className={`${inpCls} disabled:bg-[#F1F5F9] disabled:text-[#94A3B8] disabled:cursor-not-allowed`} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[#64748B] mb-1.5">Descripción</label>
