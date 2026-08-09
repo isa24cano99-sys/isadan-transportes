@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { postearPagoProveedorAction, postearGastoDirectoAction, type PagoResultado } from './actions'
+import { postearPagoProveedorAction, postearGastoDirectoAction, postearGastosConsolidadosAction, type PagoResultado } from './actions'
 
 type PagoRow  = { id: string; fecha: string; monto: number; tercero: string; descripcion: string }
 type GastoRow = PagoRow & { categoria: string; puc: string }
@@ -13,14 +13,26 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [resultados, setResultados] = useState<PagoResultado[]>([])
+  const [descripcion, setDescripcion] = useState('')
+  const [fechaGrupo, setFechaGrupo] = useState('')
 
-  // índices id → tipo/ref/monto para despachar al RPC correcto y sumar totales
+  // índices id → tipo/ref/monto/fecha para despachar al RPC correcto y sumar totales
   const meta = useMemo(() => {
-    const m = new Map<string, { tipo: 'pago' | 'gasto'; ref: string; monto: number }>()
-    pagos.forEach(p => m.set(p.id, { tipo: 'pago', ref: `${p.tercero} · ${p.fecha}`, monto: p.monto }))
-    gastos.forEach(g => m.set(g.id, { tipo: 'gasto', ref: `${g.categoria} · ${g.fecha}`, monto: g.monto }))
+    const m = new Map<string, { tipo: 'pago' | 'gasto'; ref: string; monto: number; fecha: string }>()
+    pagos.forEach(p => m.set(p.id, { tipo: 'pago', ref: `${p.tercero} · ${p.fecha}`, monto: p.monto, fecha: p.fecha }))
+    gastos.forEach(g => m.set(g.id, { tipo: 'gasto', ref: `${g.categoria} · ${g.fecha}`, monto: g.monto, fecha: g.fecha }))
     return m
   }, [pagos, gastos])
+
+  // selección de GASTOS (para consolidar): default fecha = la más tardía; guard mismo mes
+  const selGasto = useMemo(() => [...sel].filter(id => meta.get(id)?.tipo === 'gasto'), [sel, meta])
+  const fechaDefault = useMemo(() => {
+    const fs = selGasto.map(id => meta.get(id)!.fecha).sort()
+    return fs.length ? fs[fs.length - 1] : ''
+  }, [selGasto, meta])
+  const fechaEfectiva = fechaGrupo || fechaDefault
+  const mesesGasto = useMemo(() => new Set(selGasto.map(id => meta.get(id)!.fecha.slice(0, 7))), [selGasto, meta])
+  const totalGasto = selGasto.reduce((s, id) => s + (meta.get(id)?.monto ?? 0), 0)
 
   // gastos agrupados por categoría
   const grupos = useMemo(() => {
@@ -45,6 +57,15 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
     if (pagoIds.length)  res.push(...await postearPagoProveedorAction(pagoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
     if (gastoIds.length) res.push(...await postearGastoDirectoAction(gastoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
     setResultados(res); setSel(new Set()); setLoading(false); router.refresh()
+  }
+
+  const postearConsolidado = async () => {
+    if (selGasto.length < 2 || !descripcion.trim() || !fechaEfectiva || mesesGasto.size > 1 || loading) return
+    setLoading(true); setResultados([])
+    const res = await postearGastosConsolidadosAction(selGasto, descripcion.trim(), fechaEfectiva)
+    setResultados([{ btId: 'grupo', ref: descripcion.trim(), ok: res.ok, mensaje: res.mensaje }])
+    if (res.ok) { setSel(new Set()); setDescripcion(''); setFechaGrupo('') }
+    setLoading(false); router.refresh()
   }
 
   const th = 'text-left px-3 py-2 text-[11px] font-medium text-[#64748B]'
@@ -138,13 +159,46 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
         </section>
       )}
 
-      {/* Barra de acción unificada */}
+      {/* Panel de consolidación — aparece al marcar ≥2 gastos */}
+      {selGasto.length >= 2 && (
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold text-[#B45309]">
+            Agrupar {selGasto.length} gastos en 1 solo asiento <span className="font-normal text-[#D97706]">· {formatCOP(totalGasto)}</span>
+          </p>
+          <p className="text-[11px] text-[#92400E]">
+            Un comprobante con una línea de débito por cada gasto (a su cuenta) + una de crédito al banco por el total.
+            El flujo individual sigue disponible con “Contabilizar seleccionadas”.
+          </p>
+          {mesesGasto.size > 1 ? (
+            <p className="text-xs text-red-600">Los gastos seleccionados son de meses distintos ({[...mesesGasto].sort().join(', ')}). Un asiento consolidado debe ser de un solo mes.</p>
+          ) : (
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex-1 min-w-[220px]">
+                <span className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide mb-1">Descripción del asiento</span>
+                <input value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="Ej. GMF julio 2026"
+                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500" />
+              </label>
+              <label>
+                <span className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide mb-1">Fecha (más tardía)</span>
+                <input type="date" value={fechaEfectiva} onChange={e => setFechaGrupo(e.target.value)}
+                  className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500" />
+              </label>
+              <button onClick={postearConsolidado} disabled={!descripcion.trim() || !fechaEfectiva || loading}
+                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                {loading ? 'Consolidando…' : `Contabilizar agrupados (${selGasto.length})`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Barra de acción unificada (posteo individual) */}
       {!nada && (
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-white border border-[#E2E8F0] rounded-xl sticky bottom-2 shadow-sm">
           <span className="text-xs text-[#64748B]">{sel.size} seleccionado(s) · {formatCOP(totalSel)}</span>
           <button onClick={() => postear([...sel])} disabled={!sel.size || loading}
             className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-            {loading ? 'Contabilizando…' : 'Contabilizar seleccionadas'}
+            {loading ? 'Contabilizando…' : 'Contabilizar seleccionadas (una por una)'}
           </button>
         </div>
       )}

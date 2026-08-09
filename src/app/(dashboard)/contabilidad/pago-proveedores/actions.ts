@@ -40,11 +40,29 @@ export async function postearPagoProveedorAction(
 
 /**
  * Gasto directo (DB cuenta 5/6 de la categoría / CR 11100510). Reconoce el gasto en el
- * instante. postear_gasto_bancario_directo valida clase 5/6, no-6145xx, no-nómina/IVA,
- * pre-corte, anti-dup, y usa Consumidor Final si el movimiento no trae tercero.
+ * instante. postear_gasto_bancario_directo valida clase 5/6, no-nómina/IVA, pre-corte,
+ * anti-dup (individual o dentro de un grupo), y usa Consumidor Final si no hay tercero.
  */
 export async function postearGastoDirectoAction(
   movimientos: { id: string; ref: string }[],
 ): Promise<PagoResultado[]> {
   return postearPorRpc('postear_gasto_bancario_directo', movimientos)
+}
+
+/**
+ * Consolida ≥2 gastos directos en UN solo asiento (patrón Dataico): una línea de débito
+ * por transacción (a su cuenta/tercero) + una de crédito al banco por el total, bajo la
+ * descripción que escribe el usuario. postear_gastos_consolidados valida cada bt y exige
+ * que todas sean del mismo mes que la fecha del asiento.
+ */
+export async function postearGastosConsolidadosAction(
+  btIds: string[], descripcion: string, fecha: string,
+): Promise<{ ok: boolean; mensaje: string }> {
+  const { data, error } = await supabase.rpc('postear_gastos_consolidados', {
+    p_bt_ids: btIds, p_descripcion: descripcion, p_fecha: fecha,
+  })
+  if (error) return { ok: false, mensaje: error.message }
+  const { data: e } = await supabase.from('journal_entries').select('consecutivo').eq('id', data as string).single()
+  revalidatePath('/contabilidad/pago-proveedores')
+  return { ok: true, mensaje: `Consolidado en 1 asiento CB-${e?.consecutivo} · ${btIds.length} gastos` }
 }
