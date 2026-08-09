@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
   Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
-  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Briefcase, Building, TrendingUp, Lock, FileSpreadsheet, Map, type LucideIcon,
+  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Briefcase, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
 } from 'lucide-react'
 
 type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string }
@@ -43,6 +43,7 @@ const sections: NavSection[] = [
     { href: '/contabilidad/porcentaje-conductor', label: 'Porcentaje cond.', icon: Percent },
     { href: '/contabilidad/comision-empresa',  label: 'Comisión empresa', icon: Briefcase },
     { href: '/contabilidad/nomina-mensual',    label: 'Nómina mensual',   icon: UsersRound },
+    { href: '/contabilidad/seguridad-social',  label: 'Seguridad social', icon: ShieldCheck },
     { href: '/contabilidad/anticipo-conductor', label: 'Anticipo cond.',  icon: Coins },
     { href: '/contabilidad/peajes',            label: 'Peajes (F2X)',     icon: TrafficCone },
     { href: '/contabilidad/pago-proveedores',  label: 'Pago proveedores', icon: CreditCard },

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import {
   Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, Briefcase, Coins,
-  TrafficCone, CreditCard, UsersRound, Lock, ChevronRight, type LucideIcon,
+  TrafficCone, CreditCard, UsersRound, Lock, ChevronRight, ShieldCheck, type LucideIcon,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -35,7 +35,8 @@ const FASES: Fase[] = [
   ] },
   { titulo: 'Nómina y cierre', pasos: [
     { n: 11, label: 'Nómina mensual', desc: 'Capturar la nómina del mes', href: '/contabilidad/nomina-mensual', icon: UsersRound },
-    { n: 12, label: 'Cierre de periodo', desc: 'Cerrar el mes y trasladar el resultado', href: '/contabilidad/cierre-periodo', icon: Lock },
+    { n: 12, label: 'Seguridad social', desc: 'Consolidar aportes → Aportes en Línea', href: '/contabilidad/seguridad-social', icon: ShieldCheck },
+    { n: 13, label: 'Cierre de periodo', desc: 'Cerrar el mes y trasladar el resultado', href: '/contabilidad/cierre-periodo', icon: Lock },
   ] },
 ]
 
