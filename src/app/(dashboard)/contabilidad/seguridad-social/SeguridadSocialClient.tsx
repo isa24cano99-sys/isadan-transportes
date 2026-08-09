@@ -3,21 +3,23 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { CheckCircle2, Info } from 'lucide-react'
-import { getResumenSSAction, postearConsolidacionSSAction, type ResumenSS } from './actions'
+import { CheckCircle2, Info, Landmark } from 'lucide-react'
+import { getResumenSSAction, postearConsolidacionSSAction, getEstadoPagoSSAction, postearPagoSSAction, type ResumenSS, type EstadoPagoSS } from './actions'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export default function SeguridadSocialClient({
-  initialYear, initialMonth, initialResumen,
-}: { initialYear: number; initialMonth: number; initialResumen: ResumenSS }) {
+  initialYear, initialMonth, initialResumen, initialEstadoPago,
+}: { initialYear: number; initialMonth: number; initialResumen: ResumenSS; initialEstadoPago: EstadoPagoSS }) {
   const router = useRouter()
   const [year, setYear] = useState(initialYear)
   const [month, setMonth] = useState(initialMonth)
   const [resumen, setResumen] = useState<ResumenSS>(initialResumen)
+  const [estadoPago, setEstadoPago] = useState<EstadoPagoSS>(initialEstadoPago)
   const [montoReal, setMontoReal] = useState('')
   const [loadingResumen, setLoadingResumen] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [payingId, setPayingId] = useState<string | null>(null)
   const [resultado, setResultado] = useState<{ ok: boolean; mensaje: string } | null>(null)
 
   const periodo = `${year}-${String(month).padStart(2, '0')}`
@@ -26,6 +28,14 @@ export default function SeguridadSocialClient({
     setLoadingResumen(true); setResultado(null)
     const r = await getResumenSSAction(`${y}-${String(m).padStart(2, '0')}`)
     setResumen(r); setLoadingResumen(false)
+  }
+
+  const pagar = async (id: string) => {
+    if (payingId) return
+    setPayingId(id); setResultado(null)
+    const res = await postearPagoSSAction(id)
+    setResultado(res); setPayingId(null)
+    if (res.ok) { setEstadoPago(await getEstadoPagoSSAction()); router.refresh() }
   }
   const onMonth = (m: number) => { setMonth(m); recargar(year, m) }
   const onYear  = (y: number) => { setYear(y);  recargar(y, month) }
@@ -39,7 +49,7 @@ export default function SeguridadSocialClient({
     setPosting(true); setResultado(null)
     const res = await postearConsolidacionSSAction(periodo, real)
     setResultado(res); setPosting(false)
-    if (res.ok) { setMontoReal(''); await recargar(year, month); router.refresh() }
+    if (res.ok) { setMontoReal(''); await recargar(year, month); setEstadoPago(await getEstadoPagoSSAction()); router.refresh() }
   }
 
   const selCls = 'border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] bg-white'
@@ -129,6 +139,48 @@ export default function SeguridadSocialClient({
             {posting ? 'Consolidando…' : 'Consolidar seguridad social'}
           </button>
         </div>
+      </div>
+
+      {/* ── Pago del pasivo consolidado 23709510 — saldo TOTAL de la cuenta (no por mes) ── */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Landmark size={16} className="text-[#64748B]" />
+          <h2 className="text-sm font-semibold text-[#0F172A]">Pago de seguridad social consolidada</h2>
+        </div>
+        <div className="flex items-center justify-between text-sm bg-[#F8FAFC] border border-[#F1F5F9] rounded-lg px-3 py-2">
+          <span className="text-[#475569]">Saldo total pendiente · <strong className="text-[#0F172A]">23709510 · Aportes en Línea</strong></span>
+          <span className="tabular-nums font-semibold text-[#0F172A]">{formatCOP(estadoPago.saldo)}</span>
+        </div>
+        {estadoPago.saldo <= 0 ? (
+          <div className="flex items-start gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
+            <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-600" />
+            <span>Al día — sin saldo pendiente de seguridad social{estadoPago.ultimoPago ? <> (último pago <strong>CB-{estadoPago.ultimoPago.consecutivo}</strong>)</> : null}.</span>
+          </div>
+        ) : estadoPago.candidatos.length === 0 ? (
+          <p className="text-xs text-[#94A3B8]">
+            No hay movimientos bancarios de pago sin contabilizar. Cuando salga el pago de PILA del banco
+            y lo categorices como &ldquo;Pago seguridad social (PILA)&rdquo;, aparecerá aquí para confirmarlo.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-[#64748B]">
+              Movimientos &ldquo;Pago seguridad social (PILA)&rdquo; sin contabilizar — verifica que el monto
+              coincida con el saldo antes de postear:
+            </p>
+            {estadoPago.candidatos.map(c => (
+              <div key={c.id} className="flex items-center justify-between gap-3 border border-[#E2E8F0] rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-[#0F172A] tabular-nums">{formatCOP(c.amount)}</p>
+                  <p className="text-[11px] text-[#94A3B8] truncate">{c.date} · {c.description || '—'}</p>
+                </div>
+                <button onClick={() => pagar(c.id)} disabled={!!payingId}
+                  className="shrink-0 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors">
+                  {payingId === c.id ? 'Confirmando…' : 'Confirmar pago'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
