@@ -12,19 +12,26 @@ const NOMINA = ['52050610', '52052710', '52053010', '52053310', '52053610', '520
 const excluidoGasto = (puc: string) => puc === '53152010' || NOMINA.includes(puc)
 
 async function getMovimientos() {
-  const [{ data: cats }, { data: cb }, { data: consol }] = await Promise.all([
+  // "ya contabilizado" con el MISMO criterio que asientoContabilizadoDeTransaccion (/bancos):
+  //   (a) cualquier asiento directo desde la transacción (origen_tabla='bank_transactions',
+  //       CUALQUIER comprobante — no solo CB), (b) consolidado (tabla puente), (c) FE vinculada
+  //       (matched_invoice_id cuyo costo se posteó desde la factura DIAN).
+  const [{ data: cats }, { data: directos }, { data: consol }, { data: feCG }] = await Promise.all([
     supabase.from('transaction_categories').select('id, name, puc_code'),
     supabase.from('journal_entries').select('origen_id')
-      .eq('origen_tabla', 'bank_transactions').eq('tipo_comprobante', 'CB').eq('estado', 'CONTABILIZADO'),
-    // transacciones dentro de un asiento consolidado (no usan origen_id → tabla puente)
+      .eq('origen_tabla', 'bank_transactions').eq('estado', 'CONTABILIZADO'),
     supabase.from('gasto_consolidado_items').select('bank_transaction_id, journal_entries!inner(estado)')
       .eq('journal_entries.estado', 'CONTABILIZADO'),
+    supabase.from('journal_entries').select('origen_id')
+      .eq('origen_tabla', 'dian_invoices_import').eq('estado', 'CONTABILIZADO'),
   ])
-  // "ya contabilizado" = posteo individual (origen_id) ∪ consolidado (puente)
-  const conCB = new Set([
-    ...(cb ?? []).map(x => x.origen_id),
+  const postedDirecto = new Set([
+    ...(directos ?? []).map(x => x.origen_id),
     ...(consol ?? []).map((x: any) => x.bank_transaction_id),
   ])
+  const postedFacturas = new Set((feCG ?? []).map(x => x.origen_id))
+  const contabilizado = (b: any) =>
+    postedDirecto.has(b.id) || (b.matched_invoice_id && postedFacturas.has(b.matched_invoice_id))
   const catById = new Map((cats ?? []).map((c: any) => [c.id, c]))
 
   // categorías por destino
@@ -33,7 +40,7 @@ async function getMovimientos() {
 
   const { data: bts } = await supabase
     .from('bank_transactions')
-    .select('id, date, amount, description, category_id, tercero_id, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
+    .select('id, date, amount, description, category_id, tercero_id, matched_invoice_id, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
     .in('category_id', [...catsPago, ...catsGasto])
     .gte('date', '2026-07-01')
     .order('date')
@@ -42,7 +49,7 @@ async function getMovimientos() {
   const pagos: any[] = []
   const gastos: any[] = []
   for (const b of (bts ?? []) as any[]) {
-    if (conCB.has(b.id)) continue
+    if (contabilizado(b)) continue
     const cat = catById.get(b.category_id)
     if (catsPagoSet.has(b.category_id)) {
       if (!b.tercero_id) continue  // pago a proveedor exige tercero (proveedor)
