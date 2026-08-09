@@ -30,7 +30,7 @@ const FASES: Fase[] = [
   ] },
   { titulo: 'Costos de proveedor', pasos: [
     { n: 8, label: 'Peajes (F2X)', desc: 'Causación mensual de peajes', href: '/contabilidad/peajes', icon: TrafficCone },
-    { n: 9, label: 'Pago proveedores', desc: 'Pagar la deuda con proveedores', href: '/contabilidad/pago-proveedores', icon: CreditCard },
+    { n: 9, label: 'Pagos y gastos bancarios', desc: 'Pagar proveedores y contabilizar gastos directos del banco', href: '/contabilidad/pago-proveedores', icon: CreditCard },
     { n: 10, label: 'Conciliar costos DIAN', desc: 'Clasificar otros costos de la DIAN', href: '/contabilidad/conciliacion-costos', icon: FileCheck },
   ] },
   { titulo: 'Nómina y cierre', pasos: [

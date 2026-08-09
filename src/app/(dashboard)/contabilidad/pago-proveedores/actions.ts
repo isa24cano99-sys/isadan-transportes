@@ -10,18 +10,12 @@ export type PagoResultado = {
   mensaje: string
 }
 
-/**
- * Contabiliza el pago a proveedor de los movimientos seleccionados (DB 220501 /
- * CR 11100510 Banco). Llama postear_pago_proveedor_banco por RPC, uno por uno. La
- * función valida categoría (puc 220501), tercero, pre-corte y anti-duplicado. Lee el
- * tercero del movimiento — sirve para cualquier proveedor por 220501. Cero automatismo.
- */
-export async function postearPagoProveedorAction(
-  movimientos: { id: string; ref: string }[],
+async function postearPorRpc(
+  rpc: string, movimientos: { id: string; ref: string }[],
 ): Promise<PagoResultado[]> {
   const resultados: PagoResultado[] = []
   for (const m of movimientos) {
-    const { data, error } = await supabase.rpc('postear_pago_proveedor_banco', { p_bank_transaction_id: m.id })
+    const { data, error } = await supabase.rpc(rpc, { p_bank_transaction_id: m.id })
     if (error) {
       resultados.push({ btId: m.id, ref: m.ref, ok: false, mensaje: error.message })
     } else {
@@ -32,4 +26,25 @@ export async function postearPagoProveedorAction(
   }
   revalidatePath('/contabilidad/pago-proveedores')
   return resultados
+}
+
+/**
+ * Pago a proveedor (DB 220501 / CR 11100510). Baja el pasivo ya causado.
+ * postear_pago_proveedor_banco valida categoría (220501), tercero, pre-corte, anti-dup.
+ */
+export async function postearPagoProveedorAction(
+  movimientos: { id: string; ref: string }[],
+): Promise<PagoResultado[]> {
+  return postearPorRpc('postear_pago_proveedor_banco', movimientos)
+}
+
+/**
+ * Gasto directo (DB cuenta 5/6 de la categoría / CR 11100510). Reconoce el gasto en el
+ * instante. postear_gasto_bancario_directo valida clase 5/6, no-6145xx, no-nómina/IVA,
+ * pre-corte, anti-dup, y usa Consumidor Final si el movimiento no trae tercero.
+ */
+export async function postearGastoDirectoAction(
+  movimientos: { id: string; ref: string }[],
+): Promise<PagoResultado[]> {
+  return postearPorRpc('postear_gasto_bancario_directo', movimientos)
 }

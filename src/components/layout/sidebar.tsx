@@ -47,7 +47,7 @@ const sections: NavSection[] = [
     { href: '/contabilidad/seguridad-social',  label: 'Seguridad social', icon: ShieldCheck },
     { href: '/contabilidad/anticipo-conductor', label: 'Anticipo cond.',  icon: Coins },
     { href: '/contabilidad/peajes',            label: 'Peajes (F2X)',     icon: TrafficCone },
-    { href: '/contabilidad/pago-proveedores',  label: 'Pago proveedores', icon: CreditCard },
+    { href: '/contabilidad/pago-proveedores',  label: 'Pagos y gastos bancarios', icon: CreditCard },
     { href: '/contabilidad/conciliacion-costos', label: 'Conciliar costos DIAN', icon: FileCheck },
     { href: '/contabilidad/libro-diario',      label: 'Libro diario',     icon: BookOpen },
     { href: '/contabilidad/libro-mayor',       label: 'Libro mayor',      icon: BookText },
