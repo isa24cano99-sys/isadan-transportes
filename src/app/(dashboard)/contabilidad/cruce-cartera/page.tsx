@@ -34,7 +34,7 @@ async function getElegibles() {
 
   const { data: entries } = await supabase
     .from('accounts_receivable_entries')
-    .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id')
+    .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, terceros(razon_social)')
     .neq('status', 'PAGADA')
     .order('invoice_number')
 
@@ -49,7 +49,9 @@ async function getElegibles() {
       const saldoFact = Number(e.invoice_amount) - Number(e.advance_amount)
       return {
         id: e.id,
-        cliente: e.client_name as string,
+        // Nombre autoritativo desde el tercero (fuente única); client_name es un snapshot
+        // de texto viejo que puede traer el typo del archivo original (ver terceros-fuente-unica).
+        cliente: (e.terceros?.razon_social ?? e.client_name) as string,
         factura: e.invoice_number as string,
         saldoFactura: saldoFact,
         anticipoDisp: ant,
