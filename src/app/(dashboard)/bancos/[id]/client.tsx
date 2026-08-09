@@ -6,7 +6,7 @@ import { formatCOP, formatDate, formatTripOption, tripMatchesQuery, tripManifies
 import { useUrlState } from '@/lib/useUrlState'
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, ReceiptText,
-  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck, Download,
+  X, Pencil, Trash2, Sparkles, Loader2, Search, Plus, Filter, Zap, Truck, Download, CheckCircle2,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { actualizarTransaccionAction, eliminarTransaccionAction, asignarCategoriaMasivaAction, asignarProveedorMasivoAction, obtenerClienteViajeAction } from '../transaccion/actions'
@@ -204,6 +204,14 @@ export default function BankDetailClient({
     const fe = (t as unknown as { dian_invoices_import?: { folio: string | null; name_issuer: string | null; terceros: { razon_social: string | null } | null } | null }).dian_invoices_import
     if (!fe) return null
     return `${fe.terceros?.razon_social ?? fe.name_issuer ?? '—'} · FE ${fe.folio ?? ''}`
+  }
+
+  // Columna "Estado": tooltip del badge verde "Contabilizado" (asiento directo CB/RC/CG, o FE
+  // vinculada). null → la fila no tiene asiento (pendiente o pre-corte ya en apertura) → sin marca.
+  const contabTip = (t: Transaction): string | null => {
+    if (t.asiento_contable) return `Contabilizado · ${t.asiento_contable}`
+    if (t.matched_invoice_id) return `Contabilizado · ${feTooltip(t) ?? 'FE vinculada'}`
+    return null
   }
 
   // ── Exportar a Excel las transacciones visibles (respeta filtros activos) ────
@@ -655,13 +663,14 @@ export default function BankDetailClient({
               <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider whitespace-nowrap hidden lg:table-cell">Tercero</th>
               <th className={`${thCls} text-right`} onClick={() => handleSort('amount')}>Monto <SortArrow col="amount" /></th>
               <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Origen</th>
+              <th className="px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Estado</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E2E8F0]">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-10 text-xs text-[#64748B]">
+                <td colSpan={10} className="text-center py-10 text-xs text-[#64748B]">
                   <ReceiptText size={28} className="mx-auto mb-2 text-[#CBD5E1]" />
                   No hay transacciones{hasFilters ? ' con estos filtros' : ''}
                 </td>
@@ -720,6 +729,14 @@ export default function BankDetailClient({
                     }`}>
                       {isExtracto ? 'Extracto' : 'Manual'}
                     </span>
+                  </td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    {contabTip(t) && (
+                      <span title={contabTip(t)!} aria-label={contabTip(t)!}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full">
+                        <CheckCircle2 size={10} /> Contabilizado
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-1.5">
                     <div className="flex items-center gap-2">
@@ -788,6 +805,12 @@ export default function BankDetailClient({
                   {t.type}
                 </span>
                 <CategoryBadge cat={t.transaction_categories} />
+                {contabTip(t) && (
+                  <span title={contabTip(t)!} aria-label={contabTip(t)!}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full">
+                    <CheckCircle2 size={10} /> Contab.
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => openEdit(t)}
