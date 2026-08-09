@@ -15,23 +15,20 @@ async function getMovimientos() {
   // "ya contabilizado" con el MISMO criterio que asientoContabilizadoDeTransaccion (/bancos):
   //   (a) cualquier asiento directo desde la transacción (origen_tabla='bank_transactions',
   //       CUALQUIER comprobante — no solo CB), (b) consolidado (tabla puente), (c) FE vinculada
-  //       (matched_invoice_id cuyo costo se posteó desde la factura DIAN).
-  const [{ data: cats }, { data: directos }, { data: consol }, { data: feCG }] = await Promise.all([
+  //       (matched_invoice_id: la transacción pertenece al flujo de la factura DIAN, no a gasto
+  //       directo — igual que el helper, se excluye aunque su CG aún no esté posteado).
+  const [{ data: cats }, { data: directos }, { data: consol }] = await Promise.all([
     supabase.from('transaction_categories').select('id, name, puc_code'),
     supabase.from('journal_entries').select('origen_id')
       .eq('origen_tabla', 'bank_transactions').eq('estado', 'CONTABILIZADO'),
     supabase.from('gasto_consolidado_items').select('bank_transaction_id, journal_entries!inner(estado)')
       .eq('journal_entries.estado', 'CONTABILIZADO'),
-    supabase.from('journal_entries').select('origen_id')
-      .eq('origen_tabla', 'dian_invoices_import').eq('estado', 'CONTABILIZADO'),
   ])
   const postedDirecto = new Set([
     ...(directos ?? []).map(x => x.origen_id),
     ...(consol ?? []).map((x: any) => x.bank_transaction_id),
   ])
-  const postedFacturas = new Set((feCG ?? []).map(x => x.origen_id))
-  const contabilizado = (b: any) =>
-    postedDirecto.has(b.id) || (b.matched_invoice_id && postedFacturas.has(b.matched_invoice_id))
+  const contabilizado = (b: any) => postedDirecto.has(b.id) || !!b.matched_invoice_id
   const catById = new Map((cats ?? []).map((c: any) => [c.id, c]))
 
   // categorías por destino
