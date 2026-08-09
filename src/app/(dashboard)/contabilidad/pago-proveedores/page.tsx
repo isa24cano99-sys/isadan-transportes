@@ -12,12 +12,19 @@ const NOMINA = ['52050610', '52052710', '52053010', '52053310', '52053610', '520
 const excluidoGasto = (puc: string) => puc === '53152010' || NOMINA.includes(puc)
 
 async function getMovimientos() {
-  const [{ data: cats }, { data: cb }] = await Promise.all([
+  const [{ data: cats }, { data: cb }, { data: consol }] = await Promise.all([
     supabase.from('transaction_categories').select('id, name, puc_code'),
     supabase.from('journal_entries').select('origen_id')
       .eq('origen_tabla', 'bank_transactions').eq('tipo_comprobante', 'CB').eq('estado', 'CONTABILIZADO'),
+    // transacciones dentro de un asiento consolidado (no usan origen_id → tabla puente)
+    supabase.from('gasto_consolidado_items').select('bank_transaction_id, journal_entries!inner(estado)')
+      .eq('journal_entries.estado', 'CONTABILIZADO'),
   ])
-  const conCB = new Set((cb ?? []).map(x => x.origen_id))
+  // "ya contabilizado" = posteo individual (origen_id) ∪ consolidado (puente)
+  const conCB = new Set([
+    ...(cb ?? []).map(x => x.origen_id),
+    ...(consol ?? []).map((x: any) => x.bank_transaction_id),
+  ])
   const catById = new Map((cats ?? []).map((c: any) => [c.id, c]))
 
   // categorías por destino
