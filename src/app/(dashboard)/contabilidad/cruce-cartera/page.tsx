@@ -34,8 +34,11 @@ async function getElegibles() {
 
   const { data: entries } = await supabase
     .from('accounts_receivable_entries')
-    .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, terceros(razon_social)')
+    .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, invoice_date, terceros(razon_social)')
     .neq('status', 'PAGADA')
+    // Solo julio en adelante: las facturas pre-corte ya están netas en la apertura (CA-1);
+    // cruzar su anticipo/cartera duplicaría contra ese saldo histórico (mismo corte que periodo_bloqueado).
+    .gte('invoice_date', '2026-07-01')
     .order('invoice_number')
 
   return (entries ?? [])
