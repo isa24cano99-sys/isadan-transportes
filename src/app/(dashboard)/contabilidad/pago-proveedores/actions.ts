@@ -11,11 +11,13 @@ export type PagoResultado = {
 }
 
 async function postearPorRpc(
-  rpc: string, movimientos: { id: string; ref: string }[],
+  rpc: string, movimientos: { id: string; ref: string; centroCosto?: string }[],
 ): Promise<PagoResultado[]> {
   const resultados: PagoResultado[] = []
   for (const m of movimientos) {
-    const { data, error } = await supabase.rpc(rpc, { p_bank_transaction_id: m.id })
+    const params: Record<string, unknown> = { p_bank_transaction_id: m.id }
+    if (m.centroCosto) params.p_centro_costo = m.centroCosto
+    const { data, error } = await supabase.rpc(rpc, params)
     if (error) {
       resultados.push({ btId: m.id, ref: m.ref, ok: false, mensaje: error.message })
     } else {
@@ -44,7 +46,7 @@ export async function postearPagoProveedorAction(
  * anti-dup (individual o dentro de un grupo), y usa Consumidor Final si no hay tercero.
  */
 export async function postearGastoDirectoAction(
-  movimientos: { id: string; ref: string }[],
+  movimientos: { id: string; ref: string; centroCosto?: string }[],
 ): Promise<PagoResultado[]> {
   return postearPorRpc('postear_gasto_bancario_directo', movimientos)
 }

@@ -6,23 +6,39 @@ import { formatCOP } from '@/lib/utils'
 import { postearPagoProveedorAction, postearGastoDirectoAction, postearGastosConsolidadosAction, type PagoResultado } from './actions'
 
 type PagoRow  = { id: string; fecha: string; monto: number; tercero: string; descripcion: string }
-type GastoRow = PagoRow & { categoria: string; puc: string }
+type GastoRow = PagoRow & { categoria: string; puc: string; exigeCeco: boolean }
 
-export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRow[]; gastos: GastoRow[] }) {
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+export default function PagoProveedoresClient({ pagos, gastos, mesInicial, placas }: { pagos: PagoRow[]; gastos: GastoRow[]; mesInicial: string; placas: string[] }) {
   const router = useRouter()
+  const [year, setYear]   = useState(Number(mesInicial.slice(0, 4)))
+  const [month, setMonth] = useState(Number(mesInicial.slice(5, 7)))
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [resultados, setResultados] = useState<PagoResultado[]>([])
   const [descripcion, setDescripcion] = useState('')
   const [fechaGrupo, setFechaGrupo] = useState('')
+  const [cecoById, setCecoById] = useState<Map<string, string>>(new Map())  // gasto id → placa (centro de costo)
+
+  // Filtro de mes: solo se muestran las candidatas del mes seleccionado (no se mezclan meses).
+  const mes = `${year}-${String(month).padStart(2, '0')}`
+  const pagos_ = useMemo(() => pagos.filter(p => p.fecha.slice(0, 7) === mes), [pagos, mes])
+  const gastos_ = useMemo(() => gastos.filter(g => g.fecha.slice(0, 7) === mes), [gastos, mes])
+  const cambiarMes = (y: number, m: number) => { setYear(y); setMonth(m); setSel(new Set()); setDescripcion(''); setFechaGrupo(''); setCecoById(new Map()) }
+
+  // gastos cuya cuenta exige centro de costo (placa) + helper para fijarla
+  const cecoRequerido = useMemo(() => new Set(gastos_.filter(g => g.exigeCeco).map(g => g.id)), [gastos_])
+  const setCeco = (id: string, placa: string) =>
+    setCecoById(prev => { const n = new Map(prev); placa ? n.set(id, placa) : n.delete(id); return n })
 
   // índices id → tipo/ref/monto/fecha para despachar al RPC correcto y sumar totales
   const meta = useMemo(() => {
     const m = new Map<string, { tipo: 'pago' | 'gasto'; ref: string; monto: number; fecha: string }>()
-    pagos.forEach(p => m.set(p.id, { tipo: 'pago', ref: `${p.tercero} · ${p.fecha}`, monto: p.monto, fecha: p.fecha }))
-    gastos.forEach(g => m.set(g.id, { tipo: 'gasto', ref: `${g.categoria} · ${g.fecha}`, monto: g.monto, fecha: g.fecha }))
+    pagos_.forEach(p => m.set(p.id, { tipo: 'pago', ref: `${p.tercero} · ${p.fecha}`, monto: p.monto, fecha: p.fecha }))
+    gastos_.forEach(g => m.set(g.id, { tipo: 'gasto', ref: `${g.categoria} · ${g.fecha}`, monto: g.monto, fecha: g.fecha }))
     return m
-  }, [pagos, gastos])
+  }, [pagos_, gastos_])
 
   // selección de GASTOS (para consolidar): default fecha = la más tardía; guard mismo mes
   const selGasto = useMemo(() => [...sel].filter(id => meta.get(id)?.tipo === 'gasto'), [sel, meta])
@@ -37,10 +53,10 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
   // gastos agrupados por categoría
   const grupos = useMemo(() => {
     const g = new Map<string, GastoRow[]>()
-    for (const row of gastos) { const k = `${row.categoria}||${row.puc}`; (g.get(k) ?? g.set(k, []).get(k)!).push(row) }
+    for (const row of gastos_) { const k = `${row.categoria}||${row.puc}`; (g.get(k) ?? g.set(k, []).get(k)!).push(row) }
     return [...g.entries()].map(([k, rows]) => ({ categoria: k.split('||')[0], puc: k.split('||')[1], rows }))
       .sort((a, b) => b.rows.length - a.rows.length)
-  }, [gastos])
+  }, [gastos_])
 
   const toggle = (id: string) => setSel(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleMany = (ids: string[], on: boolean) =>
@@ -55,7 +71,7 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
     setLoading(true); setResultados([])
     const res: PagoResultado[] = []
     if (pagoIds.length)  res.push(...await postearPagoProveedorAction(pagoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
-    if (gastoIds.length) res.push(...await postearGastoDirectoAction(gastoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
+    if (gastoIds.length) res.push(...await postearGastoDirectoAction(gastoIds.map(id => ({ id, ref: meta.get(id)!.ref, centroCosto: cecoById.get(id) }))))
     setResultados(res); setSel(new Set()); setLoading(false); router.refresh()
   }
 
@@ -70,7 +86,15 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
 
   const th = 'text-left px-3 py-2 text-[11px] font-medium text-[#64748B]'
   const chk = 'accent-[#2563EB]'
-  const Row = ({ r, extra }: { r: PagoRow; extra?: React.ReactNode }) => (
+  // selector de placa (centro de costo) para filas cuya cuenta lo exige
+  const cecoSelect = (id: string) => (
+    <select value={cecoById.get(id) ?? ''} onChange={e => setCeco(id, e.target.value)}
+      className="ml-2 border border-amber-300 rounded px-1.5 py-0.5 text-xs bg-amber-50 text-[#B45309]">
+      <option value="">placa (ceco)…</option>
+      {placas.map(p => <option key={p} value={p}>{p}</option>)}
+    </select>
+  )
+  const Row = ({ r, extra, postDisabled }: { r: PagoRow; extra?: React.ReactNode; postDisabled?: boolean }) => (
     <tr className="border-b border-[#E2E8F0] last:border-0 hover:bg-[#F8FAFC]">
       <td className="px-3 py-2"><input type="checkbox" className={chk} checked={sel.has(r.id)} onChange={() => toggle(r.id)} /></td>
       <td className="px-3 py-2 text-[#64748B] whitespace-nowrap">{r.fecha}</td>
@@ -78,16 +102,29 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
       <td className="px-3 py-2 text-[#64748B] max-w-[220px] truncate">{r.descripcion || '—'}</td>
       <td className="px-3 py-2 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(r.monto)}</td>
       <td className="px-3 py-2 text-right">
-        <button onClick={() => postear([r.id])} disabled={loading}
+        <button onClick={() => postear([r.id])} disabled={loading || postDisabled}
           className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-50">Contabilizar</button>
       </td>
     </tr>
   )
 
-  const nada = pagos.length === 0 && gastos.length === 0
+  const nada = pagos_.length === 0 && gastos_.length === 0
 
+  const selCls = 'border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
   return (
     <div className="space-y-5">
+      {/* Selector de mes: la lista solo muestra candidatas del mes elegido (no mezcla meses) */}
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-[#64748B]">Mes:</span>
+        <select className={selCls} value={month} onChange={e => cambiarMes(year, Number(e.target.value))}>
+          {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+        </select>
+        <select className={selCls} value={year} onChange={e => cambiarMes(Number(e.target.value), month)}>
+          {[2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span className="text-xs text-[#94A3B8]">· {pagos_.length} pago(s) · {gastos_.length} gasto(s) en {mes}</span>
+      </div>
+
       {resultados.length > 0 && (
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 space-y-1.5">
           <p className="text-xs font-semibold text-[#64748B] mb-1">Resultado</p>
@@ -107,7 +144,7 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
       )}
 
       {/* ── SECCIÓN 1: PAGO A PROVEEDOR ── */}
-      {pagos.length > 0 && (
+      {pagos_.length > 0 && (
         <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 bg-[#EFF6FF] border-b border-[#DBEAFE]">
             <p className="text-sm font-semibold text-[#1D4ED8]">Pago a proveedor</p>
@@ -117,18 +154,18 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[#E2E8F0]">
                 <th className="w-9 px-3 py-2"><input type="checkbox" className={chk}
-                  checked={pagos.every(p => sel.has(p.id))} onChange={e => toggleMany(pagos.map(p => p.id), e.target.checked)} /></th>
+                  checked={pagos_.length > 0 && pagos_.every(p => sel.has(p.id))} onChange={e => toggleMany(pagos_.map(p => p.id), e.target.checked)} /></th>
                 <th className={th}>Fecha</th><th className={th}>Proveedor</th><th className={th}>Descripción (banco)</th>
                 <th className={`${th} text-right`}>Monto</th><th className="w-20 px-3 py-2"></th>
               </tr></thead>
-              <tbody>{pagos.map(r => <Row key={r.id} r={r} />)}</tbody>
+              <tbody>{pagos_.map(r => <Row key={r.id} r={r} />)}</tbody>
             </table>
           </div>
         </section>
       )}
 
       {/* ── SECCIÓN 2: GASTO DIRECTO ── */}
-      {gastos.length > 0 && (
+      {gastos_.length > 0 && (
         <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A]">
             <p className="text-sm font-semibold text-[#B45309]">Gasto directo</p>
@@ -151,7 +188,9 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
                       <td className="px-3 py-1.5 text-right text-xs font-semibold tabular-nums text-[#0F172A]">{formatCOP(total)}</td>
                       <td></td>
                     </tr>
-                    {g.rows.map(r => <Row key={r.id} r={r} />)}
+                    {g.rows.map(r => <Row key={r.id} r={r}
+                      extra={r.exigeCeco ? cecoSelect(r.id) : undefined}
+                      postDisabled={r.exigeCeco && !cecoById.get(r.id)} />)}
                   </tbody>
                 )
               })}
@@ -172,6 +211,8 @@ export default function PagoProveedoresClient({ pagos, gastos }: { pagos: PagoRo
           </p>
           {mesesGasto.size > 1 ? (
             <p className="text-xs text-red-600">Los gastos seleccionados son de meses distintos ({[...mesesGasto].sort().join(', ')}). Un asiento consolidado debe ser de un solo mes.</p>
+          ) : selGasto.some(id => cecoRequerido.has(id)) ? (
+            <p className="text-xs text-red-600">Hay gastos seleccionados cuya cuenta exige centro de costo (placa) — esos van individuales con su placa, no en un asiento consolidado. Quítalos de la selección para agrupar el resto.</p>
           ) : (
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex-1 min-w-[220px]">

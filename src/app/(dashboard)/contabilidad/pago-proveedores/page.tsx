@@ -17,17 +17,20 @@ async function getMovimientos() {
   //       CUALQUIER comprobante — no solo CB), (b) consolidado (tabla puente), (c) FE vinculada
   //       (matched_invoice_id: la transacción pertenece al flujo de la factura DIAN, no a gasto
   //       directo — igual que el helper, se excluye aunque su CG aún no esté posteado).
-  const [{ data: cats }, { data: directos }, { data: consol }] = await Promise.all([
+  const [{ data: cats }, { data: directos }, { data: consol }, { data: pucCeco }] = await Promise.all([
     supabase.from('transaction_categories').select('id, name, puc_code'),
     supabase.from('journal_entries').select('origen_id')
       .eq('origen_tabla', 'bank_transactions').eq('estado', 'CONTABILIZADO'),
     supabase.from('gasto_consolidado_items').select('bank_transaction_id, journal_entries!inner(estado)')
       .eq('journal_entries.estado', 'CONTABILIZADO'),
+    // cuentas que exigen centro de costo (placa): esas filas de gasto piden placa
+    supabase.from('puc_accounts').select('codigo').eq('exige_centro_costo', true),
   ])
   const postedDirecto = new Set([
     ...(directos ?? []).map(x => x.origen_id),
     ...(consol ?? []).map((x: any) => x.bank_transaction_id),
   ])
+  const cecoPucs = new Set((pucCeco ?? []).map((p: any) => p.codigo))
   const contabilizado = (b: any) => postedDirecto.has(b.id) || !!b.matched_invoice_id
   const catById = new Map((cats ?? []).map((c: any) => [c.id, c]))
 
@@ -57,14 +60,26 @@ async function getMovimientos() {
         tercero: b.terceros ? nombreTercero(b.terceros) : 'Consumidor Final',
         descripcion: b.description ?? '',
         categoria: cat?.name ?? '—', puc: cat?.puc_code ?? '—',
+        exigeCeco: cecoPucs.has(cat?.puc_code),
       })
     }
   }
   return { pagos, gastos }
 }
 
+// Mes ABIERTO por defecto (el más reciente marcado ABIERTO en periodos_contables).
+async function mesAbierto(): Promise<string> {
+  const { data } = await supabase.from('periodos_contables')
+    .select('periodo').eq('estado', 'ABIERTO').order('periodo', { ascending: false }).limit(1).maybeSingle()
+  return (data?.periodo as string) ?? '2026-07'
+}
+
 export default async function PagosGastosPage() {
-  const { pagos, gastos } = await getMovimientos()
+  const [{ pagos, gastos }, mesInicial, { data: veh }] = await Promise.all([
+    getMovimientos(), mesAbierto(),
+    supabase.from('vehicles').select('plate').order('plate'),
+  ])
+  const placas = (veh ?? []).map((v: any) => v.plate as string)
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-5">
@@ -76,7 +91,7 @@ export default async function PagosGastosPage() {
           Nada se contabiliza sin tu confirmación.
         </p>
       </div>
-      <PagoProveedoresClient pagos={pagos} gastos={gastos} />
+      <PagoProveedoresClient pagos={pagos} gastos={gastos} mesInicial={mesInicial} placas={placas} />
     </div>
   )
 }
