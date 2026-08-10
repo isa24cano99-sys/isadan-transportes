@@ -63,6 +63,18 @@ export async function postearTransferenciaInternaAction(
 }
 
 /**
+ * Ingreso financiero (DB 11100510 Banco / CR cuenta clase 4 de la categoría). Reconoce un
+ * ingreso que entra al banco (intereses bancarios, ajuste al peso, etc.). Espejo del gasto
+ * directo. postear_ingreso_financiero_banco valida clase 4, NO 41450510 (flete→facturación),
+ * type=INGRESO, monto>0, pre-corte, anti-dup. Sin tercero (tesorería + ingreso).
+ */
+export async function postearIngresoFinancieroAction(
+  movimientos: { id: string; ref: string }[],
+): Promise<PagoResultado[]> {
+  return postearPorRpc('postear_ingreso_financiero_banco', movimientos)
+}
+
+/**
  * Consolida ≥2 gastos directos en UN solo asiento (patrón Dataico): una línea de débito
  * por transacción (a su cuenta/tercero) + una de crédito al banco por el total, bajo la
  * descripción que escribe el usuario. postear_gastos_consolidados valida cada bt y exige
