@@ -54,6 +54,7 @@ const sections: NavSection[] = [
     { href: '/contabilidad/balance-comprobacion', label: 'Balance compr.', icon: Scale },
     { href: '/contabilidad/estado-situacion',  label: 'Estado situación', icon: Building },
     { href: '/contabilidad/estado-resultados', label: 'Estado resultados (ERI)', icon: TrendingUp },
+    { href: '/contabilidad/reportes-contador', label: 'Reportes al contador', icon: FileSpreadsheet },
     { href: '/contabilidad/cierre-periodo',    label: 'Cierre de periodo', icon: Lock },
     { href: '/contabilidad/exogena-consulta',  label: 'Exógena (consulta)', icon: FileSpreadsheet },
     { href: '/impuesto',                       label: 'Impuesto SIMPLE',  icon: Receipt },
