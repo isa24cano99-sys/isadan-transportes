@@ -1,10 +1,11 @@
-import { fetchLineasContabilizadas, saldoNaturaleza, type LineaMov } from '@/lib/contabilidad-saldos'
+import Link from 'next/link'
+import { fetchLineasContabilizadas, saldoNaturaleza, getPeriodosContables, getPeriodoAbierto, ultimoDiaMes, type LineaMov } from '@/lib/contabilidad-saldos'
 import LibroMayorClient, { type CuentaMayor } from './LibroMayorClient'
 
 export const dynamic = 'force-dynamic'
 
-async function getMayor(): Promise<CuentaMayor[]> {
-  const lineas = await fetchLineasContabilizadas()
+async function getMayor(hasta?: string): Promise<CuentaMayor[]> {
+  const lineas = await fetchLineasContabilizadas(hasta ? { hasta } : undefined)
   const acc = new Map<string, { cuenta: string; nombre: string; naturaleza: string; movs: LineaMov[]; sumD: number; sumC: number }>()
   for (const l of lineas) {
     let a = acc.get(l.cuenta)
@@ -41,10 +42,16 @@ async function getMayor(): Promise<CuentaMayor[]> {
   return cuentas
 }
 
-export default async function LibroMayorPage({ searchParams }: { searchParams: Promise<{ cuenta?: string }> }) {
-  const cuentas = await getMayor()
-  const sp = await searchParams
+export default async function LibroMayorPage({ searchParams }: { searchParams: Promise<{ cuenta?: string; hasta?: string }> }) {
+  const [periodos, abierto, sp] = await Promise.all([getPeriodosContables(), getPeriodoAbierto(), searchParams])
+  const defecto = (abierto && periodos.includes(abierto)) ? abierto : (periodos[0] ?? 'todo')
+  const sel = sp.hasta && (sp.hasta === 'todo' || periodos.includes(sp.hasta)) ? sp.hasta : defecto
+  const cutoff = sel === 'todo' ? undefined : ultimoDiaMes(sel)
+  const cuentas = await getMayor(cutoff)
   const inicial = (sp.cuenta && cuentas.some(c => c.cuenta === sp.cuenta)) ? sp.cuenta : (cuentas[0]?.cuenta ?? '')
+
+  const opciones = [...periodos, 'todo']
+  const hrefCorte = (p: string) => `/contabilidad/libro-mayor?hasta=${p}${inicial ? `&cuenta=${inicial}` : ''}`
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-5">
@@ -52,8 +59,22 @@ export default async function LibroMayorPage({ searchParams }: { searchParams: P
         <p className="text-sm text-[#64748B] mt-0.5">
           Todos los movimientos de una cuenta con su saldo corriente. El saldo de apertura va
           primero como ancla; los demás movimientos siguen en orden de fecha.
+          {cutoff && <> Cortado <strong>hasta el {cutoff}</strong>.</>}
         </p>
       </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
+        <span className="text-xs text-[#94A3B8] mr-1">Corte:</span>
+        {opciones.map(p => (
+          <Link key={p} href={hrefCorte(p)}
+            className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors ${
+              p === sel ? 'bg-[#2563EB] text-white border-[#2563EB]' : 'bg-white text-[#64748B] border-[#E2E8F0] hover:bg-[#F8FAFC]'
+            }`}>
+            {p === 'todo' ? 'Todo (hasta hoy)' : `Hasta ${p}`}
+          </Link>
+        ))}
+      </div>
+
       <LibroMayorClient cuentas={cuentas} inicial={inicial} />
     </div>
   )

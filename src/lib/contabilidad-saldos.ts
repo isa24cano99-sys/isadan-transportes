@@ -23,7 +23,7 @@ export type LineaMov = {
 }
 
 export async function fetchLineasContabilizadas(
-  opts?: { periodo?: string; excluirCierre?: boolean },
+  opts?: { periodo?: string; excluirCierre?: boolean; hasta?: string },
 ): Promise<LineaMov[]> {
   let query = supabase
     .from('journal_entry_lines')
@@ -36,6 +36,8 @@ export async function fetchLineasContabilizadas(
     .eq('journal_entries.estado', 'CONTABILIZADO')
 
   if (opts?.periodo) query = query.eq('journal_entries.periodo', opts.periodo)
+  // Fecha de corte: solo asientos con fecha <= la fecha dada (saldo acumulado a ese día).
+  if (opts?.hasta) query = query.lte('journal_entries.fecha', opts.hasta)
   if (opts?.excluirCierre) query = query.neq('journal_entries.tipo_comprobante', 'CC')
 
   const { data } = await query
@@ -130,6 +132,33 @@ export async function getPeriodosDisponibles(): Promise<string[]> {
     if (['4', '5', '6', '7'].includes(String(l.cuenta_puc).charAt(0))) set.add(l.journal_entries.periodo)
   }
   return [...set].sort((a, b) => b.localeCompare(a))
+}
+
+// Periodos (YYYY-MM) con CUALQUIER asiento contabilizado — para el selector de fecha de
+// corte (balance de comprobación / libro mayor). Incluye meses de solo balance. Desc.
+export async function getPeriodosContables(): Promise<string[]> {
+  const { data } = await supabase
+    .from('journal_entries')
+    .select('periodo')
+    .eq('estado', 'CONTABILIZADO')
+  const set = new Set<string>()
+  for (const e of (data ?? []) as any[]) if (e.periodo) set.add(e.periodo)
+  return [...set].sort((a, b) => b.localeCompare(a))
+}
+
+// Periodo ABIERTO más reciente (el mes que se está cerrando) — default del corte.
+export async function getPeriodoAbierto(): Promise<string | null> {
+  const { data } = await supabase
+    .from('periodos_contables')
+    .select('periodo').eq('estado', 'ABIERTO').order('periodo', { ascending: false }).limit(1).maybeSingle()
+  return (data?.periodo as string) ?? null
+}
+
+// Último día del mes de un periodo 'YYYY-MM' → 'YYYY-MM-DD' (fecha de corte).
+export function ultimoDiaMes(periodo: string): string {
+  const [y, m] = periodo.split('-').map(Number)
+  const last = new Date(y, m, 0).getDate() // día 0 del mes siguiente = último del actual
+  return `${periodo}-${String(last).padStart(2, '0')}`
 }
 
 // Agrupa cuentas de las clases dadas por subgrupo (2 dígitos), con subtotal.
