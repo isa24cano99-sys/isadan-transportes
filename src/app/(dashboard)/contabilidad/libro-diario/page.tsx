@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic'
 
 const TIPO_NOMBRE: Record<string, string> = {
   CA: 'Ajuste/Apertura', CI: 'Causación Ingreso', CF: 'Facturación', RC: 'Recibo de Caja',
-  CX: 'Cruce', CG: 'Costo/Gasto', CB: 'Pago Banco', CN: 'Nómina', CP: 'Provisión', CC: 'Cierre',
+  CX: 'Cruce de cartera', CG: 'Costo/Gasto', CB: 'Pago Banco', CN: 'Nómina', CP: 'Provisión', CC: 'Cierre',
+  RV: 'Reversión',
 }
 
 // Libro diario: todos los asientos CONTABILIZADO, cronológico por fecha (desempate por

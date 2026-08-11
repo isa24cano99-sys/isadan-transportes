@@ -33,6 +33,7 @@ const TIPO_COLOR: Record<string, string> = {
   CG: 'bg-rose-50 text-rose-700 border-rose-200',
   CB: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   CN: 'bg-teal-50 text-teal-700 border-teal-200',
+  RV: 'bg-red-100 text-red-800 border-red-300',
 }
 
 export default function LibroDiarioClient({
