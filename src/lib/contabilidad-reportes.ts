@@ -109,8 +109,10 @@ export function mayorDesdeLineas(lineas: LineaRep[], periodo: string): CuentaMay
     if (!c) { c = { nombre: l.nombre, nat: l.naturaleza, exigeT: l.exigeTercero, porTercero: new Map() }; cuentas.set(l.cuenta, c) }
     const clave = c.exigeT ? (l.terceroId ?? l.terceroNit ?? l.tercero ?? 'sin-tercero') : '—'
     let g = c.porTercero.get(clave)
-    if (!g) { g = { tercero: c.exigeT ? (l.tercero ?? 'Sin tercero') : '—', nit: l.terceroNit ?? null, lineas: [] }; c.porTercero.set(clave, g) }
-    if (!g.nit && l.terceroNit) g.nit = l.terceroNit
+    if (!g) { g = { tercero: c.exigeT ? (l.tercero ?? 'Sin tercero') : '—', nit: null, lineas: [] }; c.porTercero.set(clave, g) }
+    // NIT solo para cuentas que manejan tercero; en el grupo "—" NO heredar el NIT de
+    // una línea suelta (p.ej. caja de apertura por tercero) — mostraría un NIT cruzado.
+    if (c.exigeT && !g.nit && l.terceroNit) g.nit = l.terceroNit
     g.lineas.push(l)
   }
 

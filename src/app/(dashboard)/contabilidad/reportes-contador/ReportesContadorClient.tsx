@@ -7,13 +7,32 @@ import type { ReportesContador, SaldoPeriodo } from '@/lib/contabilidad-reportes
 // ── Construcción de las hojas (array-of-arrays; números crudos para que Excel sume) ──
 type Row = (string | number)[]
 
+// Identificación de la empresa para el encabezado formal de cada hoja.
+const EMPRESA = { razon: 'ISADAN TRANSPORTES S.A.S.', nit: '902030120', dv: '6' }
+const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const mesLabel = (p: string) => { const [y, m] = p.split('-'); return `${MESES[Number(m)]} de ${y}` }
+
+// Bloque de encabezado (razón social · NIT+DV · título · periodo/corte · marco), + fila en blanco.
+function encabezado(titulo: string, d: ReportesContador): Row[] {
+  return [
+    [EMPRESA.razon],
+    [`NIT ${EMPRESA.nit}-${EMPRESA.dv}`],
+    [titulo],
+    [`Periodo: ${mesLabel(d.periodo)}  ·  corte al ${d.corte}`],
+    ['Cifras en pesos colombianos (COP). Elaborado por el sistema contable ISADAN.'],
+    [],
+  ]
+}
+
 function aoaDiario(d: ReportesContador): Row[] {
   const rows: Row[] = [['Fecha', 'Comprobante', 'Cuenta', 'Nombre cuenta', 'Tercero', 'NIT', 'Centro costo', 'Doc. soporte', 'Descripción', 'Débito', 'Crédito']]
   for (const a of d.diario) {
+    // El asiento de apertura CA se marca explícito: es el saldo inicial, no un movimiento del mes.
+    if (a.tipo === 'CA') rows.push(['', a.comprobante, '', '', '', '', '', '', 'APERTURA — saldo inicial (no es movimiento del periodo)', '', ''])
     for (const l of a.lineas) {
       rows.push([a.fecha, a.comprobante, l.cuenta, l.nombre, l.tercero ?? '', l.terceroNit ?? '', l.centroCosto ?? '', l.docSoporte ?? '', a.descripcion, l.debito || '', l.credito || ''])
     }
-    rows.push(['', a.comprobante + ' · total', '', '', '', '', '', '', '', a.totalDebito, a.totalCredito])
+    rows.push(['', a.comprobante + (a.tipo === 'CA' ? ' · total apertura' : ' · total'), '', '', '', '', '', '', '', a.totalDebito, a.totalCredito])
   }
   return rows
 }
@@ -100,15 +119,15 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
     try {
       const XLSX = await import('xlsx')
       const wb = XLSX.utils.book_new()
-      const hojas: [string, Row[], number[]][] = [
-        ['Libro Diario', aoaDiario(data), [12, 12, 12, 30, 30, 14, 12, 20, 30, 15, 15]],
-        ['Libro Mayor', aoaMayor(data), [12, 28, 30, 14, 12, 12, 18, 26, 15, 15, 16]],
-        ['Balance de Comprobación', aoaBalance(data), [12, 34, 10, 16, 16, 16, 16]],
-        ['ESF', aoaESF(data), [14, 12, 40, 16, 16, 16]],
-        ['ERI', aoaERI(data), [14, 12, 40, 18]],
+      const hojas: [string, string, Row[], number[]][] = [
+        ['Libro Diario', 'LIBRO DIARIO', aoaDiario(data), [12, 12, 12, 30, 30, 14, 12, 20, 30, 15, 15]],
+        ['Libro Mayor', 'LIBRO MAYOR (auxiliar por cuenta y tercero)', aoaMayor(data), [12, 28, 30, 14, 12, 12, 18, 26, 15, 15, 16]],
+        ['Balance de Comprobación', 'BALANCE DE COMPROBACIÓN', aoaBalance(data), [12, 34, 10, 16, 16, 16, 16]],
+        ['ESF', 'ESTADO DE SITUACIÓN FINANCIERA', aoaESF(data), [14, 12, 40, 16, 16, 16]],
+        ['ERI', 'ESTADO DE RESULTADOS INTEGRAL', aoaERI(data), [14, 12, 40, 18]],
       ]
-      for (const [nombre, aoa, cols] of hojas) {
-        const ws = XLSX.utils.aoa_to_sheet(aoa)
+      for (const [nombre, titulo, aoa, cols] of hojas) {
+        const ws = XLSX.utils.aoa_to_sheet([...encabezado(titulo, data), ...aoa])
         ws['!cols'] = cols.map(wch => ({ wch }))
         XLSX.utils.book_append_sheet(wb, ws, nombre)
       }
