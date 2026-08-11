@@ -1,7 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
+import { postearReversionAction } from './actions'
 
 export type Linea = {
   cuenta: string
@@ -22,6 +24,7 @@ export type Asiento = {
   lineas: Linea[]
   totalDebito: number
   totalCredito: number
+  reversable: boolean
 }
 
 const TIPO_COLOR: Record<string, string> = {
@@ -39,7 +42,21 @@ const TIPO_COLOR: Record<string, string> = {
 export default function LibroDiarioClient({
   asientos, tipoNombre,
 }: { asientos: Asiento[]; tipoNombre: Record<string, string> }) {
+  const router = useRouter()
   const [filtro, setFiltro] = useState<string>('TODOS')
+  const [rev, setRev] = useState<Asiento | null>(null)   // asiento en el modal de reversión
+  const [motivo, setMotivo] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [resultado, setResultado] = useState<{ ok: boolean; mensaje: string } | null>(null)
+
+  const confirmarReversion = async () => {
+    if (!rev || !motivo.trim() || loading) return
+    setLoading(true)
+    const r = await postearReversionAction(rev.id, motivo.trim())
+    setLoading(false)
+    setResultado(r)
+    if (r.ok) { setRev(null); setMotivo(''); router.refresh() }
+  }
 
   const tipos = useMemo(() => {
     const c: Record<string, number> = {}
@@ -55,6 +72,42 @@ export default function LibroDiarioClient({
 
   return (
     <div className="space-y-4">
+      {/* Resultado de una reversión */}
+      {resultado && (
+        <div className={`rounded-xl border px-4 py-3 text-sm ${resultado.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          {resultado.ok ? '✓ ' : '✗ '}{resultado.mensaje}
+        </div>
+      )}
+
+      {/* Modal de reversión — motivo obligatorio */}
+      {rev && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !loading && setRev(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div>
+              <h3 className="text-base font-semibold text-[#0F172A]">Reversar {rev.comprobante}</h3>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Postea el asiento espejo (débito↔crédito) en la serie <strong>RV</strong>, con este motivo en el libro.
+                No borra el original — queda la traza de la corrección.
+              </p>
+            </div>
+            <label className="block">
+              <span className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide mb-1">Motivo de la reversión (obligatorio)</span>
+              <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={3} autoFocus
+                placeholder="Ej. Error en la cuenta / monto mal capturado / duplicado…"
+                className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400" />
+            </label>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button onClick={() => setRev(null)} disabled={loading}
+                className="text-sm text-[#64748B] hover:text-[#0F172A] px-3 py-1.5 rounded-lg disabled:opacity-50">Cancelar</button>
+              <button onClick={confirmarReversion} disabled={!motivo.trim() || loading}
+                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+                {loading ? 'Reversando…' : 'Confirmar reversión'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Resumen global */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 bg-white border border-[#E2E8F0] rounded-xl px-4 py-3 text-sm">
         <span className="text-[#64748B]">{asientos.length} asientos</span>
@@ -89,6 +142,12 @@ export default function LibroDiarioClient({
                   </span>
                   <span className="text-xs text-[#475569] truncate">{a.descripcion}</span>
                 </div>
+                {a.reversable && (
+                  <button onClick={() => { setRev(a); setMotivo(''); setResultado(null) }}
+                    className="shrink-0 text-xs font-medium text-red-600 hover:text-white hover:bg-red-600 border border-red-200 rounded px-2 py-0.5 transition-colors">
+                    Reversar
+                  </button>
+                )}
               </div>
               {/* Líneas */}
               <div className="overflow-x-auto">

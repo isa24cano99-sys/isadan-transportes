@@ -39,6 +39,7 @@ async function getLibroDiario(): Promise<Asiento[]> {
         lineas: [],
         totalDebito: 0,
         totalCredito: 0,
+        reversable: false,
       }
       byEntry.set(l.journal_entry_id, a)
     }
@@ -62,6 +63,15 @@ async function getLibroDiario(): Promise<Asiento[]> {
   // cronológico por fecha; desempate por tipo, luego consecutivo (determinístico)
   asientos.sort((a, b) =>
     a.fecha.localeCompare(b.fecha) || a.tipo.localeCompare(b.tipo) || a.consecutivo - b.consecutivo)
+
+  // Elegibilidad para reversar: no CA/CC/RV, y que no esté ya reversado (sin un asiento
+  // que lo anule). Los anula_a apuntan al asiento original reversado.
+  const { data: anulados } = await supabase
+    .from('journal_entries').select('anula_a').not('anula_a', 'is', null)
+  const yaReversado = new Set((anulados ?? []).map((x: any) => x.anula_a))
+  for (const a of asientos) {
+    a.reversable = !['CA', 'CC', 'RV'].includes(a.tipo) && !yaReversado.has(a.id)
+  }
   return asientos
 }
 
