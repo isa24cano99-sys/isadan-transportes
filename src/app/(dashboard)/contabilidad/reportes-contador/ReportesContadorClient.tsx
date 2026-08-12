@@ -24,6 +24,61 @@ function encabezado(titulo: string, d: ReportesContador): Row[] {
   ]
 }
 
+// Redondeo a 2 decimales para quitar ruido de punto flotante (el formato #,##0 muestra sin decimales).
+const N = (v: unknown) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v)
+const FILL_HEADER = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } }
+
+// Escribe una hoja con formato: encabezado, títulos de columna en negrilla+relleno, datos con
+// formato numérico #,##0, panel inmovilizado bajo el encabezado y autofiltro. (ws = worksheet exceljs)
+function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: ReportesContador) {
+  for (const r of encabezado(titulo, d)) ws.addRow(r)
+  ws.getRow(1).font = { bold: true, size: 13 }
+  ws.getRow(3).font = { bold: true, size: 12 }
+  const headerIdx = 7 // el encabezado ocupa 6 filas
+  const header = aoa[0] as (string | number)[]
+  const hr = ws.addRow(header)
+  hr.eachCell((c: any) => {
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    c.fill = FILL_HEADER
+    c.alignment = { vertical: 'middle' }
+  })
+  for (let i = 1; i < aoa.length; i++) {
+    const row = ws.addRow((aoa[i] as any[]).map(N))
+    row.eachCell((c: any) => { if (typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } } })
+  }
+  cols.forEach((w, i) => { ws.getColumn(i + 1).width = w })
+  ws.views = [{ state: 'frozen', ySplit: headerIdx }]
+  ws.autoFilter = { from: { row: headerIdx, column: 1 }, to: { row: headerIdx, column: header.length } }
+}
+
+// Hoja de portada: identificación, índice de hojas y los 4 cruces de consistencia.
+function portada(ws: any, d: ReportesContador, chk: { balance: boolean; mayor: boolean; esf: boolean; eri: boolean; totD: number; activo: number; utilidad: number }) {
+  ws.getColumn(1).width = 2; ws.getColumn(2).width = 48; ws.getColumn(3).width = 24
+  const add = (b?: string, c?: string | number) => ws.addRow(['', b ?? '', c ?? ''])
+  add(EMPRESA.razon).getCell(2).font = { bold: true, size: 15 }
+  add(`NIT ${EMPRESA.nit}-${EMPRESA.dv}`)
+  add()
+  add('REPORTES CONTABLES').getCell(2).font = { bold: true, size: 13 }
+  add(`Periodo: ${mesLabel(d.periodo)}  ·  corte al ${d.corte}`)
+  add('Cifras en pesos colombianos (COP)')
+  add()
+  add('ÍNDICE').getCell(2).font = { bold: true }
+  add('1 · Libro Diario'); add('2 · Libro Mayor (auxiliar por cuenta y tercero)')
+  add('3 · Balance de Comprobación'); add('4 · Estado de Situación Financiera (ESF)')
+  add('5 · Estado de Resultados Integral (ERI)')
+  add()
+  add('VERIFICACIÓN DE CONSISTENCIA').getCell(2).font = { bold: true }
+  const linea = (ok: boolean, label: string, val?: number) => {
+    const r = add((ok ? '✓ ' : '✗ ') + label, val != null ? Math.round(val) : '')
+    r.getCell(2).font = { color: { argb: ok ? 'FF047857' : 'FFB91C1C' } }
+    if (val != null) r.getCell(3).numFmt = '#,##0'
+  }
+  linea(chk.balance, 'Balance cuadra (Σ débito = Σ crédito)', chk.totD)
+  linea(chk.mayor, 'Libro Mayor = Balance por cuenta')
+  linea(chk.esf, 'ESF: Activo = Pasivo + Patrimonio', chk.activo)
+  linea(chk.eri, 'ERI ↔ ESF (Utilidad del ejercicio)', chk.utilidad)
+}
+
 function aoaDiario(d: ReportesContador): Row[] {
   const rows: Row[] = [['Fecha', 'Comprobante', 'Cuenta', 'Nombre cuenta', 'Tercero', 'NIT', 'Centro costo', 'Doc. soporte', 'Descripción', 'Débito', 'Crédito']]
   for (const a of d.diario) {
@@ -117,8 +172,16 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
   const descargar = async () => {
     setLoading(true)
     try {
-      const XLSX = await import('xlsx')
-      const wb = XLSX.utils.book_new()
+      const ExcelJS: any = await import('exceljs')
+      const Workbook = ExcelJS.Workbook ?? ExcelJS.default?.Workbook
+      const wb = new Workbook()
+      wb.creator = 'Sistema contable ISADAN'
+
+      portada(wb.addWorksheet('Portada'), data, {
+        balance: balanceCuadra, mayor: mayorCuadra, esf: esfCuadra, eri: eriEsfConecta,
+        totD, activo, utilidad: data.eri.utilidad,
+      })
+
       const hojas: [string, string, Row[], number[]][] = [
         ['Libro Diario', 'LIBRO DIARIO', aoaDiario(data), [12, 12, 12, 30, 30, 14, 12, 20, 30, 15, 15]],
         ['Libro Mayor', 'LIBRO MAYOR (auxiliar por cuenta y tercero)', aoaMayor(data), [12, 28, 30, 14, 12, 12, 18, 26, 15, 15, 16]],
@@ -126,12 +189,14 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
         ['ESF', 'ESTADO DE SITUACIÓN FINANCIERA', aoaESF(data), [14, 12, 40, 16, 16, 16]],
         ['ERI', 'ESTADO DE RESULTADOS INTEGRAL', aoaERI(data), [14, 12, 40, 18]],
       ]
-      for (const [nombre, titulo, aoa, cols] of hojas) {
-        const ws = XLSX.utils.aoa_to_sheet([...encabezado(titulo, data), ...aoa])
-        ws['!cols'] = cols.map(wch => ({ wch }))
-        XLSX.utils.book_append_sheet(wb, ws, nombre)
-      }
-      XLSX.writeFile(wb, `reportes-contador-${data.periodo}.xlsx`)
+      for (const [nombre, titulo, aoa, cols] of hojas) estilarHoja(wb.addWorksheet(nombre), titulo, aoa, cols, data)
+
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `reportes-contador-${data.periodo}.xlsx`; a.click()
+      URL.revokeObjectURL(url)
     } finally {
       setLoading(false)
     }
