@@ -1,15 +1,18 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import BancosClient from './client'
 
 export const dynamic = 'force-dynamic'
 
 async function getBankData() {
-  const [{ data: accounts }, { data: transactions }] = await Promise.all([
+  const [{ data: accounts }, transactions] = await Promise.all([
     supabase.from('bank_accounts').select('*').order('bank_name'),
-    supabase.from('bank_transactions').select('account_id, type, amount'),
+    // Paginado: bank_transactions ya pasa de 1000 → una consulta simple truncaría el saldo.
+    fetchAll<{ account_id: string; type: string; amount: number }>((from, to) =>
+      supabase.from('bank_transactions').select('account_id, type, amount').order('id', { ascending: true }).range(from, to)),
   ])
   const accs = accounts ?? []
-  const txns = transactions ?? []
+  const txns = transactions
   return accs.map(acc => {
     const mine = txns.filter(t => t.account_id === acc.id)
     const ingresos = mine.filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0)

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import LibroDiarioClient, { type Asiento } from './LibroDiarioClient'
 
@@ -14,7 +15,7 @@ const TIPO_NOMBRE: Record<string, string> = {
 // tipo+consecutivo). Un solo query con embeds (puc_accounts vía cuenta_puc, terceros vía
 // tercero_id, header del asiento). Se agrupa por asiento en el server.
 async function getLibroDiario(): Promise<Asiento[]> {
-  const { data: lines } = await supabase
+  const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select(
       'debito, credito, centro_costo, cuenta_puc, journal_entry_id,' +
@@ -23,9 +24,10 @@ async function getLibroDiario(): Promise<Asiento[]> {
       'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, estado)',
     )
     .eq('journal_entries.estado', 'CONTABILIZADO')
+    .order('id', { ascending: true }).range(from, to))
 
   const byEntry = new Map<string, Asiento>()
-  for (const l of (lines ?? []) as any[]) {
+  for (const l of lines as any[]) {
     const e = l.journal_entries
     let a = byEntry.get(l.journal_entry_id)
     if (!a) {

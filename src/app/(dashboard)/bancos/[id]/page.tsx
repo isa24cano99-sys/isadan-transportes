@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { notFound } from 'next/navigation'
 import BankDetailClient from './client'
 import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-actions'
@@ -6,13 +7,16 @@ import type { TransactionCategory } from '@/app/(dashboard)/bancos/category-acti
 export const dynamic = 'force-dynamic'
 
 async function getBankDetail(id: string) {
-  const [{ data: account }, { data: transactions }, { data: catsRaw }, { data: pucRaw }, { data: tripsRaw }, { data: asientosRaw }, { data: consolRaw }, { data: feRaw }] = await Promise.all([
+  const [{ data: account }, transactions, { data: catsRaw }, { data: pucRaw }, { data: tripsRaw }, { data: asientosRaw }, { data: consolRaw }, { data: feRaw }] = await Promise.all([
     supabase.from('bank_accounts').select('*').eq('id', id).single(),
-    supabase
+    // Paginado: la cuenta ya tiene >1000 transacciones → sin paginar se truncaban las más
+    // antiguas y el "Neto filtrado"/"Saldo actual" quedaba falso. Orden por id = paginación estable.
+    fetchAll<any>((from, to) => supabase
       .from('bank_transactions')
       .select('*, transaction_categories(id, name, type, puc_code), dian_invoices_import(folio, name_issuer, terceros(razon_social))')
       .eq('account_id', id)
-      .order('date', { ascending: false }),
+      .order('id', { ascending: true })
+      .range(from, to)),
     supabase
       .from('transaction_categories')
       .select('id, name, description, puc_code, type, active')
@@ -70,7 +74,7 @@ async function getBankDetail(id: string) {
     puc_tipo: c.puc_code ? (pucMap.get(c.puc_code) ?? undefined) : undefined,
   }))
 
-  const txns     = (transactions ?? []).map(t => ({
+  const txns     = transactions.map((t: any) => ({
     ...t,
     asiento_contable: asientoPorOrigen.get(t.id)
       ?? (t.matched_invoice_id ? asientoPorFactura.get(t.matched_invoice_id) ?? null : null),

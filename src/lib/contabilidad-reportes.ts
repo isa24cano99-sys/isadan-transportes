@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import { saldoNaturaleza, ultimoDiaMes } from '@/lib/contabilidad-saldos'
 
@@ -26,18 +27,22 @@ export type LineaRep = {
 }
 
 export async function fetchLineasReporte(hasta?: string): Promise<LineaRep[]> {
-  let q = supabase
-    .from('journal_entry_lines')
-    .select(
-      'debito, credito, centro_costo, cuenta_puc, tercero_id, tercero_nit_snapshot,' +
-      'puc_accounts(nombre, naturaleza, exige_tercero),' +
-      'terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),' +
-      'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, documento_soporte, estado)',
-    )
-    .eq('journal_entries.estado', 'CONTABILIZADO')
-  if (hasta) q = q.lte('journal_entries.fecha', hasta)
-  const { data } = await q
-  return ((data ?? []) as any[]).map(l => ({
+  // Paginado (fetchAll): journal_entry_lines crece cada mes y ya está cerca de 1000 —
+  // sin paginar, los reportes truncarían líneas y descuadrarían.
+  const data = await fetchAll<any>((from, to) => {
+    let q = supabase
+      .from('journal_entry_lines')
+      .select(
+        'debito, credito, centro_costo, cuenta_puc, tercero_id, tercero_nit_snapshot,' +
+        'puc_accounts(nombre, naturaleza, exige_tercero),' +
+        'terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),' +
+        'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, documento_soporte, estado)',
+      )
+      .eq('journal_entries.estado', 'CONTABILIZADO')
+    if (hasta) q = q.lte('journal_entries.fecha', hasta)
+    return q.order('id', { ascending: true }).range(from, to)
+  })
+  return (data as any[]).map(l => ({
     cuenta: l.cuenta_puc,
     nombre: l.puc_accounts?.nombre ?? '',
     naturaleza: l.puc_accounts?.naturaleza ?? '',

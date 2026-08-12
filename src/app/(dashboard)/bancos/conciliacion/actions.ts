@@ -1,6 +1,7 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { revalidatePath } from 'next/cache'
 import * as XLSX from 'xlsx'
 
@@ -402,13 +403,16 @@ export async function recruzarAction(
 
 /** Saldo de la app = saldo inicial de la cuenta + ingresos − egresos hasta la fecha. */
 async function computeSaldoApp(accountId: string, hasta: string): Promise<number> {
-  const [{ data: accData }, { data: allTxns }] = await Promise.all([
+  const [{ data: accData }, allTxns] = await Promise.all([
     supabase.from('bank_accounts').select('initial_balance').eq('id', accountId).single(),
-    supabase.from('bank_transactions').select('type, amount').eq('account_id', accountId).lte('date', hasta),
+    // Paginado: mismo bug de saldo del módulo Bancos si la cuenta pasa de 1000 movimientos.
+    fetchAll<{ type: string; amount: number }>((from, to) =>
+      supabase.from('bank_transactions').select('type, amount').eq('account_id', accountId).lte('date', hasta)
+        .order('id', { ascending: true }).range(from, to)),
   ])
   const initial = Number(accData?.initial_balance ?? 0)
-  const ing = (allTxns ?? []).filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0)
-  const egr = (allTxns ?? []).filter(t => t.type === 'EGRESO' ).reduce((s, t) => s + Number(t.amount), 0)
+  const ing = allTxns.filter(t => t.type === 'INGRESO').reduce((s, t) => s + Number(t.amount), 0)
+  const egr = allTxns.filter(t => t.type === 'EGRESO' ).reduce((s, t) => s + Number(t.amount), 0)
   return initial + ing - egr
 }
 

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 
 // Helper compartido por el balance de comprobación y el libro mayor. Trae todas las
@@ -25,23 +26,25 @@ export type LineaMov = {
 export async function fetchLineasContabilizadas(
   opts?: { periodo?: string; excluirCierre?: boolean; hasta?: string },
 ): Promise<LineaMov[]> {
-  let query = supabase
-    .from('journal_entry_lines')
-    .select(
-      'debito, credito, centro_costo, cuenta_puc,' +
-      'puc_accounts(nombre, naturaleza),' +
-      'terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),' +
-      'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, estado, periodo)',
-    )
-    .eq('journal_entries.estado', 'CONTABILIZADO')
-
-  if (opts?.periodo) query = query.eq('journal_entries.periodo', opts.periodo)
-  // Fecha de corte: solo asientos con fecha <= la fecha dada (saldo acumulado a ese día).
-  if (opts?.hasta) query = query.lte('journal_entries.fecha', opts.hasta)
-  if (opts?.excluirCierre) query = query.neq('journal_entries.tipo_comprobante', 'CC')
-
-  const { data } = await query
-  return ((data ?? []) as any[]).map(l => ({
+  // Paginado (fetchAll): journal_entry_lines crece cada mes; sin paginar, PostgREST cortaría
+  // en 1000 y las sumas de balance/estado de resultados quedarían truncadas.
+  const data = await fetchAll<any>((from, to) => {
+    let query = supabase
+      .from('journal_entry_lines')
+      .select(
+        'debito, credito, centro_costo, cuenta_puc,' +
+        'puc_accounts(nombre, naturaleza),' +
+        'terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),' +
+        'journal_entries!inner(tipo_comprobante, consecutivo, fecha, descripcion, estado, periodo)',
+      )
+      .eq('journal_entries.estado', 'CONTABILIZADO')
+    if (opts?.periodo) query = query.eq('journal_entries.periodo', opts.periodo)
+    // Fecha de corte: solo asientos con fecha <= la fecha dada (saldo acumulado a ese día).
+    if (opts?.hasta) query = query.lte('journal_entries.fecha', opts.hasta)
+    if (opts?.excluirCierre) query = query.neq('journal_entries.tipo_comprobante', 'CC')
+    return query.order('id', { ascending: true }).range(from, to)
+  })
+  return (data as any[]).map(l => ({
     cuenta:       l.cuenta_puc,
     cuentaNombre: l.puc_accounts?.nombre ?? '',
     naturaleza:   l.puc_accounts?.naturaleza ?? '',
@@ -122,13 +125,14 @@ export async function getEstructuraFinanciera(
 // cierre (CC) — los meses que tienen algo que mostrar en el Estado de Resultados.
 // Más recientes primero. (Meses con solo movimiento de balance no aparecen.)
 export async function getPeriodosDisponibles(): Promise<string[]> {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('cuenta_puc, journal_entries!inner(periodo, estado, tipo_comprobante)')
     .eq('journal_entries.estado', 'CONTABILIZADO')
     .neq('journal_entries.tipo_comprobante', 'CC')
+    .order('id', { ascending: true }).range(from, to))
   const set = new Set<string>()
-  for (const l of (data ?? []) as any[]) {
+  for (const l of data as any[]) {
     if (['4', '5', '6', '7'].includes(String(l.cuenta_puc).charAt(0))) set.add(l.journal_entries.periodo)
   }
   return [...set].sort((a, b) => b.localeCompare(a))
@@ -137,12 +141,13 @@ export async function getPeriodosDisponibles(): Promise<string[]> {
 // Periodos (YYYY-MM) con CUALQUIER asiento contabilizado — para el selector de fecha de
 // corte (balance de comprobación / libro mayor). Incluye meses de solo balance. Desc.
 export async function getPeriodosContables(): Promise<string[]> {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('journal_entries')
     .select('periodo')
     .eq('estado', 'CONTABILIZADO')
+    .order('id', { ascending: true }).range(from, to))
   const set = new Set<string>()
-  for (const e of (data ?? []) as any[]) if (e.periodo) set.add(e.periodo)
+  for (const e of data as any[]) if (e.periodo) set.add(e.periodo)
   return [...set].sort((a, b) => b.localeCompare(a))
 }
 
