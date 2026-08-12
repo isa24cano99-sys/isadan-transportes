@@ -1,12 +1,15 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { DocumentosClient, type DocumentRow } from './DocumentosClient'
 
 async function getData() {
-  const [docsRes, vehiclesRes, driversRes] = await Promise.all([
-    supabase
+  const [docsRows, vehiclesRes, driversRes] = await Promise.all([
+    fetchAll<any>((from, to) => supabase
       .from('documents')
       .select('*')
-      .order('expiration_date', { ascending: true, nullsFirst: false }),
+      .order('expiration_date', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range(from, to)),
     supabase
       .from('vehicles')
       .select('id, plate')
@@ -18,7 +21,7 @@ async function getData() {
   ])
 
   return {
-    docs:     docsRes.data    ?? [],
+    docs:     docsRows,
     vehicles: vehiclesRes.data ?? [],
     drivers:  driversRes.data  ?? [],
   }

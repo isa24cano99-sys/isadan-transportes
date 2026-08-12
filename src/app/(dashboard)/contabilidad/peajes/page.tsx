@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import PeajesClient, { type MesPeaje } from './PeajesClient'
 
 export const dynamic = 'force-dynamic'
@@ -8,15 +9,16 @@ const F2X_NIT = '900219834'
 // Elegibles = meses (desde 2026-07) con FE neto de F2X > 0 en dian_invoices_import,
 // que aún no tienen causación CG de peaje F2X (línea 61450575) contabilizada.
 async function getMeses(): Promise<MesPeaje[]> {
-  const { data: imp } = await supabase
+  const imp = await fetchAll<any>((from, to) => supabase
     .from('dian_invoices_import')
     .select('document_type, total, issue_date')
     .eq('grupo', 'RECIBIDO')          // F2X (peajes) son recibidas; blindaje contra emitidas en la misma tabla
     .eq('nit_issuer', F2X_NIT)
     .gte('issue_date', '2026-07-01')
+    .order('id', { ascending: true }).range(from, to))
 
   const byMes = new Map<string, { fac: number; nc: number }>()
-  for (const x of (imp ?? []) as any[]) {
+  for (const x of imp as any[]) {
     const mes = (x.issue_date ?? '').slice(0, 7)
     if (!mes) continue
     let m = byMes.get(mes)
@@ -25,13 +27,14 @@ async function getMeses(): Promise<MesPeaje[]> {
     else if (x.document_type === 'Nota de crédito electrónica') m.nc += Number(x.total)
   }
 
-  const { data: cgLines } = await supabase
+  const cgLines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('journal_entries!inner(periodo, tipo_comprobante, estado)')
     .eq('cuenta_puc', '61450575')
     .eq('journal_entries.tipo_comprobante', 'CG')
     .eq('journal_entries.estado', 'CONTABILIZADO')
-  const causados = new Set((cgLines ?? []).map((x: any) => x.journal_entries.periodo))
+    .order('id', { ascending: true }).range(from, to))
+  const causados = new Set(cgLines.map((x: any) => x.journal_entries.periodo))
 
   return [...byMes.entries()]
     .map(([mes, v]) => ({ mes, facturas: v.fac, notasCredito: v.nc, neto: v.fac - v.nc, causado: causados.has(mes) }))

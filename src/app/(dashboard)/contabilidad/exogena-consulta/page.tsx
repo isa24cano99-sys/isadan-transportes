@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import ExogenaConsultaClient, { type FilaExogena } from './ExogenaConsultaClient'
 
@@ -15,7 +16,7 @@ const CONCEPTOS = ['1001', '2276']
 
 async function getFilas(): Promise<FilaExogena[]> {
   // 1) líneas con concepto vivo 1001/2276, contabilizadas, sin apertura
-  const { data: lineas } = await supabase
+  const lineas = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select(
       'debito, credito, cuenta_puc, tercero_id,' +
@@ -25,8 +26,9 @@ async function getFilas(): Promise<FilaExogena[]> {
     .eq('journal_entries.estado', 'CONTABILIZADO')
     .neq('journal_entries.tipo_comprobante', 'CA')
     .in('puc_accounts.concepto_exogena', CONCEPTOS)
+    .order('id', { ascending: true }).range(from, to))
 
-  const rows = (lineas ?? []) as any[]
+  const rows = lineas as any[]
 
   // 2) terceros por id (datos DIAN completos), en un solo fetch
   const ids = [...new Set(rows.map(r => r.tercero_id).filter(Boolean))]

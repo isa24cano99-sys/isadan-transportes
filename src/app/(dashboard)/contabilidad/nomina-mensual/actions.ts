@@ -1,6 +1,7 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { revalidatePath } from 'next/cache'
 
 export type NominaResultado = { ok: boolean; mensaje: string }
@@ -45,10 +46,11 @@ export async function getEstadoPagoNominaAction(): Promise<PagoNominaConductor[]
   const { data: drivers } = await supabase
     .from('drivers').select('tercero_id, full_name').eq('active', true).not('tercero_id', 'is', null).order('full_name')
 
-  const { data: lines } = await supabase
+  const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines').select('tercero_id, debito, credito, journal_entries(estado)').eq('cuenta_puc', '250505')
+    .order('id', { ascending: true }).range(from, to))
   const saldoBy = new Map<string, number>()
-  for (const l of (lines ?? []) as unknown as Array<{ tercero_id: string | null; debito: number; credito: number; journal_entries: { estado: string } | null }>) {
+  for (const l of lines as unknown as Array<{ tercero_id: string | null; debito: number; credito: number; journal_entries: { estado: string } | null }>) {
     if (l.journal_entries?.estado !== 'CONTABILIZADO' || !l.tercero_id) continue
     saldoBy.set(l.tercero_id, (saldoBy.get(l.tercero_id) ?? 0) + Number(l.credito) - Number(l.debito))
   }
@@ -57,10 +59,10 @@ export async function getEstadoPagoNominaAction(): Promise<PagoNominaConductor[]
   const catIds = (cats ?? []).map(c => c.id)
   const candBy = new Map<string, PagoNominaConductor['candidatos']>()
   if (catIds.length) {
-    const { data: bts } = await supabase
+    const bts = await fetchAll<any>((from, to) => supabase
       .from('bank_transactions').select('id, date, amount, description, tercero_id')
-      .in('category_id', catIds).gte('date', '2026-07-01').order('date')
-    for (const bt of (bts ?? []) as unknown as Array<{ id: string; date: string; amount: number; description: string | null; tercero_id: string | null }>) {
+      .in('category_id', catIds).gte('date', '2026-07-01').order('date').order('id', { ascending: true }).range(from, to))
+    for (const bt of bts as unknown as Array<{ id: string; date: string; amount: number; description: string | null; tercero_id: string | null }>) {
       if (!bt.tercero_id) continue
       const { data: cb } = await supabase
         .from('journal_entries').select('id')

@@ -6,6 +6,7 @@
  * contabilizada directa / sin asignar) + clasificación (cuenta_puc_sugerida, aparte).
  */
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 
 const F2X = '900219834'
 
@@ -24,29 +25,32 @@ export type FeEstado = {
 
 /** FE no-F2X en [desde, hasta) con su estado de asignación resuelto. */
 export async function facturasConEstado(desde: string, hasta: string): Promise<FeEstado[]> {
-  const { data: inv } = await supabase
+  const inv = await fetchAll<any>((from, to) => supabase
     .from('dian_invoices_import')
     .select('id, folio, issue_date, name_issuer, total, tercero_id, terceros(razon_social, cuenta_puc_sugerida)')
     .eq('grupo', 'RECIBIDO')          // solo costos recibidos — las emitidas viven en la misma tabla
     .neq('nit_issuer', F2X)
     .gte('issue_date', desde).lt('issue_date', hasta)
     .neq('document_type', 'Application response')
-    .order('issue_date')
+    .order('issue_date').order('id', { ascending: true }).range(from, to))
 
-  const [{ data: cg }, { data: le }, { data: bt }] = await Promise.all([
-    supabase.from('journal_entries').select('origen_id')
-      .eq('origen_tabla', 'dian_invoices_import').eq('tipo_comprobante', 'CG').eq('estado', 'CONTABILIZADO'),
-    supabase.from('legalization_expenses').select('matched_invoice_id, legalizations(trips(manifest_number))')
-      .not('matched_invoice_id', 'is', null),
-    supabase.from('bank_transactions').select('matched_invoice_id, date').not('matched_invoice_id', 'is', null),
+  const [cg, le, bt] = await Promise.all([
+    fetchAll<any>((from, to) => supabase.from('journal_entries').select('origen_id')
+      .eq('origen_tabla', 'dian_invoices_import').eq('tipo_comprobante', 'CG').eq('estado', 'CONTABILIZADO')
+      .order('id', { ascending: true }).range(from, to)),
+    fetchAll<any>((from, to) => supabase.from('legalization_expenses').select('matched_invoice_id, legalizations(trips(manifest_number))')
+      .not('matched_invoice_id', 'is', null)
+      .order('id', { ascending: true }).range(from, to)),
+    fetchAll<any>((from, to) => supabase.from('bank_transactions').select('matched_invoice_id, date').not('matched_invoice_id', 'is', null)
+      .order('id', { ascending: true }).range(from, to)),
   ])
-  const posted = new Set((cg ?? []).map((x: any) => x.origen_id))
+  const posted = new Set(cg.map((x: any) => x.origen_id))
   const legMap = new Map(
-    (le ?? []).filter((x: any) => x.matched_invoice_id)
+    le.filter((x: any) => x.matched_invoice_id)
       .map((x: any) => [x.matched_invoice_id, (x.legalizations?.trips?.manifest_number ?? null) as string | null]))
-  const bankMap = new Map((bt ?? []).map((x: any) => [x.matched_invoice_id, x.date as string]))
+  const bankMap = new Map(bt.map((x: any) => [x.matched_invoice_id, x.date as string]))
 
-  return (inv ?? []).map((v: any) => {
+  return inv.map((v: any) => {
     const ter = v.terceros
     let estado: EstadoFE = 'sin_asignar'
     let etiqueta: string | null = null

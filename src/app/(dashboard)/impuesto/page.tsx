@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import ImpuestoClient from './ImpuestoClient'
 
 export type TaxPayment = {
@@ -25,13 +26,14 @@ export default async function ImpuestoPage({
   const sp   = await searchParams
   const year = parseInt(sp.año ?? '') || new Date().getFullYear()
 
-  const [invoicesRes, ssRes, taxRes] = await Promise.all([
-    supabase
+  const [invoiceRows, ssRes, taxRes] = await Promise.all([
+    fetchAll<any>((f, t) => supabase
       .from('invoices')
       .select('issue_date, total_amount')
       .eq('invoice_type', 'EMITIDA')
       .gte('issue_date', `${year}-01-01`)
-      .lte('issue_date', `${year}-12-31`),
+      .lte('issue_date', `${year}-12-31`)
+      .order('id', { ascending: true }).range(f, t)),
     supabase
       .from('payroll_social_security')
       .select('month, pension')
@@ -43,7 +45,7 @@ export default async function ImpuestoPage({
       .order('bimestre'),
   ])
 
-  const invoices    = invoicesRes.data ?? []
+  const invoices    = invoiceRows
   const ssRows      = ssRes.data       ?? []
   const taxPayments = (taxRes.data     ?? []) as TaxPayment[]
 

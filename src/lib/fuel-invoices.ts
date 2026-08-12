@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { FE_LINEA_CUENTA, type FEClasificada } from '@/lib/fe-lineas'
 
 // SERVER-ONLY (importa supabase con service key). Solo debe importarse desde server
@@ -14,24 +15,25 @@ const F2X = '900219834'
 // (cuenta_puc_sugerida NULL) — para que un proveedor nuevo no quede invisible. Excluye las
 // clasificadas en OTRA cuenta de costo (ruido). NC y F2X (peajes) quedan fuera.
 export async function getFEClasificadas(): Promise<FEClasificada[]> {
-  const [{ data }, { data: enlaces }] = await Promise.all([
-    supabase
+  const [data, enlaces] = await Promise.all([
+    fetchAll<any>((from, to) => supabase
       .from('dian_invoices_import')
       .select('id, issue_date, total, name_issuer, terceros!inner(cuenta_puc_sugerida)')
       .eq('grupo', 'RECIBIDO')          // costos recibidos; las emitidas (issuer=ISADAN) no entran aquí
       .eq('document_type', 'Factura electrónica')
       .neq('nit_issuer', F2X)
-      .order('issue_date', { ascending: false }),
+      .order('issue_date', { ascending: false }).order('id', { ascending: true }).range(from, to)),
     // enlaces existentes: qué FE ya está asignada y a qué legalización (ref legible)
-    supabase
+    fetchAll<any>((from, to) => supabase
       .from('legalization_expenses')
       .select('matched_invoice_id, legalization_id, legalizations(date, trips(trip_number))')
-      .not('matched_invoice_id', 'is', null),
+      .not('matched_invoice_id', 'is', null)
+      .order('id', { ascending: true }).range(from, to)),
   ])
 
   // mapa FE → { legalizacionId, ref }. Si una FE tuviera >1 enlace, gana el primero.
   const asignada = new Map<string, { id: string; ref: string }>()
-  for (const e of (enlaces ?? []) as any[]) {
+  for (const e of enlaces as any[]) {
     if (!e.matched_invoice_id || asignada.has(e.matched_invoice_id)) continue
     const ref = e.legalizations?.trips?.trip_number
       || (e.legalizations?.date ? String(e.legalizations.date).slice(0, 10) : null)
@@ -40,7 +42,7 @@ export async function getFEClasificadas(): Promise<FEClasificada[]> {
   }
 
   // clasificada en una de las 3 cuentas O sin clasificar (null) — nunca en otra cuenta de costo
-  const relevantes = ((data ?? []) as any[]).filter(x => {
+  const relevantes = (data as any[]).filter(x => {
     const c = x.terceros?.cuenta_puc_sugerida
     return c == null || CUENTAS.includes(c)
   })

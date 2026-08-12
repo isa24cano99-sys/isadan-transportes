@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { facturasConEstado } from '@/lib/facturas-estado'
 import ConciliacionCostosClient, { type ItemCosto, type CuentaCosto, type EgresoBanco } from './ConciliacionCostosClient'
 
@@ -15,11 +16,11 @@ async function getData() {
 
   const base = await facturasConEstado('2026-07-01', '2026-08-01')
 
-  const { data: bank } = await supabase
+  const bank = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions').select('id, date, amount, description')
-    .eq('type', 'EGRESO').gte('date', '2026-06-25').lt('date', '2026-08-05').order('date')
+    .eq('type', 'EGRESO').gte('date', '2026-06-25').lt('date', '2026-08-05').order('date').order('id', { ascending: true }).range(from, to))
 
-  const egresos: EgresoBanco[] = (bank ?? []).map((b: any) => ({
+  const egresos: EgresoBanco[] = bank.map((b: any) => ({
     id: b.id, date: b.date, amount: Number(b.amount), description: (b.description ?? '') as string,
   }))
 

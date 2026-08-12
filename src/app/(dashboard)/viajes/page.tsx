@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { formatCOP } from '@/lib/utils'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
@@ -6,24 +7,25 @@ import ManifiestoUpload from '../ManifiestoUpload'
 import ViajesClient from './ViajesClient'
 
 async function getTrips() {
-  const { data, error } = await supabase
-    .from('trips')
-    .select(`
-      id, trip_number, manifest_auth, manifest_number, origin, destination, load_date,
-      freight_value, advance_amount, status, notes, dataico_invoice_id,
-      clients(id, name),
-      terceros(id, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),
-      vehicles(id, plate, brand),
-      drivers(id, full_name),
-      invoices(invoice_number, issue_date)
-    `)
-    .order('load_date', { ascending: false, nullsFirst: false })
-
-  if (error) {
+  try {
+    return await fetchAll<any>((from, to) => supabase
+      .from('trips')
+      .select(`
+        id, trip_number, manifest_auth, manifest_number, origin, destination, load_date,
+        freight_value, advance_amount, status, notes, dataico_invoice_id,
+        clients(id, name),
+        terceros(id, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona),
+        vehicles(id, plate, brand),
+        drivers(id, full_name),
+        invoices(invoice_number, issue_date)
+      `)
+      .order('load_date', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range(from, to))
+  } catch (error) {
     console.error('ERROR VIAJES:', JSON.stringify(error))
     return []
   }
-  return data ?? []
 }
 
 export default async function ViajesPage() {

@@ -1,10 +1,11 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { LegalizacionesClient } from './LegalizacionesClient'
 
 async function getLegalizaciones() {
-  const { data } = await supabase
+  return await fetchAll<any>((from, to) => supabase
     .from('legalizations')
     .select(`
       id, date, advance_amount, total_expenses, balance, status,
@@ -12,7 +13,8 @@ async function getLegalizaciones() {
       drivers(full_name)
     `)
     .order('created_at', { ascending: false })
-  return data ?? []
+    .order('id', { ascending: true })
+    .range(from, to))
 }
 
 export default async function LegalizacionesPage() {

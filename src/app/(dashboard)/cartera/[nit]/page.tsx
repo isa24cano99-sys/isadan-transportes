@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import CarteraDetailClient from './CarteraDetailClient'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -38,7 +39,7 @@ export default async function CarteraDetailPage({
   const { nit: rawNit } = await params
   const nit = decodeURIComponent(rawNit)
 
-  const [{ data: entries, error }, { data: paymentsData }, { data: invRows }, { data: antRows }] = await Promise.all([
+  const [{ data: entries, error }, { data: paymentsData }, { data: invRows }, antRows] = await Promise.all([
     supabase
       .from('accounts_receivable_entries')
       .select('id, client_name, client_nit, invoice_id, invoice_number, invoice_amount, invoice_date, advance_amount, balance, status, paid_date, notes')
@@ -56,12 +57,12 @@ export default async function CarteraDetailPage({
       .or(`client_nit.eq.${nit},client_name.eq.${nit}`)
       .eq('invoice_type', 'EMITIDA'),
     // Anticipos de clientes en bancos (28050510 · INGRESO)
-    supabase
+    fetchAll<any>((from, to) => supabase
       .from('bank_transactions')
       .select('id, amount, supplier_nit, supplier_name, reference_type, reference_id, description, date')
       .eq('category', '28050510')
       .eq('type', 'INGRESO')
-      .limit(5000),
+      .order('id', { ascending: true }).range(from, to)),
   ])
 
   const payments = (paymentsData ?? []) as ClientPayment[]
@@ -103,7 +104,7 @@ export default async function CarteraDetailPage({
 
   // Anticipo RECIBIDO: bank_transactions 28050510/INGRESO cuyo viaje (reference_id) = trip_id de la factura
   const receivedByTrip = new Map<string, { sum: number; list: any[] }>()
-  for (const a of (antRows ?? []) as any[]) {
+  for (const a of antRows as any[]) {
     if (a.reference_type === 'TRIP' && a.reference_id) {
       const g = receivedByTrip.get(a.reference_id) ?? { sum: 0, list: [] }
       g.sum += Number(a.amount ?? 0); g.list.push(a)
@@ -150,7 +151,7 @@ export default async function CarteraDetailPage({
     if (!cNit || !x || Math.min(x.length, cNit.length) < 8) return false
     return x === cNit || x.startsWith(cNit) || cNit.startsWith(x)
   }
-  const unappliedAnticipos: UnappliedAnticipo[] = ((antRows ?? []) as any[])
+  const unappliedAnticipos: UnappliedAnticipo[] = (antRows as any[])
     .filter(a =>
       nitMatch(a.supplier_nit) ||
       (!!cNit && digits(a.description).includes(cNit)) ||

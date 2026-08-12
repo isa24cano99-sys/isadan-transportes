@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import PeajesMesClient, { type TollRow } from './PeajesMesClient'
@@ -6,13 +7,14 @@ import PeajesMesClient, { type TollRow } from './PeajesMesClient'
 export const dynamic = 'force-dynamic'
 
 async function getTolls(): Promise<TollRow[]> {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('toll_transactions')
     .select('id, plate, pass_date, toll_name, total')
     .order('pass_date', { ascending: false })
-    .limit(10000)
+    .order('id', { ascending: true })
+    .range(from, to))
 
-  return ((data ?? []) as any[]).map(t => ({
+  return (data as any[]).map(t => ({
     id:        t.id,
     plate:     t.plate ?? null,
     pass_date: t.pass_date ?? null,

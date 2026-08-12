@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import Link from 'next/link'
 import { AlertTriangle, Clock, FileText, Receipt } from 'lucide-react'
 
@@ -28,17 +29,19 @@ const ENTITY_LABELS: Record<string, string> = {
 }
 
 async function getExpiringDocs() {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('documents')
     .select('id, category, entity_type, entity_id, file_name, expiration_date')
     .not('expiration_date', 'is', null)
     .order('expiration_date', { ascending: true })
+    .order('id', { ascending: true })
+    .range(from, to))
 
   const vehicles: { id: string; plate: string }[]      = []
   const drivers:  { id: string; full_name: string }[]   = []
 
-  const vehicleIds = [...new Set((data ?? []).filter((d: any) => d.entity_type === 'VEHICULO').map((d: any) => d.entity_id).filter(Boolean))]
-  const driverIds  = [...new Set((data ?? []).filter((d: any) => d.entity_type === 'CONDUCTOR').map((d: any) => d.entity_id).filter(Boolean))]
+  const vehicleIds = [...new Set(data.filter((d: any) => d.entity_type === 'VEHICULO').map((d: any) => d.entity_id).filter(Boolean))]
+  const driverIds  = [...new Set(data.filter((d: any) => d.entity_type === 'CONDUCTOR').map((d: any) => d.entity_id).filter(Boolean))]
 
   if (vehicleIds.length) {
     const { data: v } = await supabase.from('vehicles').select('id, plate').in('id', vehicleIds)
@@ -52,7 +55,7 @@ async function getExpiringDocs() {
   const vehicleMap = new Map(vehicles.map(v => [v.id, v.plate]))
   const driverMap  = new Map(drivers.map(d => [d.id, d.full_name]))
 
-  return (data ?? []).map((doc: any) => {
+  return data.map((doc: any) => {
     let entityName = ''
     if (doc.entity_type === 'VEHICULO')  entityName = vehicleMap.get(doc.entity_id) ?? ''
     if (doc.entity_type === 'CONDUCTOR') entityName = driverMap.get(doc.entity_id)  ?? ''
@@ -62,12 +65,14 @@ async function getExpiringDocs() {
 }
 
 async function getPendingBilling() {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('trips')
     .select('id, freight_value')
     .eq('status', 'FINALIZADO')
     .is('dataico_invoice_id', null)
-  const trips = data ?? []
+    .order('id', { ascending: true })
+    .range(from, to))
+  const trips = data
   return {
     count: trips.length,
     total: trips.reduce((s, t) => s + Number(t.freight_value ?? 0), 0),
@@ -75,12 +80,13 @@ async function getPendingBilling() {
 }
 
 async function getUnclassified() {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions')
     .select('amount, account_id')
     .is('category_id', null)
-    .limit(20000)
-  const rows = (data ?? []) as any[]
+    .order('id', { ascending: true })
+    .range(from, to))
+  const rows = data as any[]
   const accCount: Record<string, number> = {}
   for (const t of rows) if (t.account_id) accCount[t.account_id] = (accCount[t.account_id] ?? 0) + 1
   return {

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import CarteraClient from './CarteraClient'
 
 export const dynamic = 'force-dynamic'
@@ -39,15 +40,16 @@ export default async function CarteraPage() {
   const tableExists = entErr?.code !== '42P01'
 
   // ── Total facturas emitidas (all-time, from invoices table) ──────────────
-  const { data: invoicesData } = await supabase
+  const invoicesData = await fetchAll<any>((from, to) => supabase
     .from('invoices')
     .select('total_amount, invoice_number, dian_status, credit_note_id, credit_note_number')
     .eq('invoice_type', 'EMITIDA')
+    .order('id', { ascending: true }).range(from, to))
 
   // Facturas anuladas (dian_status ANULADA o con nota crédito) → no cuentan (neto $0)
   const esAnul = (i: any) => i.dian_status === 'ANULADA' || i.credit_note_id || i.credit_note_number
-  const annulledInvNums = new Set(((invoicesData ?? []) as any[]).filter(esAnul).map(i => i.invoice_number))
-  const totalFacturado = ((invoicesData ?? []) as any[])
+  const annulledInvNums = new Set((invoicesData as any[]).filter(esAnul).map(i => i.invoice_number))
+  const totalFacturado = (invoicesData as any[])
     .filter(i => !esAnul(i))
     .reduce((s, i) => s + Number(i.total_amount ?? 0), 0)
 
@@ -59,24 +61,26 @@ export default async function CarteraPage() {
 
   const catIds = (catRows ?? []).map((c: any) => c.id)
 
-  const [directAntRes, catAntRes] = await Promise.all([
-    supabase
+  const [directAnt, catAnt] = await Promise.all([
+    fetchAll<any>((from, to) => supabase
       .from('bank_transactions')
       .select('amount')
       .eq('type', 'INGRESO')
-      .eq('category', '28050510'),
+      .eq('category', '28050510')
+      .order('id', { ascending: true }).range(from, to)),
     catIds.length > 0
-      ? supabase
+      ? fetchAll<any>((from, to) => supabase
           .from('bank_transactions')
           .select('amount')
           .eq('type', 'INGRESO')
           .in('category_id', catIds)
-      : Promise.resolve({ data: [] as any[] }),
+          .order('id', { ascending: true }).range(from, to))
+      : Promise.resolve([] as any[]),
   ])
 
   const totalAnticipos =
-    (directAntRes.data ?? []).reduce((s, t) => s + Number((t as any).amount ?? 0), 0) +
-    ((catAntRes.data ?? []) as any[]).reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0)
+    (directAnt as any[]).reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0) +
+    (catAnt as any[]).reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0)
 
   // ── Build KPIs and client summaries from entries (sin facturas anuladas) ──
   const rows = ((entries ?? []) as any[]).filter(e => !annulledInvNums.has(e.invoice_number))

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import CruceClient from './CruceClient'
 
 export const dynamic = 'force-dynamic'
@@ -10,15 +11,16 @@ export const dynamic = 'force-dynamic'
 // confirmar (si cruzas dos facturas del mismo tercero, la segunda toma el anticipo ya
 // reducido). Cero automatismo — Isabella confirma cada cruce.
 async function getElegibles() {
-  const { data: lines } = await supabase
+  const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('cuenta_puc, tercero_id, debito, credito, journal_entries!inner(estado)')
     .in('cuenta_puc', ['28050510', '13050501'])
     .eq('journal_entries.estado', 'CONTABILIZADO')
+    .order('id', { ascending: true }).range(from, to))
 
   const anticipo = new Map<string, number>()
   const cartera = new Map<string, number>()
-  for (const l of (lines ?? []) as any[]) {
+  for (const l of lines as any[]) {
     if (!l.tercero_id) continue
     const d = Number(l.debito) || 0
     const c = Number(l.credito) || 0
@@ -26,22 +28,23 @@ async function getElegibles() {
     else cartera.set(l.tercero_id, (cartera.get(l.tercero_id) ?? 0) + d - c)
   }
 
-  const { data: cx } = await supabase
+  const cx = await fetchAll<any>((from, to) => supabase
     .from('journal_entries').select('origen_id')
     .eq('origen_tabla', 'accounts_receivable_entries')
     .eq('tipo_comprobante', 'CX').eq('estado', 'CONTABILIZADO')
-  const cruzadas = new Set((cx ?? []).map(x => x.origen_id))
+    .order('id', { ascending: true }).range(from, to))
+  const cruzadas = new Set(cx.map(x => x.origen_id))
 
-  const { data: entries } = await supabase
+  const entries = await fetchAll<any>((from, to) => supabase
     .from('accounts_receivable_entries')
     .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, invoice_date, terceros(razon_social)')
     .neq('status', 'PAGADA')
     // Solo julio en adelante: las facturas pre-corte ya están netas en la apertura (CA-1);
     // cruzar su anticipo/cartera duplicaría contra ese saldo histórico (mismo corte que periodo_bloqueado).
     .gte('invoice_date', '2026-07-01')
-    .order('invoice_number')
+    .order('invoice_number').order('id', { ascending: true }).range(from, to))
 
-  return (entries ?? [])
+  return entries
     .filter((e: any) =>
       e.tercero_id && !cruzadas.has(e.id)
       && (anticipo.get(e.tercero_id) ?? 0) > 0

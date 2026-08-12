@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import RecibosClient from './RecibosClient'
 
@@ -18,15 +19,15 @@ async function getAnticipos() {
     .eq('origen_tabla', 'bank_transactions').eq('tipo_comprobante', 'RC').eq('estado', 'CONTABILIZADO')
   const conRC = new Set((rc ?? []).map(x => x.origen_id))
 
-  const { data: bts } = await supabase
+  const bts = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions')
     .select('id, date, amount, description, tercero_id, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona, es_cliente)')
     .eq('category_id', cat.id)
     .eq('type', 'INGRESO')
     .gte('date', '2026-07-01')
-    .order('date')
+    .order('date').order('id', { ascending: true }).range(from, to))
 
-  return (bts ?? [])
+  return bts
     .filter((b: any) => b.tercero_id && b.terceros?.es_cliente && !conRC.has(b.id))
     .map((b: any) => ({
       id:          b.id,

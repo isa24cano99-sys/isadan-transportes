@@ -42,6 +42,7 @@ grant all on client_payments to service_role;
 */
 
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { revalidatePath } from 'next/cache'
 
 /**
@@ -60,13 +61,16 @@ export async function importarCarteraAction(): Promise<{
   ok: boolean; created: number; message?: string; error?: string
 }> {
   // 1. Facturas EMITIDA (con estado DIAN y tercero_id)
-  const { data: invoices, error: invErr } = await supabase
-    .from('invoices')
-    .select('id, invoice_number, total_amount, issue_date, client_name, client_nit, tercero_id, dian_status')
-    .eq('invoice_type', 'EMITIDA')
-    .order('issue_date')
-
-  if (invErr) return { ok: false, created: 0, error: invErr.message }
+  let invoices: any[]
+  try {
+    invoices = await fetchAll<any>((from, to) => supabase
+      .from('invoices')
+      .select('id, invoice_number, total_amount, issue_date, client_name, client_nit, tercero_id, dian_status')
+      .eq('invoice_type', 'EMITIDA')
+      .order('issue_date').order('id', { ascending: true }).range(from, to))
+  } catch (invErr: any) {
+    return { ok: false, created: 0, error: invErr?.message ?? String(invErr) }
+  }
 
   // 2. IDs ya importados
   const { data: existing, error: existErr } = await supabase
@@ -80,7 +84,7 @@ export async function importarCarteraAction(): Promise<{
   const existingIds = new Set((existing ?? []).map((e: any) => e.invoice_id).filter(Boolean))
 
   // 3. Nuevas = EMITIDA, NO ANULADA, sin entry aún (una cartera no se apoya en documento anulado)
-  const newInvoices = (invoices ?? []).filter(
+  const newInvoices = invoices.filter(
     (inv: any) => !existingIds.has(inv.id) && inv.dian_status !== 'ANULADA',
   )
   if (newInvoices.length === 0) {

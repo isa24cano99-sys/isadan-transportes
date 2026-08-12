@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import CausacionesClient from './CausacionesClient'
 
@@ -8,22 +9,23 @@ export const dynamic = 'force-dynamic'
 // los de antes ya están en el resultado acumulado del asiento de apertura → causarlos
 // duplicaría el ingreso), y que aún NO tienen causación CI contabilizada.
 async function getViajesPendientes() {
-  const { data: causados } = await supabase
+  const causados = await fetchAll<any>((from, to) => supabase
     .from('journal_entries')
     .select('origen_id')
     .eq('origen_tabla', 'trips')
     .eq('tipo_comprobante', 'CI')
     .eq('estado', 'CONTABILIZADO')
-  const yaCausados = new Set((causados ?? []).map(c => c.origen_id))
+    .order('id', { ascending: true }).range(from, to))
+  const yaCausados = new Set(causados.map(c => c.origen_id))
 
-  const { data: trips } = await supabase
+  const trips = await fetchAll<any>((from, to) => supabase
     .from('trips')
     .select('id, trip_number, status, load_date, freight_value, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona), vehicles(plate), drivers(full_name)')
     .in('status', ['FINALIZADO', 'FACTURADO'])
     .gte('load_date', '2026-07-01')
-    .order('load_date')
+    .order('load_date').order('id', { ascending: true }).range(from, to))
 
-  return (trips ?? [])
+  return trips
     .filter((t: any) => !yaCausados.has(t.id))
     .map((t: any) => ({
       id:         t.id,

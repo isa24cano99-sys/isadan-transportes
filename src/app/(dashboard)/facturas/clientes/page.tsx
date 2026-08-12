@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import FacturasDataicoClient, { type FacturaRow, type ViajeSinFactura } from '../FacturasDataicoClient'
@@ -6,17 +7,17 @@ import FacturasDataicoClient, { type FacturaRow, type ViajeSinFactura } from '..
 export const dynamic = 'force-dynamic'
 
 async function getData(): Promise<{ facturas: FacturaRow[]; viajesSinFactura: ViajeSinFactura[] }> {
-  const [invRes, tripsRes] = await Promise.all([
-    supabase.from('invoices').select('*').eq('invoice_type', 'EMITIDA'),
-    supabase
+  const [invRows, tripsRows] = await Promise.all([
+    fetchAll<any>((f, t) => supabase.from('invoices').select('*').eq('invoice_type', 'EMITIDA').order('id', { ascending: true }).range(f, t)),
+    fetchAll<any>((f, t) => supabase
       .from('trips')
       .select('id, trip_number, origin, destination, load_date, freight_value, clients(name)')
       .eq('status', 'FINALIZADO')
       .is('dataico_invoice_id', null)
-      .order('load_date', { ascending: false }),
+      .order('load_date', { ascending: false }).order('id', { ascending: true }).range(f, t)),
   ])
 
-  const facturas: FacturaRow[] = ((invRes.data ?? []) as any[])
+  const facturas: FacturaRow[] = (invRows as any[])
     .map(r => ({
       id:             r.id,
       invoice_number: r.invoice_number ?? null,
@@ -28,7 +29,7 @@ async function getData(): Promise<{ facturas: FacturaRow[]; viajesSinFactura: Vi
     }))
     .sort((a, b) => (b.issue_date ?? '').localeCompare(a.issue_date ?? ''))
 
-  const viajesSinFactura: ViajeSinFactura[] = ((tripsRes.data ?? []) as any[]).map(t => ({
+  const viajesSinFactura: ViajeSinFactura[] = (tripsRows as any[]).map(t => ({
     id:            t.id,
     trip_number:   t.trip_number ?? null,
     origin:        t.origin ?? null,

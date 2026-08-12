@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import EstadoResultadosClient from './EstadoResultadosClient'
 
 export const dynamic = 'force-dynamic'
@@ -106,25 +107,26 @@ export default async function ReportesPage({
   const from = `${year}-01-01`
   const to   = `${year}-12-31`
 
-  const [invoicesRes, bankTxRes, legExpRes, tollsRes, clientsRes, supRes] = await Promise.all([
+  const [invoiceRows, bankTxRows, legExpRows, tollRows, clientsRes, supRes] = await Promise.all([
     // 1. Invoices EMITIDA
-    supabase
+    fetchAll<any>((f, t) => supabase
       .from('invoices')
       .select('invoice_number, total_amount, issue_date, client_name, client_nit, dian_status, credit_note_id, credit_note_number, trips(freight_value, clients(name, nit))')
       .eq('invoice_type', 'EMITIDA')
       .gte('issue_date', from)
-      .lte('issue_date', to),
+      .lte('issue_date', to)
+      .order('id', { ascending: true }).range(f, t)),
 
     // 2. All bank transactions for the year (we filter server-side)
-    supabase
+    fetchAll<any>((f, t) => supabase
       .from('bank_transactions')
       .select('id, type, amount, date, description, supplier_name, supplier_nit, category, category_id, account_id, transaction_categories(puc_code, name)')
       .gte('date', from)
       .lte('date', to)
-      .limit(50000),
+      .order('id', { ascending: true }).range(f, t)),
 
     // 3. Legalization expenses with vehicle chain
-    supabase
+    fetchAll<any>((f, t) => supabase
       .from('legalization_expenses')
       .select(`
         expense_type, amount, description, date,
@@ -135,15 +137,16 @@ export default async function ReportesPage({
         )
       `)
       .gte('date', from)
-      .lte('date', to),
+      .lte('date', to)
+      .order('id', { ascending: true }).range(f, t)),
 
     // 4. Toll transactions (Flypass)
-    supabase
+    fetchAll<any>((f, t) => supabase
       .from('toll_transactions')
       .select('plate, total, pass_date')
       .gte('pass_date', from + 'T00:00:00')
       .lte('pass_date', to + 'T23:59:59')
-      .limit(50000),
+      .order('id', { ascending: true }).range(f, t)),
 
     // 5. Terceros conocidos (para resolver anticipos sin supplier_name)
     supabase.from('clients').select('name, nit'),
@@ -151,7 +154,7 @@ export default async function ReportesPage({
   ])
 
   // ── Pre-process invoices ───────────────────────────────────────────────────
-  const invoices: RawInvoice[] = (invoicesRes.data ?? [])
+  const invoices: RawInvoice[] = (invoiceRows)
     .map((inv: any) => {
       const month = toMonth(inv.issue_date)
       if (!month) return null
@@ -167,8 +170,8 @@ export default async function ReportesPage({
     .filter(Boolean) as RawInvoice[]
 
   const esAnulada = (i: any) => i.dian_status === 'ANULADA' || i.credit_note_id || i.credit_note_number
-  console.log('Facturas EMITIDA leídas de la BD (año', year + '):', (invoicesRes.data ?? []).length,
-    ((invoicesRes.data ?? []) as any[]).map(i => `${i.invoice_number}${esAnulada(i) ? '(anulada)' : ''}`))
+  console.log('Facturas EMITIDA leídas de la BD (año', year + '):', (invoiceRows).length,
+    ((invoiceRows) as any[]).map(i => `${i.invoice_number}${esAnulada(i) ? '(anulada)' : ''}`))
   console.log('Facturas encontradas para Estado de Resultados:', invoices.length, invoices.map(f => f.invoiceNumber))
 
   // ── Pre-process bank transactions ─────────────────────────────────────────
@@ -185,7 +188,7 @@ export default async function ReportesPage({
   }
 
   function extractBankTx(cats: string[], txType?: 'INGRESO' | 'EGRESO'): RawTx[] {
-    return (bankTxRes.data ?? [])
+    return (bankTxRows)
       .filter((t: any) => {
         const puc = pickPuc(t)
         if (!puc || puc === PEAJE_PUC_EXCLUIDO) return false // peajes → toll_transactions, no banco
@@ -236,7 +239,7 @@ export default async function ReportesPage({
     return { name: 'Sin cliente asignado', nit: null }
   }
 
-  const anticipos: RawAnticipo[] = (bankTxRes.data ?? [])
+  const anticipos: RawAnticipo[] = (bankTxRows)
     .filter((t: any) => pickPuc(t) === '28050510' && t.type === 'INGRESO')
     .map((t: any) => {
       const month = toMonth(t.date as string)
@@ -331,7 +334,7 @@ export default async function ReportesPage({
   const anticiposNoLeg = extractBankTx(ANTICIPO_NO_LEG_CATS)
 
   // ── Transacciones sin clasificar (category_id null) ────────────────────────
-  const sinClasificar: SinClasificar[] = (bankTxRes.data ?? [])
+  const sinClasificar: SinClasificar[] = (bankTxRows)
     .filter((t: any) => !t.category_id)
     .map((t: any) => {
       const month = toMonth(t.date as string)
@@ -348,11 +351,11 @@ export default async function ReportesPage({
     .filter(Boolean) as SinClasificar[]
   // Cuenta con más transacciones sin clasificar (para el link "Ir a clasificar")
   const accCount: Record<string, number> = {}
-  for (const t of (bankTxRes.data ?? []) as any[]) if (!t.category_id && t.account_id) accCount[t.account_id] = (accCount[t.account_id] ?? 0) + 1
+  for (const t of (bankTxRows) as any[]) if (!t.category_id && t.account_id) accCount[t.account_id] = (accCount[t.account_id] ?? 0) + 1
   const sinClasificarAccountId = Object.entries(accCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
   // ── Pre-process legalization expenses ─────────────────────────────────────
-  const legExps: RawLegExp[] = (legExpRes.data ?? [])
+  const legExps: RawLegExp[] = (legExpRows)
     .map((e: any) => {
       const month = toMonth(e.date)
       if (!month || !e.amount) return null
@@ -370,7 +373,7 @@ export default async function ReportesPage({
     .filter(Boolean) as RawLegExp[]
 
   // ── Pre-process tolls ─────────────────────────────────────────────────────
-  const tolls: RawToll[] = (tollsRes.data ?? [])
+  const tolls: RawToll[] = (tollRows)
     .map((t: any) => {
       const month = toMonth(t.pass_date as string)
       if (!month) return null

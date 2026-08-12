@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import TercerosClient, { type TerceroRow, type Municipio, type DuplicadoPar } from './TercerosClient'
 import { esNitConDVPegado } from '@/lib/nit'
 
@@ -7,11 +8,11 @@ export const dynamic = 'force-dynamic'
 const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
 
 export default async function TercerosPage() {
-  const [{ data: terceros }, { data: bank }, { data: inv }, { data: are }, muniRes, { data: cuentas }] = await Promise.all([
+  const [{ data: terceros }, bank, inv, are, muniRes, { data: cuentas }] = await Promise.all([
     supabase.from('terceros').select('*').is('merged_into', null).order('created_at'),
-    supabase.from('bank_transactions').select('supplier_nit, amount').limit(50000),
-    supabase.from('invoices').select('client_nit, total_amount').limit(50000),
-    supabase.from('accounts_receivable_entries').select('client_nit, invoice_amount').limit(50000),
+    fetchAll<any>((from, to) => supabase.from('bank_transactions').select('supplier_nit, amount').order('id', { ascending: true }).range(from, to)),
+    fetchAll<any>((from, to) => supabase.from('invoices').select('client_nit, total_amount').order('id', { ascending: true }).range(from, to)),
+    fetchAll<any>((from, to) => supabase.from('accounts_receivable_entries').select('client_nit, invoice_amount').order('id', { ascending: true }).range(from, to)),
     supabase.from('municipios_dane').select('*'), // puede no existir aún (CSV pendiente)
     supabase.from('puc_accounts').select('codigo, nombre').eq('active', true).order('codigo'),
   ])
@@ -24,9 +25,9 @@ export default async function TercerosPage() {
     money.set(k, (money.get(k) ?? 0) + (Number(amt) || 0))
     recs.set(k, (recs.get(k) ?? 0) + 1)
   }
-  for (const b of (bank ?? []) as any[]) add(b.supplier_nit, b.amount)
-  for (const i of (inv ?? []) as any[]) add(i.client_nit, i.total_amount)
-  for (const a of (are ?? []) as any[]) add(a.client_nit, a.invoice_amount)
+  for (const b of bank as any[]) add(b.supplier_nit, b.amount)
+  for (const i of inv as any[]) add(i.client_nit, i.total_amount)
+  for (const a of are as any[]) add(a.client_nit, a.invoice_amount)
 
   const rows: TerceroRow[] = ((terceros ?? []) as any[]).map(t => ({
     ...t,

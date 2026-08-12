@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { getPeriodosDisponibles, getEstructuraFinanciera } from '@/lib/contabilidad-saldos'
 import CierrePeriodoClient, { type FilaPeriodo } from './CierrePeriodoClient'
 
@@ -11,10 +12,11 @@ async function getPeriodos(): Promise<FilaPeriodo[]> {
     .from('periodos_contables').select('periodo, estado, fecha_cierre')
   const estadoBy = new Map((pc ?? []).map((x: any) => [x.periodo, x]))
 
-  const { data: cc } = await supabase
+  const cc = await fetchAll<any>((from, to) => supabase
     .from('journal_entries').select('periodo, consecutivo')
     .eq('tipo_comprobante', 'CC').eq('estado', 'CONTABILIZADO')
-  const ccBy = new Map((cc ?? []).map((x: any) => [x.periodo, x.consecutivo]))
+    .order('id', { ascending: true }).range(from, to))
+  const ccBy = new Map(cc.map((x: any) => [x.periodo, x.consecutivo]))
 
   const filas: FilaPeriodo[] = []
   for (const p of periodos) {

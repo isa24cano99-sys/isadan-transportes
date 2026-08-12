@@ -1,6 +1,7 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { revalidatePath } from 'next/cache'
 import { nombreTercero } from '@/lib/tercero-nombre'
 
@@ -21,24 +22,25 @@ export type NotaCreditoFE = {
 }
 
 async function asientosPorImport(tipo: string): Promise<Map<string, string>> {
-  const { data } = await supabase.from('journal_entries')
+  const data = await fetchAll<any>((from, to) => supabase.from('journal_entries')
     .select('origen_id, consecutivo').eq('origen_tabla', 'dian_invoices_import').eq('tipo_comprobante', tipo).eq('estado', 'CONTABILIZADO')
-  return new Map((data ?? []).map((a: { origen_id: string; consecutivo: number }) => [a.origen_id, `${tipo}-${a.consecutivo}`]))
+    .order('id', { ascending: true }).range(from, to))
+  return new Map(data.map((a: { origen_id: string; consecutivo: number }) => [a.origen_id, `${tipo}-${a.consecutivo}`]))
 }
 
 /** FEIT emitidas (grupo='EMITIDO', tipo FE): con viaje sugerido (manual → o por folio) y estado. */
 export async function getEmitidasAction(): Promise<EmitidaFE[]> {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('dian_invoices_import')
     .select('id, folio, prefix, issue_date, name_receiver, total, status, tercero_id, matched_trip_id, terceros(razon_social)')
     .eq('grupo', 'EMITIDO').eq('document_type', FE)
-    .order('issue_date', { ascending: false })
-  const rows = (data ?? []) as Array<Record<string, unknown>>
+    .order('issue_date', { ascending: false }).order('id', { ascending: true }).range(from, to))
+  const rows = data as Array<Record<string, unknown>>
 
   // folio → viaje (por invoices.invoice_number)
-  const { data: inv } = await supabase.from('invoices').select('invoice_number, trip_id').not('trip_id', 'is', null)
+  const inv = await fetchAll<any>((from, to) => supabase.from('invoices').select('invoice_number, trip_id').not('trip_id', 'is', null).order('id', { ascending: true }).range(from, to))
   const tripPorFolio = new Map<string, string>()
-  for (const i of (inv ?? []) as Array<{ invoice_number: string; trip_id: string }>) tripPorFolio.set(i.invoice_number, i.trip_id)
+  for (const i of inv as Array<{ invoice_number: string; trip_id: string }>) tripPorFolio.set(i.invoice_number, i.trip_id)
   // trip_id → trip_number (para folio-auto y matched manual)
   const tripIds = [...new Set([...tripPorFolio.values(), ...rows.map(r => r.matched_trip_id as string).filter(Boolean)])]
   const tripNum = new Map<string, string>()
@@ -72,10 +74,10 @@ export async function getEmitidasAction(): Promise<EmitidaFE[]> {
  *  filtra por cliente NI por fecha: la factura de julio puede corresponder a un viaje de otro
  *  mes (desfase) o a un cliente distinto del que el sistema asumió. El usuario elige el correcto. */
 export async function getViajesFacturablesAction(): Promise<ViajeOption[]> {
-  const { data } = await supabase.from('trips')
+  const data = await fetchAll<any>((from, to) => supabase.from('trips')
     .select('id, trip_number, freight_value, tercero_id, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
-    .order('trip_number')
-  return (data ?? []).map((t: unknown) => {
+    .order('trip_number').order('id', { ascending: true }).range(from, to))
+  return data.map((t: unknown) => {
     const x = t as { id: string; trip_number: string; freight_value: number; tercero_id: string | null; terceros: Record<string, unknown> | null }
     return { id: x.id, tripNumber: x.trip_number, freight: Number(x.freight_value), terceroId: x.tercero_id, cliente: x.terceros ? nombreTercero(x.terceros) : '—' }
   })
@@ -98,12 +100,12 @@ export async function postearFacturacionAction(importId: string): Promise<{ ok: 
 
 // ── Notas crédito emitidas ──────────────────────────────────────────────────
 export async function getNotasCreditoEmitidasAction(): Promise<NotaCreditoFE[]> {
-  const { data } = await supabase
+  const data = await fetchAll<any>((from, to) => supabase
     .from('dian_invoices_import')
     .select('id, folio, prefix, issue_date, name_receiver, total, status, fe_relacionada_id, terceros(razon_social)')
     .eq('grupo', 'EMITIDO').eq('document_type', NC)
-    .order('issue_date', { ascending: false })
-  const ncs = (data ?? []) as Array<Record<string, unknown>>
+    .order('issue_date', { ascending: false }).order('id', { ascending: true }).range(from, to))
+  const ncs = data as Array<Record<string, unknown>>
 
   const feIds = [...new Set(ncs.map(n => n.fe_relacionada_id as string).filter(Boolean))]
   const feFolios = new Map<string, string>()

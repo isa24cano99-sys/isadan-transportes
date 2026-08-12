@@ -1,6 +1,7 @@
 'use server'
 
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { revalidatePath } from 'next/cache'
 
 const CUENTAS: Record<string, string> = {
@@ -24,13 +25,14 @@ export type ResumenSS = {
  * una consolidación (origen_tabla='consolidacion_ss'), lo reporta para bloquear el botón.
  */
 export async function getResumenSSAction(periodo: string): Promise<ResumenSS> {
-  const { data: lines } = await supabase
+  const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('cuenta_puc, tercero_id, tercero_nombre_snapshot, debito, credito, journal_entries(estado)')
     .in('cuenta_puc', Object.keys(CUENTAS))
+    .order('id', { ascending: true }).range(from, to))
 
   const agg = new Map<string, ResumenLinea>()
-  for (const l of (lines ?? []) as unknown as Array<{ cuenta_puc: string; tercero_id: string | null; tercero_nombre_snapshot: string | null; debito: number; credito: number; journal_entries: { estado: string } | null }>) {
+  for (const l of lines as unknown as Array<{ cuenta_puc: string; tercero_id: string | null; tercero_nombre_snapshot: string | null; debito: number; credito: number; journal_entries: { estado: string } | null }>) {
     if (l.journal_entries?.estado !== 'CONTABILIZADO') continue
     const key = `${l.cuenta_puc}|${l.tercero_id ?? '—'}`
     const cur = agg.get(key) ?? { cuenta: l.cuenta_puc, cuentaNombre: CUENTAS[l.cuenta_puc] ?? l.cuenta_puc, tercero: l.tercero_nombre_snapshot ?? '—', monto: 0 }
@@ -70,14 +72,15 @@ export type EstadoPagoSS = {
  * (los pre-corte ya están en la apertura y no deben postearse).
  */
 export async function getEstadoPagoSSAction(): Promise<EstadoPagoSS> {
-  const { data: lines } = await supabase
+  const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('debito, credito, journal_entries(estado, tipo_comprobante, consecutivo)')
     .eq('cuenta_puc', '23709510')
+    .order('id', { ascending: true }).range(from, to))
 
   let saldo = 0
   let ultimoPago: { consecutivo: number } | null = null
-  for (const l of (lines ?? []) as unknown as Array<{ debito: number; credito: number; journal_entries: { estado: string; tipo_comprobante: string; consecutivo: number } | null }>) {
+  for (const l of lines as unknown as Array<{ debito: number; credito: number; journal_entries: { estado: string; tipo_comprobante: string; consecutivo: number } | null }>) {
     if (l.journal_entries?.estado !== 'CONTABILIZADO') continue
     saldo += Number(l.credito) - Number(l.debito)
     if (Number(l.debito) > 0 && l.journal_entries.tipo_comprobante === 'CB') {
@@ -90,13 +93,13 @@ export async function getEstadoPagoSSAction(): Promise<EstadoPagoSS> {
   const catIds = (cats ?? []).map(c => c.id)
   const candidatos: EstadoPagoSS['candidatos'] = []
   if (catIds.length) {
-    const { data: bts } = await supabase
+    const bts = await fetchAll<any>((from, to) => supabase
       .from('bank_transactions')
       .select('id, date, amount, description')
       .in('category_id', catIds)
       .gte('date', '2026-07-01')   // post-corte: los pre-corte ya están en la apertura
-      .order('date')
-    for (const bt of (bts ?? [])) {
+      .order('date').order('id', { ascending: true }).range(from, to))
+    for (const bt of bts) {
       const { data: cb } = await supabase
         .from('journal_entries')
         .select('id')

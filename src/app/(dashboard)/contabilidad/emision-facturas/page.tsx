@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import EmisionClient from './EmisionClient'
 
@@ -8,21 +9,21 @@ export const dynamic = 'force-dynamic'
 // que aún NO tienen emisión CF contabilizada, y cuya factura NO está ANULADA (una cartera
 // facturada no puede apoyarse en un documento fiscal anulado).
 async function getViajesPendientes() {
-  const [{ data: ci }, { data: cf }] = await Promise.all([
-    supabase.from('journal_entries').select('origen_id').eq('origen_tabla', 'trips').eq('tipo_comprobante', 'CI').eq('estado', 'CONTABILIZADO'),
-    supabase.from('journal_entries').select('origen_id').eq('origen_tabla', 'trips').eq('tipo_comprobante', 'CF').eq('estado', 'CONTABILIZADO'),
+  const [ci, cf] = await Promise.all([
+    fetchAll<any>((from, to) => supabase.from('journal_entries').select('origen_id').eq('origen_tabla', 'trips').eq('tipo_comprobante', 'CI').eq('estado', 'CONTABILIZADO').order('id', { ascending: true }).range(from, to)),
+    fetchAll<any>((from, to) => supabase.from('journal_entries').select('origen_id').eq('origen_tabla', 'trips').eq('tipo_comprobante', 'CF').eq('estado', 'CONTABILIZADO').order('id', { ascending: true }).range(from, to)),
   ])
-  const conCI = new Set((ci ?? []).map(x => x.origen_id))
-  const conCF = new Set((cf ?? []).map(x => x.origen_id))
+  const conCI = new Set(ci.map(x => x.origen_id))
+  const conCF = new Set(cf.map(x => x.origen_id))
 
-  const { data: trips } = await supabase
+  const trips = await fetchAll<any>((from, to) => supabase
     .from('trips')
     .select('id, trip_number, load_date, freight_value, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona), invoices(invoice_number, dian_status, created_at)')
     .eq('status', 'FACTURADO')
     .gte('load_date', '2026-07-01')
-    .order('load_date')
+    .order('load_date').order('id', { ascending: true }).range(from, to))
 
-  return (trips ?? [])
+  return trips
     .filter((t: any) =>
       conCI.has(t.id) && !conCF.has(t.id) &&
       (t.invoices ?? []).some((i: any) => i.dian_status !== 'ANULADA'))

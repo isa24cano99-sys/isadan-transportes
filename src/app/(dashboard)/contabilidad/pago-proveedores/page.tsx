@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
 import PagoProveedoresClient from './PagoProveedoresClient'
 
@@ -17,17 +18,18 @@ async function getMovimientos() {
   //       CUALQUIER comprobante — no solo CB), (b) consolidado (tabla puente), (c) FE vinculada
   //       (matched_invoice_id: la transacción pertenece al flujo de la factura DIAN, no a gasto
   //       directo — igual que el helper, se excluye aunque su CG aún no esté posteado).
-  const [{ data: cats }, { data: directos }, { data: consol }, { data: pucCeco }] = await Promise.all([
+  const [{ data: cats }, directos, { data: consol }, { data: pucCeco }] = await Promise.all([
     supabase.from('transaction_categories').select('id, name, puc_code'),
-    supabase.from('journal_entries').select('origen_id')
-      .eq('origen_tabla', 'bank_transactions').eq('estado', 'CONTABILIZADO'),
+    fetchAll<any>((from, to) => supabase.from('journal_entries').select('origen_id')
+      .eq('origen_tabla', 'bank_transactions').eq('estado', 'CONTABILIZADO')
+      .order('id', { ascending: true }).range(from, to)),
     supabase.from('gasto_consolidado_items').select('bank_transaction_id, journal_entries!inner(estado)')
       .eq('journal_entries.estado', 'CONTABILIZADO'),
     // cuentas que exigen centro de costo (placa): esas filas de gasto piden placa
     supabase.from('puc_accounts').select('codigo').eq('exige_centro_costo', true),
   ])
   const postedDirecto = new Set([
-    ...(directos ?? []).map(x => x.origen_id),
+    ...directos.map(x => x.origen_id),
     ...(consol ?? []).map((x: any) => x.bank_transaction_id),
   ])
   const cecoPucs = new Set((pucCeco ?? []).map((p: any) => p.codigo))
@@ -41,12 +43,12 @@ async function getMovimientos() {
   const catsIngreso = (cats ?? []).filter((c: any) => c.puc_code && /^4/.test(c.puc_code) && c.puc_code !== '41450510').map((c: any) => c.id)
   const catsGasto = (cats ?? []).filter((c: any) => c.puc_code && /^[56]/.test(c.puc_code) && !excluidoGasto(c.puc_code)).map((c: any) => c.id)
 
-  const { data: bts } = await supabase
+  const bts = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions')
     .select('id, date, amount, description, category_id, tercero_id, matched_invoice_id, type, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
     .in('category_id', [...catsPago, ...catsInterno, ...catsIngreso, ...catsGasto])
     .gte('date', '2026-07-01')
-    .order('date')
+    .order('date').order('id', { ascending: true }).range(from, to))
 
   const catsPagoSet = new Set(catsPago)
   const catsInternoSet = new Set(catsInterno)
@@ -55,7 +57,7 @@ async function getMovimientos() {
   const gastos: any[] = []
   const internos: any[] = []
   const ingresos: any[] = []
-  for (const b of (bts ?? []) as any[]) {
+  for (const b of bts as any[]) {
     if (contabilizado(b)) continue
     const cat = catById.get(b.category_id)
     if (catsPagoSet.has(b.category_id)) {

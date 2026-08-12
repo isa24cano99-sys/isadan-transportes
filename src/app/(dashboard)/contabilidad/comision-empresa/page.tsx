@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import ComisionClient from './ComisionClient'
 
 export const dynamic = 'force-dynamic'
@@ -7,14 +8,14 @@ export const dynamic = 'force-dynamic'
 // expense_type='comision_empresa' (inmune al texto), sin CG de comisión (61450580)
 // ya contabilizado. El costo pre-corte ya está en 3610 → se excluye por fecha.
 async function getElegibles() {
-  const { data: legs } = await supabase
+  const legs = await fetchAll<any>((from, to) => supabase
     .from('legalizations')
     .select('id, date, vehicle_id')
     .eq('status', 'APROBADA')
     .gte('date', '2026-07-01')
-    .order('date')
+    .order('date').order('id', { ascending: true }).range(from, to))
 
-  if (!legs?.length) return []
+  if (!legs.length) return []
   const legIds = legs.map(l => l.id)
 
   const { data: comis } = await supabase
@@ -24,14 +25,15 @@ async function getElegibles() {
     .in('legalization_id', legIds)
   const comisMap = new Map((comis ?? []).map(c => [c.legalization_id, Number(c.amount)]))
 
-  const { data: cgLines } = await supabase
+  const cgLines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('journal_entries!inner(origen_tabla, origen_id, tipo_comprobante, estado)')
     .eq('cuenta_puc', '61450580')
     .eq('journal_entries.origen_tabla', 'legalizations')
     .eq('journal_entries.tipo_comprobante', 'CG')
     .eq('journal_entries.estado', 'CONTABILIZADO')
-  const posted = new Set((cgLines ?? []).map((x: any) => x.journal_entries?.origen_id))
+    .order('id', { ascending: true }).range(from, to))
+  const posted = new Set(cgLines.map((x: any) => x.journal_entries?.origen_id))
 
   const { data: vehicles } = await supabase.from('vehicles').select('id, plate')
   const vehMap = new Map((vehicles ?? []).map((v: any) => [v.id, v.plate]))

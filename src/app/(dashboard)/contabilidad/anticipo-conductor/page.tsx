@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import AnticipoConductorClient from './AnticipoConductorClient'
 
 export const dynamic = 'force-dynamic'
@@ -22,14 +23,14 @@ async function getAnticipos() {
     (drivers ?? []).filter((d: any) => d.tercero_id).map((d: any) => [d.tercero_id, d.full_name]),
   )
 
-  const { data: bts } = await supabase
+  const bts = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions')
     .select('id, date, amount, description, tercero_id')
     .eq('category_id', cat.id)
     .gte('date', '2026-07-01')
-    .order('date')
+    .order('date').order('id', { ascending: true }).range(from, to))
 
-  return (bts ?? [])
+  return bts
     .filter((b: any) => b.tercero_id && driverByTer.has(b.tercero_id) && !conCB.has(b.id))
     .map((b: any) => ({
       id:          b.id,

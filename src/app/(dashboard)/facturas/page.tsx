@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import Link from 'next/link'
 import { FileText, Receipt, Inbox, ArrowRight } from 'lucide-react'
 import { formatCOP } from '@/lib/utils'
@@ -10,18 +11,18 @@ async function getStats() {
   const from = `${year}-01-01T00:00:00`
   const to   = `${year}-12-31T23:59:59`
 
-  const [invRes, tollRes, dianRes] = await Promise.all([
-    supabase.from('invoices').select('total_amount, dian_status, credit_note_id, credit_note_number').eq('invoice_type', 'EMITIDA'),
-    supabase.from('toll_transactions').select('total').gte('pass_date', from).lte('pass_date', to).limit(10000),
+  const [invRows, tollRows, dianRes] = await Promise.all([
+    fetchAll<any>((f, t) => supabase.from('invoices').select('total_amount, dian_status, credit_note_id, credit_note_number').eq('invoice_type', 'EMITIDA').order('id', { ascending: true }).range(f, t)),
+    fetchAll<any>((f, t) => supabase.from('toll_transactions').select('total').gte('pass_date', from).lte('pass_date', to).order('id', { ascending: true }).range(f, t)),
     supabase.from('dian_invoices_import').select('id', { count: 'exact', head: true }),
   ])
 
   // Excluir facturas anuladas (dian_status ANULADA o con nota crédito) del total facturado
-  const facturas = ((invRes.data ?? []) as any[])
+  const facturas = (invRows as any[])
     .filter(f => !(f.dian_status === 'ANULADA' || f.credit_note_id || f.credit_note_number))
   const totalFacturado = facturas.reduce((s, f) => s + Number(f.total_amount ?? 0), 0)
 
-  const tolls = (tollRes.data ?? []) as { total: number | null }[]
+  const tolls = tollRows as { total: number | null }[]
   const totalPeajes = tolls.reduce((s, t) => s + Number(t.total ?? 0), 0)
 
   return {

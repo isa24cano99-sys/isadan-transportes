@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import PorcentajeClient from './PorcentajeClient'
 
 export const dynamic = 'force-dynamic'
@@ -8,14 +9,14 @@ export const dynamic = 'force-dynamic'
 // del asiento CA-1 → contabilizarlos duplica), con línea de porcentaje en legalization_expenses,
 // y sin CG de porcentaje (61450550) ya contabilizado para esa legalización.
 async function getElegibles() {
-  const { data: legs } = await supabase
+  const legs = await fetchAll<any>((from, to) => supabase
     .from('legalizations')
     .select('id, date, driver_id, vehicle_id')
     .eq('status', 'APROBADA')
     .gte('date', '2026-07-01')
-    .order('date')
+    .order('date').order('id', { ascending: true }).range(from, to))
 
-  if (!legs?.length) return []
+  if (!legs.length) return []
   const legIds = legs.map(l => l.id)
 
   const { data: porc } = await supabase
@@ -26,14 +27,15 @@ async function getElegibles() {
   const porcMap = new Map((porc ?? []).map(p => [p.legalization_id, Number(p.amount)]))
 
   // legalizaciones con CG de porcentaje (61450550) ya contabilizado
-  const { data: cgLines } = await supabase
+  const cgLines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('journal_entries!inner(origen_tabla, origen_id, tipo_comprobante, estado)')
     .eq('cuenta_puc', '61450550')
     .eq('journal_entries.origen_tabla', 'legalizations')
     .eq('journal_entries.tipo_comprobante', 'CG')
     .eq('journal_entries.estado', 'CONTABILIZADO')
-  const posted = new Set((cgLines ?? []).map((x: any) => x.journal_entries?.origen_id))
+    .order('id', { ascending: true }).range(from, to))
+  const posted = new Set(cgLines.map((x: any) => x.journal_entries?.origen_id))
 
   const { data: drivers } = await supabase.from('drivers').select('id, full_name, tercero_id')
   const drvMap = new Map((drivers ?? []).map((d: any) => [d.id, d]))
