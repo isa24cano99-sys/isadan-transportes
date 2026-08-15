@@ -33,7 +33,9 @@ const FILL_HEADER = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2
 // Escribe una hoja con formato: encabezado, títulos de columna en negrilla+relleno, datos con
 // formato numérico #,##0, panel inmovilizado bajo el encabezado y autofiltro. (ws = worksheet exceljs)
 const FILL_SUBTOTAL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
-function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: ReportesContador, esSubtotal?: (r: Row) => boolean) {
+// Fila de cierre (TOTAL GENERAL): más marcada que un subtotal — relleno más oscuro + doble borde.
+const FILL_TOTAL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC7CBD1' } }
+function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: ReportesContador, esSubtotal?: (r: Row) => boolean, esTotalGeneral?: (r: Row) => boolean) {
   for (const r of encabezado(titulo, d)) ws.addRow(r)
   ws.getRow(1).font = { bold: true, size: 13 }
   ws.getRow(3).font = { bold: true, size: 12 }
@@ -47,11 +49,18 @@ function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: Rep
   })
   for (let i = 1; i < aoa.length; i++) {
     const sub = esSubtotal?.(aoa[i])
+    const tot = esTotalGeneral?.(aoa[i])
     const row = ws.addRow((aoa[i] as any[]).map(N))
     row.eachCell((c: any) => {
       if (typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } }
       // Filas de subtotal: negrilla + relleno gris + borde superior, para que NO se sumen a mano.
       if (sub) { c.font = { bold: true, italic: true }; c.fill = FILL_SUBTOTAL; c.border = { top: { style: 'thin', color: { argb: 'FF9CA3AF' } } } }
+      // Fila de cierre TOTAL GENERAL: negrilla + relleno más oscuro + DOBLE borde superior e inferior.
+      if (tot) {
+        c.font = { bold: true, size: 12 }
+        c.fill = FILL_TOTAL
+        c.border = { top: { style: 'double', color: { argb: 'FF374151' } }, bottom: { style: 'double', color: { argb: 'FF374151' } } }
+      }
     })
   }
   cols.forEach((w, i) => { ws.getColumn(i + 1).width = w })
@@ -92,8 +101,11 @@ function portada(ws: any, d: ReportesContador, chk: { balance: boolean; mayor: b
   linea(chk.eri, 'ERI ↔ ESF (Utilidad del ejercicio)', chk.utilidad)
 }
 
+// Etiqueta exacta de la fila de cierre — se usa también como predicado de estilo.
+const TOTAL_GENERAL_DIARIO = 'TOTAL GENERAL DEL PERIODO (sin apertura)'
 function aoaDiario(d: ReportesContador): Row[] {
   const rows: Row[] = [['Fecha', 'Comprobante', 'Cuenta', 'Nombre cuenta', 'Tercero', 'NIT', 'Centro costo', 'Doc. soporte', 'Descripción', 'Débito', 'Crédito']]
+  let totalD = 0, totalC = 0
   for (const a of d.diario) {
     // El asiento de apertura CA se marca explícito: es el saldo inicial, no un movimiento del mes.
     if (a.tipo === 'CA') rows.push(['', a.comprobante, '', '', '', '', '', '', 'APERTURA — saldo inicial (no es movimiento del periodo)', '', ''])
@@ -101,7 +113,11 @@ function aoaDiario(d: ReportesContador): Row[] {
       rows.push([a.fecha, a.comprobante, l.cuenta, l.nombre, l.tercero ?? '', l.terceroNit ?? '', l.centroCosto ?? '', l.docSoporte ?? '', a.descripcion, l.debito || '', l.credito || ''])
     }
     rows.push(['', a.comprobante + (a.tipo === 'CA' ? ' · total apertura' : ' · total'), '', '', '', '', '', '', '', a.totalDebito, a.totalCredito])
+    // El total general suma SOLO el movimiento del periodo (la apertura es saldo inicial, no
+    // movimiento) — así coincide exacto con "Balance cuadra" de la Portada.
+    if (a.tipo !== 'CA') { totalD += a.totalDebito; totalC += a.totalCredito }
   }
+  rows.push(['', TOTAL_GENERAL_DIARIO, '', '', '', '', '', '', '', totalD, totalC])
   return rows
 }
 
@@ -222,8 +238,11 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
       // En el Libro Diario, las filas "· total" de cada asiento son subtotales — se marcan
       // (negrilla+gris) para que no se sumen por error si alguien totaliza la columna a mano.
       const esSubtotalDiario = (r: Row) => typeof r[1] === 'string' && (r[1] as string).includes('· total')
+      const esTotalGeneralDiario = (r: Row) => r[1] === TOTAL_GENERAL_DIARIO
       for (const [nombre, titulo, aoa, cols] of hojas) {
-        estilarHoja(wb.addWorksheet(nombre), titulo, aoa, cols, data, nombre === 'Libro Diario' ? esSubtotalDiario : undefined)
+        const esDiario = nombre === 'Libro Diario'
+        estilarHoja(wb.addWorksheet(nombre), titulo, aoa, cols, data,
+          esDiario ? esSubtotalDiario : undefined, esDiario ? esTotalGeneralDiario : undefined)
       }
 
       const buf = await wb.xlsx.writeBuffer()
