@@ -9,6 +9,8 @@ type Row = (string | number)[]
 
 // Identificación de la empresa para el encabezado formal de cada hoja.
 const EMPRESA = { razon: 'ISADAN TRANSPORTES S.A.S.', nit: '902030120', dv: '6' }
+// Versión del formato de reportes (semántica manual — subir al cambiar estructura/criterios).
+const REPORTE_VERSION = 'v1.0'
 const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const mesLabel = (p: string) => { const [y, m] = p.split('-'); return `${MESES[Number(m)]} de ${y}` }
 
@@ -60,14 +62,17 @@ function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: Rep
 }
 
 // Hoja de portada: identificación, índice de hojas y los 4 cruces de consistencia.
-function portada(ws: any, d: ReportesContador, chk: { balance: boolean; mayor: boolean; esf: boolean; eri: boolean; totD: number; activo: number; utilidad: number }) {
-  ws.getColumn(1).width = 2; ws.getColumn(2).width = 48; ws.getColumn(3).width = 24
+function portada(ws: any, d: ReportesContador, chk: { balance: boolean; mayor: boolean; esf: boolean; eri: boolean; totD: number; activo: number; utilidad: number }, generado: string) {
+  ws.getColumn(1).width = 2; ws.getColumn(2).width = 48; ws.getColumn(3).width = 28
   const add = (b?: string, c?: string | number) => ws.addRow(['', b ?? '', c ?? ''])
   add(EMPRESA.razon).getCell(2).font = { bold: true, size: 15 }
   add(`NIT ${EMPRESA.nit}-${EMPRESA.dv}`)
   add()
   add('REPORTES CONTABLES').getCell(2).font = { bold: true, size: 13 }
   add(`Periodo: ${mesLabel(d.periodo)}  ·  corte al ${d.corte}`)
+  // Versión + fecha de generación visibles: identifican sin ambigüedad de qué archivo se trata.
+  add('Versión del formato', REPORTE_VERSION).getCell(2).font = { bold: true }
+  add('Generado', generado).getCell(2).font = { bold: true }
   add('Cifras en pesos colombianos (COP)')
   add()
   add('ÍNDICE').getCell(2).font = { bold: true }
@@ -160,6 +165,7 @@ function aoaERI(d: ReportesContador): Row[] {
   rows.push(['', '', '= UTILIDAD BRUTA', e.utilidadBruta])
   seccion('GASTOS OPERACIONALES (admin. y personal)', e.gastosOper, e.totalGastosOper)
   rows.push(['', '', '= UTILIDAD OPERACIONAL', e.utilidadOperacional])
+  seccion('EROGACIONES A FAVOR DE LOS SOCIOS', e.erogSocios, e.totalErogSocios)
   seccion('INGRESOS FINANCIEROS / NO OPERACIONALES', e.ingresosFin, e.totalIngresosFin)
   seccion('GASTOS FINANCIEROS / NO OPERACIONALES', e.gastosFin, e.totalGastosFin)
   rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL EJERCICIO', e.utilidad])
@@ -189,10 +195,12 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
       const wb = new Workbook()
       wb.creator = 'Sistema contable ISADAN'
 
+      // Fecha/hora de generación (navegador). Identifica la copia impresa/enviada.
+      const generado = new Date().toLocaleString('es-CO', { dateStyle: 'long', timeStyle: 'short' })
       portada(wb.addWorksheet('Portada'), data, {
         balance: balanceCuadra, mayor: mayorCuadra, esf: esfCuadra, eri: eriEsfConecta,
         totD, activo, utilidad: data.eri.utilidad,
-      })
+      }, generado)
 
       const hojas: [string, string, Row[], number[]][] = [
         ['Libro Diario', 'LIBRO DIARIO', aoaDiario(data), [12, 12, 12, 30, 30, 14, 12, 20, 30, 15, 15]],

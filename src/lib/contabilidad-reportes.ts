@@ -187,9 +187,9 @@ export type ReportesContador = {
   esf: { activo: SaldoPeriodo[]; pasivo: SaldoPeriodo[]; patrimonio: SaldoPeriodo[]; totalActivo: number; totalPasivo: number; totalPatrimonio: number; utilidad: number }
   eri: {
     ingresosOper: SaldoPeriodo[]; costos: SaldoPeriodo[]; gastosOper: SaldoPeriodo[]
-    ingresosFin: SaldoPeriodo[]; gastosFin: SaldoPeriodo[]
+    erogSocios: SaldoPeriodo[]; ingresosFin: SaldoPeriodo[]; gastosFin: SaldoPeriodo[]
     totalIngresosOper: number; totalCostos: number; totalGastosOper: number
-    totalIngresosFin: number; totalGastosFin: number
+    totalErogSocios: number; totalIngresosFin: number; totalGastosFin: number
     utilidadBruta: number; utilidadOperacional: number; utilidad: number
   }
 }
@@ -238,7 +238,9 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
     activo = activo.filter(b => b.cuenta !== ANTIC)
     activo.push({ cuenta: ANTIC, nombre: `${antLine.nombre} (deudor)`, naturaleza: 'DEBITO', clase: '1',
       saldoAnterior: ant.deudor, debitoPeriodo: 0, creditoPeriodo: 0, saldoFinal: fin.deudor })
-    pasivo = [...pasivo, { cuenta: ANTIC, nombre: `${antLine.nombre} (acreedor)`, naturaleza: 'CREDITO', clase: '2',
+    // El saldo ACREEDOR (la empresa le debe al trabajador ese sobre-anticipo) es un pasivo real:
+    // se presenta bajo 238095 "Acreedores varios" (grupo 23), no bajo una cuenta del grupo 13.
+    pasivo = [...pasivo, { cuenta: '238095', nombre: 'Acreedores varios (sobre-anticipo a trabajadores)', naturaleza: 'CREDITO', clase: '2',
       saldoAnterior: ant.acreedor, debitoPeriodo: 0, creditoPeriodo: 0, saldoFinal: fin.acreedor }]
   }
   activo.sort((x, y) => x.cuenta.localeCompare(y.cuenta))
@@ -250,25 +252,32 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
   // ── ERI: separa operacional de financiero, con utilidad bruta y operacional ──
   //   41 ingreso operacional · 42 ingreso financiero/no oper · 6-7 costos ·
   //   51/52/… gasto operacional · 53 gasto financiero/no oper.
+  //   5297xx (gastos personales) se saca a un bloque aparte DESPUÉS de la utilidad
+  //   operacional ("Erogaciones a favor de los socios"), para que la utilidad
+  //   operacional refleje solo la operación real y sea un número utilizable.
   const sub = (b: SaldoPeriodo) => b.cuenta.slice(0, 2)
+  const esErogSocio  = (b: SaldoPeriodo) => b.cuenta.startsWith('5297')
   const ingresosOper = balance.filter(b => sub(b) === '41')
   const ingresosFin  = balance.filter(b => b.clase === '4' && sub(b) !== '41')
   const costos       = balance.filter(b => b.clase === '6' || b.clase === '7')
   const gastosFin    = balance.filter(b => sub(b) === '53')
-  const gastosOper   = balance.filter(b => b.clase === '5' && sub(b) !== '53')
+  const erogSocios   = balance.filter(esErogSocio)
+  const gastosOper   = balance.filter(b => b.clase === '5' && sub(b) !== '53' && !esErogSocio(b))
   const sumMov = (arr: SaldoPeriodo[]) => arr.reduce((s, b) => s + montoGrupo(b, true), 0)
   const totalIngresosOper = sumMov(ingresosOper), totalIngresosFin = sumMov(ingresosFin)
   const totalCostos = sumMov(costos), totalGastosOper = sumMov(gastosOper), totalGastosFin = sumMov(gastosFin)
+  const totalErogSocios = sumMov(erogSocios)
   const utilidadBruta       = totalIngresosOper - totalCostos
   const utilidadOperacional = utilidadBruta - totalGastosOper
-  const utilidad            = utilidadOperacional + totalIngresosFin - totalGastosFin
+  // La utilidad del ejercicio no cambia: las erogaciones a socios siguen restando, solo se reubican.
+  const utilidad            = utilidadOperacional - totalErogSocios + totalIngresosFin - totalGastosFin
 
   return {
     periodo, corte, diario, mayor, balance,
     esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad },
     eri: {
-      ingresosOper, costos, gastosOper, ingresosFin, gastosFin,
-      totalIngresosOper, totalCostos, totalGastosOper, totalIngresosFin, totalGastosFin,
+      ingresosOper, costos, gastosOper, erogSocios, ingresosFin, gastosFin,
+      totalIngresosOper, totalCostos, totalGastosOper, totalErogSocios, totalIngresosFin, totalGastosFin,
       utilidadBruta, utilidadOperacional, utilidad,
     },
   }

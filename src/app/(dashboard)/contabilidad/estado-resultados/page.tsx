@@ -80,6 +80,7 @@ export default async function EstadoResultadosPage({ searchParams }: { searchPar
           <Subtotal label="= Utilidad bruta" v={e.utilidadBruta} />
           <Grupo titulo="Gastos operacionales (admin. y personal)" cuentas={e.gastosOper} total={e.totalGastosOper} signo="− " />
           <Subtotal label="= Utilidad operacional" v={e.utilidadOperacional} />
+          <Grupo titulo="Erogaciones a favor de los socios" cuentas={e.erogSocios} total={e.totalErogSocios} signo="− " />
           <Grupo titulo="Ingresos financieros / no operacionales" cuentas={e.ingresosFin} total={e.totalIngresosFin} signo="+ " />
           <Grupo titulo="Gastos financieros / no operacionales" cuentas={e.gastosFin} total={e.totalGastosFin} signo="− " />
           <div className="bg-[#0F172A] text-white rounded-xl px-4 py-3 flex items-center justify-between">
