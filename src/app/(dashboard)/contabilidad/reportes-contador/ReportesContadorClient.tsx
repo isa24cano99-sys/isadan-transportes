@@ -30,7 +30,8 @@ const FILL_HEADER = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2
 
 // Escribe una hoja con formato: encabezado, títulos de columna en negrilla+relleno, datos con
 // formato numérico #,##0, panel inmovilizado bajo el encabezado y autofiltro. (ws = worksheet exceljs)
-function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: ReportesContador) {
+const FILL_SUBTOTAL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
+function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: ReportesContador, esSubtotal?: (r: Row) => boolean) {
   for (const r of encabezado(titulo, d)) ws.addRow(r)
   ws.getRow(1).font = { bold: true, size: 13 }
   ws.getRow(3).font = { bold: true, size: 12 }
@@ -43,8 +44,13 @@ function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: Rep
     c.alignment = { vertical: 'middle' }
   })
   for (let i = 1; i < aoa.length; i++) {
+    const sub = esSubtotal?.(aoa[i])
     const row = ws.addRow((aoa[i] as any[]).map(N))
-    row.eachCell((c: any) => { if (typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } } })
+    row.eachCell((c: any) => {
+      if (typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } }
+      // Filas de subtotal: negrilla + relleno gris + borde superior, para que NO se sumen a mano.
+      if (sub) { c.font = { bold: true, italic: true }; c.fill = FILL_SUBTOTAL; c.border = { top: { style: 'thin', color: { argb: 'FF9CA3AF' } } } }
+    })
   }
   cols.forEach((w, i) => { ws.getColumn(i + 1).width = w })
   // Panel inmovilizado bajo la fila de encabezado. topLeftCell EXPLÍCITO (A8) — no dejar que
@@ -137,22 +143,26 @@ function aoaESF(d: ReportesContador): Row[] {
   return rows
 }
 
+const montoERI = (b: SaldoPeriodo) => {
+  const c = b.cuenta.charAt(0)
+  return (c === '5' || c === '6' || c === '7') ? b.debitoPeriodo - b.creditoPeriodo : b.creditoPeriodo - b.debitoPeriodo
+}
 function aoaERI(d: ReportesContador): Row[] {
   const rows: Row[] = [['Grupo', 'Cuenta', 'Nombre', 'Valor del periodo']]
   const seccion = (titulo: string, arr: SaldoPeriodo[], total: number) => {
     rows.push([titulo, '', '', ''])
-    for (const b of arr) {
-      const clase = b.cuenta.charAt(0)
-      const debitNat = clase === '5' || clase === '6' || clase === '7'
-      const monto = debitNat ? b.debitoPeriodo - b.creditoPeriodo : b.creditoPeriodo - b.debitoPeriodo
-      rows.push(['', b.cuenta, b.nombre, monto])
-    }
+    for (const b of arr) rows.push(['', b.cuenta, b.nombre, montoERI(b)])
     rows.push(['', '', `TOTAL ${titulo}`, total])
   }
-  seccion('INGRESOS', d.eri.ingresos, d.eri.totalIngresos)
-  seccion('COSTOS', d.eri.costos, d.eri.totalCostos)
-  seccion('GASTOS', d.eri.gastos, d.eri.totalGastos)
-  rows.push(['', '', 'UTILIDAD (PÉRDIDA) DEL EJERCICIO', d.eri.utilidad])
+  const e = d.eri
+  seccion('INGRESOS OPERACIONALES', e.ingresosOper, e.totalIngresosOper)
+  seccion('COSTOS', e.costos, e.totalCostos)
+  rows.push(['', '', '= UTILIDAD BRUTA', e.utilidadBruta])
+  seccion('GASTOS OPERACIONALES (admin. y personal)', e.gastosOper, e.totalGastosOper)
+  rows.push(['', '', '= UTILIDAD OPERACIONAL', e.utilidadOperacional])
+  seccion('INGRESOS FINANCIEROS / NO OPERACIONALES', e.ingresosFin, e.totalIngresosFin)
+  seccion('GASTOS FINANCIEROS / NO OPERACIONALES', e.gastosFin, e.totalGastosFin)
+  rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL EJERCICIO', e.utilidad])
   return rows
 }
 
@@ -191,7 +201,12 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
         ['ESF', 'ESTADO DE SITUACIÓN FINANCIERA', aoaESF(data), [14, 12, 40, 16, 16, 16]],
         ['ERI', 'ESTADO DE RESULTADOS INTEGRAL', aoaERI(data), [14, 12, 40, 18]],
       ]
-      for (const [nombre, titulo, aoa, cols] of hojas) estilarHoja(wb.addWorksheet(nombre), titulo, aoa, cols, data)
+      // En el Libro Diario, las filas "· total" de cada asiento son subtotales — se marcan
+      // (negrilla+gris) para que no se sumen por error si alguien totaliza la columna a mano.
+      const esSubtotalDiario = (r: Row) => typeof r[1] === 'string' && (r[1] as string).includes('· total')
+      for (const [nombre, titulo, aoa, cols] of hojas) {
+        estilarHoja(wb.addWorksheet(nombre), titulo, aoa, cols, data, nombre === 'Libro Diario' ? esSubtotalDiario : undefined)
+      }
 
       const buf = await wb.xlsx.writeBuffer()
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })

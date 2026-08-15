@@ -185,7 +185,13 @@ export type ReportesContador = {
   mayor: CuentaMayorRep[]
   balance: SaldoPeriodo[]
   esf: { activo: SaldoPeriodo[]; pasivo: SaldoPeriodo[]; patrimonio: SaldoPeriodo[]; totalActivo: number; totalPasivo: number; totalPatrimonio: number; utilidad: number }
-  eri: { ingresos: SaldoPeriodo[]; costos: SaldoPeriodo[]; gastos: SaldoPeriodo[]; totalIngresos: number; totalCostos: number; totalGastos: number; utilidad: number }
+  eri: {
+    ingresosOper: SaldoPeriodo[]; costos: SaldoPeriodo[]; gastosOper: SaldoPeriodo[]
+    ingresosFin: SaldoPeriodo[]; gastosFin: SaldoPeriodo[]
+    totalIngresosOper: number; totalCostos: number; totalGastosOper: number
+    totalIngresosFin: number; totalGastosFin: number
+    utilidadBruta: number; utilidadOperacional: number; utilidad: number
+  }
 }
 
 // Monto de presentación con signo natural del grupo (activo/costo/gasto = D−C; pasivo/pat/ing = C−D)
@@ -198,31 +204,72 @@ const montoGrupo = (s: SaldoPeriodo, esResultado = false) => {
 
 export async function reportesContador(periodo: string): Promise<ReportesContador> {
   const corte = ultimoDiaMes(periodo)
+  const inicio = `${periodo}-01`
   const lineas = await fetchLineasReporte(corte)
 
   const diario  = diarioDesdeLineas(lineas, periodo)
   const mayor   = mayorDesdeLineas(lineas, periodo)
   const balance = saldosDesdeLineas(lineas, periodo)
 
-  // ESF: cuentas de balance (clase 1/2/3), saldo final acumulado
-  const activo     = balance.filter(b => b.clase === '1')
-  const pasivo     = balance.filter(b => b.clase === '2')
+  // ── ESF: cuentas de balance (clase 1/2/3), saldo final acumulado ──
+  let activo       = balance.filter(b => b.clase === '1')
+  let pasivo       = balance.filter(b => b.clase === '2')
   const patrimonio = balance.filter(b => b.clase === '3')
+
+  // 13301510 Anticipo a trabajadores: NO compensar — el saldo DEUDOR (conductores a los que
+  // se les adelantó) va al activo; el ACREEDOR (conductores que le deben a la empresa) al
+  // pasivo. Se separa por tercero, sin netear entre conductores.
+  const ANTIC = '13301510'
+  const antLine = activo.find(b => b.cuenta === ANTIC)
+  if (antLine) {
+    const split = (soloAnterior: boolean) => {
+      const m = new Map<string, number>()
+      for (const l of lineas) {
+        if (l.cuenta !== ANTIC) continue
+        if (soloAnterior && !(l.tipo === 'CA' || l.fecha < inicio)) continue
+        const k = l.terceroId ?? l.terceroNit ?? '—'
+        m.set(k, (m.get(k) ?? 0) + l.debito - l.credito)
+      }
+      let deudor = 0, acreedor = 0
+      for (const v of m.values()) { if (v > 0) deudor += v; else acreedor += -v }
+      return { deudor, acreedor }
+    }
+    const fin = split(false), ant = split(true)
+    activo = activo.filter(b => b.cuenta !== ANTIC)
+    activo.push({ cuenta: ANTIC, nombre: `${antLine.nombre} (deudor)`, naturaleza: 'DEBITO', clase: '1',
+      saldoAnterior: ant.deudor, debitoPeriodo: 0, creditoPeriodo: 0, saldoFinal: fin.deudor })
+    pasivo = [...pasivo, { cuenta: ANTIC, nombre: `${antLine.nombre} (acreedor)`, naturaleza: 'CREDITO', clase: '2',
+      saldoAnterior: ant.acreedor, debitoPeriodo: 0, creditoPeriodo: 0, saldoFinal: fin.acreedor }]
+  }
+  activo.sort((x, y) => x.cuenta.localeCompare(y.cuenta))
+  pasivo.sort((x, y) => x.cuenta.localeCompare(y.cuenta))
   const totalActivo     = activo.reduce((s, b) => s + b.saldoFinal, 0)
   const totalPasivo     = pasivo.reduce((s, b) => s + b.saldoFinal, 0)
   const totalPatrimonio = patrimonio.reduce((s, b) => s + b.saldoFinal, 0)
 
-  // ERI: cuentas de resultado (4/5/6/7), MOVIMIENTO del periodo (excluye cierre CC — no hay CC aún)
-  const ingresos = balance.filter(b => b.clase === '4')
-  const costos   = balance.filter(b => b.clase === '6' || b.clase === '7')
-  const gastos   = balance.filter(b => b.clase === '5')
+  // ── ERI: separa operacional de financiero, con utilidad bruta y operacional ──
+  //   41 ingreso operacional · 42 ingreso financiero/no oper · 6-7 costos ·
+  //   51/52/… gasto operacional · 53 gasto financiero/no oper.
+  const sub = (b: SaldoPeriodo) => b.cuenta.slice(0, 2)
+  const ingresosOper = balance.filter(b => sub(b) === '41')
+  const ingresosFin  = balance.filter(b => b.clase === '4' && sub(b) !== '41')
+  const costos       = balance.filter(b => b.clase === '6' || b.clase === '7')
+  const gastosFin    = balance.filter(b => sub(b) === '53')
+  const gastosOper   = balance.filter(b => b.clase === '5' && sub(b) !== '53')
   const sumMov = (arr: SaldoPeriodo[]) => arr.reduce((s, b) => s + montoGrupo(b, true), 0)
-  const totalIngresos = sumMov(ingresos), totalCostos = sumMov(costos), totalGastos = sumMov(gastos)
-  const utilidad = totalIngresos - totalCostos - totalGastos
+  const totalIngresosOper = sumMov(ingresosOper), totalIngresosFin = sumMov(ingresosFin)
+  const totalCostos = sumMov(costos), totalGastosOper = sumMov(gastosOper), totalGastosFin = sumMov(gastosFin)
+  const utilidadBruta       = totalIngresosOper - totalCostos
+  const utilidadOperacional = utilidadBruta - totalGastosOper
+  const utilidad            = utilidadOperacional + totalIngresosFin - totalGastosFin
 
   return {
     periodo, corte, diario, mayor, balance,
     esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad },
-    eri: { ingresos, costos, gastos, totalIngresos, totalCostos, totalGastos, utilidad },
+    eri: {
+      ingresosOper, costos, gastosOper, ingresosFin, gastosFin,
+      totalIngresosOper, totalCostos, totalGastosOper, totalIngresosFin, totalGastosFin,
+      utilidadBruta, utilidadOperacional, utilidad,
+    },
   }
 }
