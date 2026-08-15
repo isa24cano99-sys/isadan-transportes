@@ -47,7 +47,9 @@ function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: Rep
     row.eachCell((c: any) => { if (typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } } })
   }
   cols.forEach((w, i) => { ws.getColumn(i + 1).width = w })
-  ws.views = [{ state: 'frozen', ySplit: headerIdx }]
+  // Panel inmovilizado bajo la fila de encabezado. topLeftCell EXPLÍCITO (A8) — no dejar que
+  // exceljs lo derive (en algún entorno lo calculó mal, p.ej. A67 en Balance).
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: headerIdx, topLeftCell: `A${headerIdx + 1}`, activeCell: `A${headerIdx + 1}` }]
   ws.autoFilter = { from: { row: headerIdx, column: 1 }, to: { row: headerIdx, column: header.length } }
 }
 
