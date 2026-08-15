@@ -236,11 +236,12 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
     }
     const fin = split(false), ant = split(true)
     activo = activo.filter(b => b.cuenta !== ANTIC)
-    activo.push({ cuenta: ANTIC, nombre: `${antLine.nombre} (deudor)`, naturaleza: 'DEBITO', clase: '1',
+    activo.push({ cuenta: ANTIC, nombre: `${antLine.nombre} (saldo deudor)`, naturaleza: 'DEBITO', clase: '1',
       saldoAnterior: ant.deudor, debitoPeriodo: 0, creditoPeriodo: 0, saldoFinal: fin.deudor })
-    // El saldo ACREEDOR (la empresa le debe al trabajador ese sobre-anticipo) es un pasivo real:
-    // se presenta bajo 238095 "Acreedores varios" (grupo 23), no bajo una cuenta del grupo 13.
-    pasivo = [...pasivo, { cuenta: '238095', nombre: 'Acreedores varios (sobre-anticipo a trabajadores)', naturaleza: 'CREDITO', clase: '2',
+    // El saldo ACREEDOR se conserva bajo el MISMO código 13301510 (no se inventa una cuenta 23):
+    // es una desagregación de presentación. La nota al pie del ESF lo explica y aclara que el
+    // Balance de Comprobación muestra esta cuenta consolidada en su saldo neto.
+    pasivo = [...pasivo, { cuenta: ANTIC, nombre: `${antLine.nombre} (saldo acreedor)`, naturaleza: 'CREDITO', clase: '2',
       saldoAnterior: ant.acreedor, debitoPeriodo: 0, creditoPeriodo: 0, saldoFinal: fin.acreedor }]
   }
   activo.sort((x, y) => x.cuenta.localeCompare(y.cuenta))
@@ -256,7 +257,10 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
   //   operacional ("Erogaciones a favor de los socios"), para que la utilidad
   //   operacional refleje solo la operación real y sea un número utilizable.
   const sub = (b: SaldoPeriodo) => b.cuenta.slice(0, 2)
-  const esErogSocio  = (b: SaldoPeriodo) => b.cuenta.startsWith('5297')
+  // Erogaciones a favor de los socios: familia 5297xx + 52959510/52959511 (también gasto
+  // personal del socio, no operativo — señalado por el revisor).
+  const EROG_EXTRA = new Set(['52959510', '52959511'])
+  const esErogSocio  = (b: SaldoPeriodo) => b.cuenta.startsWith('5297') || EROG_EXTRA.has(b.cuenta)
   const ingresosOper = balance.filter(b => sub(b) === '41')
   const ingresosFin  = balance.filter(b => b.clase === '4' && sub(b) !== '41')
   const costos       = balance.filter(b => b.clase === '6' || b.clase === '7')

@@ -145,6 +145,16 @@ function aoaESF(d: ReportesContador): Row[] {
   rows.push(['', '', 'Utilidad (pérdida) del ejercicio', '', '', d.esf.utilidad])
   rows.push(['', '', 'TOTAL PATRIMONIO', '', '', d.esf.totalPatrimonio + d.esf.utilidad])
   rows.push(['', '', 'PASIVO + PATRIMONIO', '', '', d.esf.totalPasivo + d.esf.totalPatrimonio + d.esf.utilidad])
+  // Nota al pie: desagregación del anticipo a trabajadores (13301510) en el ESF vs. su saldo
+  // neto en el Balance de Comprobación. Cifras dinámicas tomadas del propio split.
+  const deu = d.esf.activo.find(b => b.cuenta === '13301510')?.saldoFinal
+  const acr = d.esf.pasivo.find(b => b.cuenta === '13301510')?.saldoFinal
+  if (deu != null && acr != null) {
+    rows.push([])
+    rows.push(['Nota', '', `El saldo neto de la cuenta 13301510 (${formatCOP(acr - deu)}, crédito) se presenta desagregado en el ESF: ` +
+      `${formatCOP(deu)} como saldo deudor (Activo) y ${formatCOP(acr)} como saldo acreedor (Pasivo), para no compensar ` +
+      `partidas de distinta naturaleza. En el Balance de Comprobación esta cuenta aparece consolidada en su saldo neto.`])
+  }
   return rows
 }
 

@@ -101,6 +101,19 @@ export default async function EstadoSituacionPage({ searchParams }: { searchPara
               {cuadra ? '✓ Activo = Pasivo + Patrimonio' : '⚠ No cuadra'}
             </div>
           </div>
+
+          {(() => {
+            const deu = e.activo.find(b => b.cuenta === '13301510')?.saldoFinal
+            const acr = e.pasivo.find(b => b.cuenta === '13301510')?.saldoFinal
+            if (deu == null || acr == null) return null
+            return (
+              <p className="text-xs text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-4 py-3 leading-relaxed">
+                <span className="font-semibold text-[#475569]">Nota:</span> El saldo neto de la cuenta 13301510 ({formatCOP(acr - deu)}, crédito)
+                se presenta desagregado en el ESF: {formatCOP(deu)} como saldo deudor (Activo) y {formatCOP(acr)} como saldo acreedor (Pasivo),
+                para no compensar partidas de distinta naturaleza. En el Balance de Comprobación esta cuenta aparece consolidada en su saldo neto.
+              </p>
+            )
+          })()}
         </div>
       )}
     </div>
