@@ -90,7 +90,11 @@ export default function ViajeDetailClient({
   const alreadyInvoiced = !!trip.dataico_invoice_id || !!invoiceResult
   const hasCreditNote   = !!ncResult
 
-  const facturaNumero = invoiceResult?.number ?? initialInvNum ?? trip.dataico_invoice_id ?? ''
+  // Nunca mostrar el UUID de Dataico crudo como si fuera folio (confundía: se veía "019f923d…"
+  // en vez de un FEITxx). El flujo Dataico-API guarda el UUID en dataico_invoice_id; el folio real
+  // vive en invoices (initialInvNum). Si solo hay UUID y no hay folio, NO es un folio.
+  const esUuidDataico = (s?: string | null) => !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(s)
+  const facturaNumero = invoiceResult?.number ?? initialInvNum ?? (esUuidDataico(trip.dataico_invoice_id) ? '' : trip.dataico_invoice_id) ?? ''
 
   const handleMarcarAnulada = async () => {
     setAnulando(true)
@@ -248,7 +252,11 @@ export default function ViajeDetailClient({
           {alreadyInvoiced && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-50 text-green-700 border border-green-200">
               <CheckCircle size={11} />
-              {invoiceResult?.number ? formatInvoiceNumber(invoiceResult.number) : (trip.dataico_invoice_id?.slice(0, 8) ?? 'Facturado')}
+              {invoiceResult?.number
+                ? formatInvoiceNumber(invoiceResult.number)
+                : esUuidDataico(trip.dataico_invoice_id)
+                  ? 'Facturado (folio no registrado)'
+                  : (trip.dataico_invoice_id ? formatInvoiceNumber(trip.dataico_invoice_id) : 'Facturado')}
               {invoiceResult?.pdfUrl && (
                 <a href={invoiceResult.pdfUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-green-600 hover:text-green-800">
                   <ExternalLink size={10} />
