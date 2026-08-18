@@ -38,7 +38,9 @@ async function getBankDetail(id: string) {
       .from('gasto_consolidado_items')
       .select('bank_transaction_id, journal_entries!inner(tipo_comprobante, consecutivo, estado)')
       .eq('journal_entries.estado', 'CONTABILIZADO')
-      .order('id', { ascending: true }).range(from, to)),
+      // gasto_consolidado_items es tabla puente SIN columna `id`: ordenar por su clave
+      // compuesta (journal_entry_id, bank_transaction_id). `.order('id')` daba 400 → 500.
+      .order('journal_entry_id', { ascending: true }).order('bank_transaction_id', { ascending: true }).range(from, to)),
     // (c) FE vinculada: el CG se posteó desde la factura DIAN
     fetchAll<any>((from, to) => supabase
       .from('journal_entries')
