@@ -6,11 +6,40 @@ import { formatCOP, formatDate, formatInvoiceNumber } from '@/lib/utils'
 import Link from 'next/link'
 import {
   TruckIcon, Pencil, Eye, Search, X,
-  FileText, Loader2, CheckCircle, Filter,
+  FileText, Loader2, CheckCircle, Filter, Download,
 } from 'lucide-react'
 import { generarFacturaAction } from './[id]/actions'
+import { getViajesExportData, type ViajeExportRow } from './export-actions'
 import { useUrlState } from '@/lib/useUrlState'
 import { nombreTercero } from '@/lib/tercero-nombre'
+
+// Columnas del export enriquecido (nombres legibles, sin UUIDs). num=true → formato #,##0.
+const EXPORT_COLS: { h: string; get: (r: ViajeExportRow) => string | number; w: number; num?: boolean }[] = [
+  { h: '# Viaje',             get: r => r.trip_number,                                    w: 12 },
+  { h: 'Estado',              get: r => r.status,                                         w: 12 },
+  { h: 'Manifiesto',          get: r => r.manifest_number ?? '',                          w: 14 },
+  { h: 'Autorización',        get: r => r.manifest_auth ?? '',                            w: 14 },
+  { h: 'Fecha cargue',        get: r => r.load_date ?? '',                                w: 12 },
+  { h: 'Fecha entrega',       get: r => r.delivery_date ?? '',                            w: 12 },
+  { h: 'Origen',              get: r => r.origin ?? '',                                   w: 20 },
+  { h: 'Destino',             get: r => r.destination ?? '',                              w: 20 },
+  { h: 'Cliente',             get: r => r.cliente,                                        w: 30 },
+  { h: 'NIT cliente',         get: r => r.nit_cliente,                                    w: 14 },
+  { h: 'Conductor',           get: r => r.conductor,                                      w: 22 },
+  { h: 'Placa',               get: r => r.placa,                                          w: 10 },
+  { h: 'Vehículo',            get: r => r.vehiculo,                                       w: 18 },
+  { h: 'Contenido',           get: r => r.load_content ?? '',                             w: 18 },
+  { h: 'Peso (kg)',           get: r => r.weight_kg ?? '',                                w: 12, num: true },
+  { h: 'Precio/ton',          get: r => r.price_per_ton ?? '',                            w: 12, num: true },
+  { h: 'Flete',               get: r => r.freight_value ?? '',                            w: 14, num: true },
+  { h: 'Anticipo',            get: r => r.advance_amount ?? '',                           w: 14, num: true },
+  { h: 'Factura',             get: r => r.factura,                                        w: 12 },
+  { h: 'Fecha factura',       get: r => r.fecha_factura ?? '',                            w: 12 },
+  { h: 'Estado legalización', get: r => r.estado_legalizacion,                            w: 18 },
+  { h: 'Notas',               get: r => r.notes ?? '',                                    w: 24 },
+  { h: 'Creado',              get: r => (r.created_at ? r.created_at.slice(0, 10) : ''),  w: 12 },
+  { h: 'Actualizado',         get: r => (r.updated_at ? r.updated_at.slice(0, 10) : ''),  w: 12 },
+]
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   PLANEADO:   { label: 'Planeado',   className: 'bg-gray-100 text-gray-600' },
@@ -73,6 +102,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
   const [invoicing,  setInvoicing]    = useState<Set<string>>(new Set())
   const [invoiceErr, setInvoiceErr]   = useState<Record<string, string>>({})
   const [invoiceOk,  setInvoiceOk]    = useState<Record<string, string>>({})
+  const [exporting,  setExporting]    = useState(false)
 
   const porFacturar = useMemo(
     () => trips.filter(t => t.status === 'FINALIZADO' && !t.dataico_invoice_id),
@@ -142,6 +172,44 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
     }
   }
 
+  // Exporta a Excel EXACTAMENTE lo que está en pantalla (tab + filtros), en el mismo orden.
+  // Trae los datos completos (fetchAll en el server) y se queda con las filas visibles por id.
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const all = await getViajesExportData()
+      const byId = new Map(all.map(r => [r.id, r]))
+      const rows = filtered.map(t => byId.get(t.id)).filter(Boolean) as ViajeExportRow[]
+      const ExcelJS: any = await import('exceljs')
+      const Workbook = ExcelJS.Workbook ?? ExcelJS.default?.Workbook
+      const wb = new Workbook()
+      const ws = wb.addWorksheet('Viajes')
+      const hr = ws.addRow(EXPORT_COLS.map(c => c.h))
+      hr.eachCell((c: any) => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } }
+        c.alignment = { vertical: 'middle' }
+      })
+      for (const r of rows) {
+        const row = ws.addRow(EXPORT_COLS.map(c => c.get(r)))
+        row.eachCell((c: any, i: number) => {
+          if (EXPORT_COLS[i - 1].num && typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } }
+        })
+      }
+      EXPORT_COLS.forEach((c, i) => { ws.getColumn(i + 1).width = c.w })
+      ws.views = [{ state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }]
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: EXPORT_COLS.length } }
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `viajes-${new Date().toISOString().slice(0, 10)}.xlsx`; a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const TABS = [
     { id: 'todos'        as Tab, label: 'Todos',        count: trips.length        },
     { id: 'por_facturar' as Tab, label: 'Por facturar', count: porFacturar.length  },
@@ -166,6 +234,15 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
             }`}>{t.count}</span>
           </button>
         ))}
+      </div>
+
+      {/* ── Exportar (respeta tab + filtros activos) ── */}
+      <div className="flex justify-end mb-3">
+        <button onClick={handleExport} disabled={exporting || filtered.length === 0}
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#374151] hover:bg-[#F8FAFC] disabled:opacity-50 transition-colors">
+          {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {exporting ? 'Generando…' : `Exportar a Excel (${filtered.length})`}
+        </button>
       </div>
 
       {/* ── Filtros ── */}
