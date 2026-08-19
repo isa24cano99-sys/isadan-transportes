@@ -1,19 +1,14 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
 import Link from 'next/link'
-import { FileText, Receipt, Inbox, ArrowRight } from 'lucide-react'
+import { FileText, Inbox, ArrowRight } from 'lucide-react'
 import { formatCOP } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
 async function getStats() {
-  const year = new Date().getFullYear()
-  const from = `${year}-01-01T00:00:00`
-  const to   = `${year}-12-31T23:59:59`
-
-  const [invRows, tollRows, dianRes] = await Promise.all([
+  const [invRows, dianRes] = await Promise.all([
     fetchAll<any>((f, t) => supabase.from('invoices').select('total_amount, dian_status, credit_note_id, credit_note_number').eq('invoice_type', 'EMITIDA').order('id', { ascending: true }).range(f, t)),
-    fetchAll<any>((f, t) => supabase.from('toll_transactions').select('total').gte('pass_date', from).lte('pass_date', to).order('id', { ascending: true }).range(f, t)),
     supabase.from('dian_invoices_import').select('id', { count: 'exact', head: true }),
   ])
 
@@ -22,15 +17,9 @@ async function getStats() {
     .filter(f => !(f.dian_status === 'ANULADA' || f.credit_note_id || f.credit_note_number))
   const totalFacturado = facturas.reduce((s, f) => s + Number(f.total_amount ?? 0), 0)
 
-  const tolls = tollRows as { total: number | null }[]
-  const totalPeajes = tolls.reduce((s, t) => s + Number(t.total ?? 0), 0)
-
   return {
-    year,
     facturasCount:  facturas.length,
     totalFacturado,
-    peajesCount:    tolls.length,
-    totalPeajes,
     dianCount:      dianRes.count ?? 0,
   }
 }
@@ -51,17 +40,6 @@ export default async function FacturacionPage() {
       ],
     },
     {
-      href: '/facturas/peajes',
-      icon: Receipt,
-      accent: 'bg-emerald-50 text-emerald-600',
-      title: 'Peajes Flypass',
-      desc: `Peajes importados · ${s.year}`,
-      stats: [
-        { label: 'Total peajes', value: formatCOP(s.totalPeajes) },
-        { label: 'Movimientos', value: String(s.peajesCount) },
-      ],
-    },
-    {
       href: '/contabilidad/conciliacion-costos',
       icon: Inbox,
       accent: 'bg-amber-50 text-amber-600',
@@ -77,10 +55,10 @@ export default async function FacturacionPage() {
     <div className="p-4 md:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-[#0F172A]">Facturación</h1>
-        <p className="text-sm text-[#64748B] mt-0.5">Facturas de clientes, peajes Flypass y facturas DIAN recibidas.</p>
+        <p className="text-sm text-[#64748B] mt-0.5">Facturas de clientes y facturas DIAN recibidas.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {cards.map(({ href, icon: Icon, accent, title, desc, stats }) => (
           <Link
             key={href}

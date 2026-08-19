@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import {
-  Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, Briefcase, Coins,
+  Calculator, FileCheck, Banknote, ArrowLeftRight, Coins,
   TrafficCone, CreditCard, UsersRound, Lock, ChevronRight, ShieldCheck, type LucideIcon,
 } from 'lucide-react'
 
@@ -17,26 +17,24 @@ type Fase = { titulo: string; pasos: Paso[] }
 const FASES: Fase[] = [
   { titulo: 'Facturación', pasos: [
     { n: 1, label: 'Causación', desc: 'Reconocer el ingreso del viaje', href: '/contabilidad/causaciones', icon: Calculator },
-    { n: 2, label: 'Emisión FEIT', desc: 'Emitir la factura electrónica', href: '/contabilidad/emision-facturas', icon: FileCheck },
+    { n: 2, label: 'Facturación', desc: 'Emitir/verificar la factura contra la DIAN', href: '/contabilidad/facturacion', icon: FileCheck },
   ] },
   { titulo: 'Cartera', pasos: [
     { n: 3, label: 'Recibo anticipo', desc: 'Registrar el anticipo del cliente', href: '/contabilidad/recibos-anticipo', icon: Banknote },
     { n: 4, label: 'Cruce cartera', desc: 'Aplicar anticipo contra la factura', href: '/contabilidad/cruce-cartera', icon: ArrowLeftRight },
   ] },
   { titulo: 'Costos del conductor', pasos: [
-    { n: 5, label: 'Porcentaje', desc: 'Costo del porcentaje del conductor', href: '/contabilidad/porcentaje-conductor', icon: Percent },
-    { n: 6, label: 'Comisión empresa', desc: 'Comisión reconocida en la operación', href: '/contabilidad/comision-empresa', icon: Briefcase },
-    { n: 7, label: 'Anticipo conductor', desc: 'Entregas de plata al conductor', href: '/contabilidad/anticipo-conductor', icon: Coins },
+    { n: 5, label: 'Anticipo conductor', desc: 'Entregas de plata al conductor', href: '/contabilidad/anticipo-conductor', icon: Coins },
   ] },
   { titulo: 'Costos de proveedor', pasos: [
-    { n: 8, label: 'Peajes (F2X)', desc: 'Causación mensual de peajes', href: '/contabilidad/peajes', icon: TrafficCone },
-    { n: 9, label: 'Pagos y gastos bancarios', desc: 'Pagar proveedores y contabilizar gastos directos del banco', href: '/contabilidad/pago-proveedores', icon: CreditCard },
-    { n: 10, label: 'Conciliar costos DIAN', desc: 'Clasificar otros costos de la DIAN', href: '/contabilidad/conciliacion-costos', icon: FileCheck },
+    { n: 6, label: 'Peajes (F2X)', desc: 'Causación mensual de peajes', href: '/contabilidad/peajes', icon: TrafficCone },
+    { n: 7, label: 'Pagos y gastos bancarios', desc: 'Pagar proveedores y contabilizar gastos directos del banco', href: '/contabilidad/pago-proveedores', icon: CreditCard },
+    { n: 8, label: 'Conciliar costos DIAN', desc: 'Clasificar otros costos de la DIAN', href: '/contabilidad/conciliacion-costos', icon: FileCheck },
   ] },
   { titulo: 'Nómina y cierre', pasos: [
-    { n: 11, label: 'Nómina mensual', desc: 'Capturar la nómina del mes', href: '/contabilidad/nomina-mensual', icon: UsersRound },
-    { n: 12, label: 'Seguridad social', desc: 'Consolidar aportes y pagar a Aportes en Línea', href: '/contabilidad/seguridad-social', icon: ShieldCheck },
-    { n: 13, label: 'Cierre de periodo', desc: 'Cerrar el mes y trasladar el resultado', href: '/contabilidad/cierre-periodo', icon: Lock },
+    { n: 9, label: 'Nómina mensual', desc: 'Capturar la nómina del mes', href: '/contabilidad/nomina-mensual', icon: UsersRound },
+    { n: 10, label: 'Seguridad social', desc: 'Consolidar aportes y pagar a Aportes en Línea', href: '/contabilidad/seguridad-social', icon: ShieldCheck },
+    { n: 11, label: 'Cierre de periodo', desc: 'Cerrar el mes y trasladar el resultado', href: '/contabilidad/cierre-periodo', icon: Lock },
   ] },
 ]
 

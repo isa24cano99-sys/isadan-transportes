@@ -578,7 +578,6 @@ export async function marcarFacturaAnuladaManualAction(
 
   revalidatePath(`/viajes/${tripId}`)
   revalidatePath('/viajes')
-  revalidatePath('/reportes')
   revalidatePath('/facturas', 'layout')
   return { ok: true, invoiceNumber: inv?.invoice_number ?? undefined }
 }

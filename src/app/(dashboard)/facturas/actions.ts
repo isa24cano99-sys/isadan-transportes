@@ -202,7 +202,6 @@ export async function importarLibroDiarioDataicoAction(file: File): Promise<Libr
 
   revalidatePath('/facturas')
   revalidatePath('/facturas/clientes')
-  revalidatePath('/reportes')
   return {
     ok: true,
     facturas: emitidas.length,

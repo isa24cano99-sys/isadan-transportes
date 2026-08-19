@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
   Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
-  Wallet, BarChart3, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, Percent, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Briefcase, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
+  Wallet, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
 } from 'lucide-react'
 
 type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string }
@@ -38,11 +38,8 @@ const sections: NavSection[] = [
     { href: '/contabilidad/guia',              label: 'Guía / Mapa',      icon: Map },
     { href: '/contabilidad/causaciones',       label: 'Causaciones',      icon: Calculator },
     { href: '/contabilidad/facturacion',       label: 'Facturación',      icon: FileCheck },
-    { href: '/contabilidad/emision-facturas',  label: 'Emisión FEIT',     icon: FileCheck },
     { href: '/contabilidad/recibos-anticipo',  label: 'Recibos anticipo', icon: Banknote },
     { href: '/contabilidad/cruce-cartera',     label: 'Cruce cartera',    icon: ArrowLeftRight },
-    { href: '/contabilidad/porcentaje-conductor', label: 'Porcentaje cond.', icon: Percent },
-    { href: '/contabilidad/comision-empresa',  label: 'Comisión empresa', icon: Briefcase },
     { href: '/contabilidad/nomina-mensual',    label: 'Nómina mensual',   icon: UsersRound },
     { href: '/contabilidad/seguridad-social',  label: 'Seguridad social', icon: ShieldCheck },
     { href: '/contabilidad/anticipo-conductor', label: 'Anticipo cond.',  icon: Coins },
@@ -58,7 +55,6 @@ const sections: NavSection[] = [
     { href: '/contabilidad/cierre-periodo',    label: 'Cierre de periodo', icon: Lock },
     { href: '/contabilidad/exogena-consulta',  label: 'Exógena (consulta)', icon: FileSpreadsheet },
     { href: '/impuesto',                       label: 'Impuesto SIMPLE',  icon: Receipt },
-    { href: '/reportes',                       label: 'Estado result. (op.)', icon: BarChart3, badge: 'legacy' },
   ] },
 ]
 
