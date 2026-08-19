@@ -35,6 +35,7 @@ export default function ViajeDetailClient({
   creditNoteNumber: initialCreditNoteNumber,
   manifestPdfUrl,
   fleteWarning,
+  anticipoCliente,
   allVehicles,
   allDrivers,
 }: {
@@ -45,6 +46,7 @@ export default function ViajeDetailClient({
   creditNoteNumber: string | null
   manifestPdfUrl: string | null
   fleteWarning: { legFreight: number; manifestFreight: number } | null
+  anticipoCliente: number | null
   allVehicles: VehicleOption[]
   allDrivers: DriverOption[]
 }) {
@@ -417,7 +419,16 @@ export default function ViajeDetailClient({
             </div>
           )}
           {trip.advance_amount > 0 && (
-            <Field label="Anticipo">{formatCOP(trip.advance_amount)}</Field>
+            <Field label="Anticipo (este viaje)">{formatCOP(trip.advance_amount)}</Field>
+          )}
+          {anticipoCliente != null && (
+            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3 py-2">
+              <p className="text-[10px] font-semibold text-[#64748B] uppercase tracking-wide">Anticipo disponible del cliente (total)</p>
+              <p className="text-sm font-bold text-[#0F172A] tabular-nums mt-0.5">{formatCOP(anticipoCliente)}</p>
+              <p className="text-[10px] text-[#94A3B8] mt-0.5 leading-tight">
+                Saldo del cliente en 28050510 — es el total del cliente, <strong>no de este viaje</strong>. Un mismo anticipo puede cubrir varios viajes.
+              </p>
+            </div>
           )}
           {trip.weight_kg != null && (
             <Field label="Peso / Precio por ton">
@@ -505,7 +516,7 @@ export default function ViajeDetailClient({
             )}
             {trip.advance_amount > 0 && (
               <div>
-                <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide">Anticipo</p>
+                <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wide">Anticipo (este viaje)</p>
                 <p className="text-sm text-[#0F172A] mt-0.5">{formatCOP(trip.advance_amount)}</p>
               </div>
             )}

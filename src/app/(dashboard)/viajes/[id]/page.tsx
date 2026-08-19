@@ -1,8 +1,23 @@
 import Link from 'next/link'
 import { ArrowLeft, PackageX } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { fetchAll } from '@/lib/supabase-fetch'
 import ViajeDetailClient from './client'
 import { getTripAction } from './actions'
+
+// Anticipo disponible del cliente: saldo de 28050510 (crédito − débito) para el tercero.
+// OJO: es a nivel CLIENTE, no de este viaje — el anticipo se recibe por tercero y puede
+// cubrir varios viajes; no hay vínculo anticipo↔manifiesto en el modelo.
+async function getAnticipoCliente(terceroId: string): Promise<number> {
+  const lineas = await fetchAll<any>((from, to) => supabase
+    .from('journal_entry_lines')
+    .select('debito, credito, journal_entries!inner(estado)')
+    .eq('cuenta_puc', '28050510')
+    .eq('tercero_id', terceroId)
+    .eq('journal_entries.estado', 'CONTABILIZADO')
+    .order('id', { ascending: true }).range(from, to))
+  return lineas.reduce((s, l) => s + (Number(l.credito) || 0) - (Number(l.debito) || 0), 0)
+}
 
 export default async function ViajeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -68,6 +83,9 @@ export default async function ViajeDetailPage({ params }: { params: Promise<{ id
     manifestPdfUrl = data?.signedUrl ?? null
   }
 
+  // Anticipo TOTAL disponible del cliente (28050510) — null si el viaje no tiene tercero enlazado.
+  const anticipoCliente = trip.tercero_id ? await getAnticipoCliente(trip.tercero_id) : null
+
   return (
     <ViajeDetailClient
       trip={trip}
@@ -77,6 +95,7 @@ export default async function ViajeDetailPage({ params }: { params: Promise<{ id
       creditNoteNumber={creditNoteNumber}
       manifestPdfUrl={manifestPdfUrl}
       fleteWarning={fleteWarning}
+      anticipoCliente={anticipoCliente}
       allVehicles={vehiclesRes.data ?? []}
       allDrivers={driversRes.data ?? []}
     />

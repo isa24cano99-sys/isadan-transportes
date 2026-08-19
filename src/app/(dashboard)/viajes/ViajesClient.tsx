@@ -52,6 +52,11 @@ type Tab = 'todos' | 'por_facturar' | 'facturados'
 const nombreCliente = (t: Trip): string =>
   (t.terceros ? nombreTercero(t.terceros) : '') || t.clients?.name || ''
 
+// Anticipo POR VIAJE (del manifiesto, trips.advance_amount). Vacío/0 → "—" (sin dato),
+// para no simular un $0 real. Es distinto del anticipo del cliente (28050510), que vive
+// a nivel tercero y solo se muestra en la ficha individual.
+const fmtAnticipo = (v: number | null | undefined) => (v && v > 0 ? formatCOP(v) : '—')
+
 export default function ViajesClient({ trips }: { trips: Trip[] }) {
   const router = useRouter()
 
@@ -459,6 +464,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                   <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Conductor</th>
                   <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider hidden lg:table-cell">Fecha</th>
                   <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Flete</th>
+                  <th className="text-right px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Anticipo</th>
                   <th className="text-left px-3 py-2 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">Estado</th>
                   <th className="px-3 py-2"></th>
                 </tr>
@@ -466,7 +472,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
               <tbody className="divide-y divide-[#E2E8F0]">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-12">
+                    <td colSpan={11} className="text-center py-12">
                       <TruckIcon size={32} className="text-[#CBD5E1] mx-auto mb-3" />
                       <p className="text-xs text-[#64748B]">
                         {trips.length === 0 ? 'No hay viajes registrados' : 'Sin resultados para los filtros aplicados'}
@@ -502,6 +508,7 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                       <td className="px-3 py-2 text-xs text-[#0F172A] hidden lg:table-cell">{trip.drivers?.full_name}</td>
                       <td className="px-3 py-2 text-xs text-[#64748B] hidden lg:table-cell">{formatDate(trip.load_date)}</td>
                       <td className="px-3 py-2 text-xs font-semibold text-[#0F172A] text-right">{formatCOP(trip.freight_value)}</td>
+                      <td className="px-3 py-2 text-xs text-right text-[#475569] tabular-nums">{fmtAnticipo(trip.advance_amount)}</td>
                       <td className="px-3 py-2">
                         <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${st.className}`}>{st.label}</span>
                       </td>
@@ -558,9 +565,12 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
                     {trip.manifest_number && <span className="text-xs text-[#94A3B8]">MF: {trip.manifest_number}</span>}
                   </div>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-sm font-bold text-[#0F172A]">{formatCOP(trip.freight_value)}</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-bold text-[#0F172A]">{formatCOP(trip.freight_value)}</span>
+                      <span className="text-[11px] text-[#94A3B8]">Ant. {fmtAnticipo(trip.advance_amount)}</span>
+                    </div>
                     {nombreCliente(trip) && (
-                      <span className="text-xs text-[#94A3B8] truncate max-w-[140px]">{nombreCliente(trip)}</span>
+                      <span className="text-xs text-[#94A3B8] truncate max-w-[120px]">{nombreCliente(trip)}</span>
                     )}
                   </div>
                 </div>

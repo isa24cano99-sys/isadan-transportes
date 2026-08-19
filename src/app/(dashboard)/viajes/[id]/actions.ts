@@ -33,6 +33,7 @@ export type TripDetail = {
   notes: string | null
   status: string
   dataico_invoice_id: string | null
+  tercero_id: string | null
   clients: { id: string; name: string; nit: string | null; email: string | null } | null
   vehicles: { id: string; plate: string; brand: string; model: string } | null
   drivers: { id: string; full_name: string } | null
@@ -45,7 +46,7 @@ export async function getTripAction(id: string): Promise<TripDetail | null> {
       id, trip_number, manifest_auth, manifest_number, manifest_pdf_path,
       origin, destination, load_date,
       freight_value, advance_amount, weight_kg, price_per_ton, load_content,
-      notes, status, dataico_invoice_id,
+      notes, status, dataico_invoice_id, tercero_id,
       clients(id, name, nit, email),
       vehicles(id, plate, brand, model),
       drivers(id, full_name)
