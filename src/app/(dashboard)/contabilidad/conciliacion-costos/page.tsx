@@ -1,24 +1,41 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
 import { facturasConEstado } from '@/lib/facturas-estado'
+import Link from 'next/link'
 import ConciliacionCostosClient, { type ItemCosto, type CuentaCosto, type EgresoBanco } from './ConciliacionCostosClient'
 
 export const dynamic = 'force-dynamic'
 
 const days = (a: string, b: string) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000)
+const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const mesLabel = (p: string) => { const [y, m] = p.split('-'); return `${MESES[Number(m)]} ${y}` }
+const shift = (d: string, n: number) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10) }
 
-// Vista de estado (100% de las FE no-F2X del mes) + pre-sugerencia de tratamiento: 'a' (pago
-// directo) si hay un EGRESO del mismo monto ±7d, si no 'c' (causación). El estado lo calcula
-// el lib compartido facturasConEstado (misma fuente que el selector de banco).
-async function getData() {
+// Meses con facturas RECIBIDO reales (para los botones); cada mes con datos tiene el suyo.
+async function getMesesDisponibles(): Promise<string[]> {
+  const rows = await fetchAll<any>((from, to) => supabase
+    .from('dian_invoices_import').select('issue_date').eq('grupo', 'RECIBIDO')
+    .not('issue_date', 'is', null).order('issue_date', { ascending: true }).range(from, to))
+  const set = new Set<string>()
+  for (const r of rows) if (r.issue_date) set.add((r.issue_date as string).slice(0, 7))
+  return [...set].sort()
+}
+
+// Antes fijo a julio ('2026-07-01'..'2026-08-01'); ahora [inicio, fin) del mes elegido, tanto para
+// las FE como para la ventana de banco del pre-sugerido de pago (±7 días, que es la tolerancia de days()).
+async function getData(periodo: string) {
   const { data: cuentas } = await supabase
     .from('puc_accounts').select('codigo, nombre').like('codigo', '6145%').eq('active', true).order('codigo')
 
-  const base = await facturasConEstado('2026-07-01', '2026-08-01')
+  const inicio = `${periodo}-01`
+  const [y, m] = periodo.split('-').map(Number)
+  const fin = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+  const bankDesde = shift(inicio, -7), bankHasta = shift(fin, 7)
 
+  const base = await facturasConEstado(inicio, fin)
   const bank = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions').select('id, date, amount, description')
-    .eq('type', 'EGRESO').gte('date', '2026-06-25').lt('date', '2026-08-05').order('date').order('id', { ascending: true }).range(from, to))
+    .eq('type', 'EGRESO').gte('date', bankDesde).lt('date', bankHasta).order('date').order('id', { ascending: true }).range(from, to))
 
   const egresos: EgresoBanco[] = bank.map((b: any) => ({
     id: b.id, date: b.date, amount: Number(b.amount), description: (b.description ?? '') as string,
@@ -33,8 +50,12 @@ async function getData() {
   return { items, cuentas: (cuentas ?? []) as CuentaCosto[], egresos }
 }
 
-export default async function ConciliacionCostosPage() {
-  const { items, cuentas, egresos } = await getData()
+export default async function ConciliacionCostosPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
+  const [meses, sp] = await Promise.all([getMesesDisponibles(), searchParams])
+  const defecto = meses[meses.length - 1] ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : defecto
+  const { items, cuentas, egresos } = await getData(sel)
+
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-5">
@@ -49,6 +70,19 @@ export default async function ConciliacionCostosPage() {
           {' '}(DB costo / CR proveedor) si queda por pagar. La cuenta elegida por primera vez se fija como sugerencia del proveedor.
         </p>
       </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
+        <span className="text-xs text-[#94A3B8] mr-1">Mes:</span>
+        {meses.map(p => (
+          <Link key={p} href={`/contabilidad/conciliacion-costos?periodo=${p}`}
+            className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors ${
+              p === sel ? 'bg-[#2563EB] text-white border-[#2563EB]' : 'bg-white text-[#64748B] border-[#E2E8F0] hover:bg-[#F8FAFC]'
+            }`}>
+            {mesLabel(p)}
+          </Link>
+        ))}
+      </div>
+
       <ConciliacionCostosClient items={items} cuentas={cuentas} egresos={egresos} />
     </div>
   )
