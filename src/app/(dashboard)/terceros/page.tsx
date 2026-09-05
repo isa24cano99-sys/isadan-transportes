@@ -8,12 +8,15 @@ export const dynamic = 'force-dynamic'
 const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
 
 export default async function TercerosPage() {
-  const [{ data: terceros }, bank, inv, are, muniRes, { data: cuentas }] = await Promise.all([
+  const [{ data: terceros }, bank, inv, are, muni, { data: cuentas }] = await Promise.all([
     supabase.from('terceros').select('*').is('merged_into', null).order('created_at'),
     fetchAll<any>((from, to) => supabase.from('bank_transactions').select('supplier_nit, amount').order('id', { ascending: true }).range(from, to)),
     fetchAll<any>((from, to) => supabase.from('invoices').select('client_nit, total_amount').order('id', { ascending: true }).range(from, to)),
     fetchAll<any>((from, to) => supabase.from('accounts_receivable_entries').select('client_nit, invoice_amount').order('id', { ascending: true }).range(from, to)),
-    supabase.from('municipios_dane').select('*'), // puede no existir aún (CSV pendiente)
+    // fetchAll: el catálogo tiene 1.119 filas (>1000) — sin paginar, PostgREST cortaba y los
+    // municipios del final del orden DANE (p.ej. Valle 76xxx, Buenaventura) no llegaban al form.
+    // .catch(()=>[]) preserva la tolerancia a que la tabla aún no exista (CSV pendiente).
+    fetchAll<any>((from, to) => supabase.from('municipios_dane').select('*').order('codigo_completo', { ascending: true }).range(from, to)).catch(() => [] as any[]),
     supabase.from('puc_accounts').select('codigo, nombre').eq('active', true).order('codigo'),
   ])
 
@@ -51,7 +54,7 @@ export default async function TercerosPage() {
     }
   }
 
-  const municipios: Municipio[] = ((muniRes.data ?? []) as any[]).map(m => ({
+  const municipios: Municipio[] = ((muni ?? []) as any[]).map(m => ({
     codigo_departamento: m.codigo_departamento,
     nombre_departamento: m.nombre_departamento,
     codigo_municipio:    m.codigo_municipio,
@@ -63,7 +66,7 @@ export default async function TercerosPage() {
       terceros={rows}
       municipios={municipios}
       duplicados={duplicados}
-      municipiosDisponibles={!muniRes.error && municipios.length > 0}
+      municipiosDisponibles={municipios.length > 0}
       cuentasCosto={(cuentas ?? []) as { codigo: string; nombre: string }[]}
     />
   )
