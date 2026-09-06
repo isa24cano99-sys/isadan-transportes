@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
   Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
-  Wallet, Receipt, IdCard, Calculator, FileCheck, Banknote, ArrowLeftRight, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
+  Wallet, Receipt, IdCard, FileCheck, Banknote, ArrowLeftRight, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
 } from 'lucide-react'
 
 type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string }
@@ -36,7 +36,6 @@ const sections: NavSection[] = [
   ] },
   { title: 'Contabilidad', items: [
     { href: '/contabilidad/guia',              label: 'Guía / Mapa',      icon: Map },
-    { href: '/contabilidad/causaciones',       label: 'Causaciones',      icon: Calculator },
     { href: '/contabilidad/facturacion',       label: 'Facturación',      icon: FileCheck },
     { href: '/contabilidad/recibos-anticipo',  label: 'Recibos anticipo', icon: Banknote },
     { href: '/contabilidad/cruce-cartera',     label: 'Cruce cartera',    icon: ArrowLeftRight },
