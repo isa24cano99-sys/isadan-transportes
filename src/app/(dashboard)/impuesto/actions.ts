@@ -40,3 +40,34 @@ export async function marcarPagadoAction(
   revalidatePath('/impuesto', 'layout')
   return { ok: true }
 }
+
+// ── Reserva para impuestos (custodia socio) ─────────────────────────────────────
+
+// Pata 1 — registra la salida del banco hacia el socio (DB 13251005 / CR banco).
+// El socio y el monto los toma la función del movimiento bancario categorizado.
+export async function registrarReservaAction(
+  bankTransactionId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.rpc('postear_reserva_impuesto_banco', {
+    p_bank_transaction_id: bankTransactionId,
+  })
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/impuesto', 'layout')
+  return { ok: true }
+}
+
+// Pata 2 — cierra la reserva contra el impuesto ya causado (DB 241215 / CR 13251005).
+// Cierre parcial permitido; los guards de saldo viven en la función SQL.
+export async function cerrarReservaAction(
+  terceroId: string,
+  monto: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.rpc('postear_cierre_reserva_impuesto', {
+    p_tercero: terceroId,
+    p_monto:   monto,
+    p_fecha:   hoyColombia(),
+  })
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/impuesto', 'layout')
+  return { ok: true }
+}

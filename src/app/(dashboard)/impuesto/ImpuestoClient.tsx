@@ -2,9 +2,12 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useMemo } from 'react'
-import { marcarPagadoAction, type MarcarPagadoInput } from './actions'
+import {
+  marcarPagadoAction, registrarReservaAction, cerrarReservaAction,
+  type MarcarPagadoInput,
+} from './actions'
 import { formatCOP } from '@/lib/utils'
-import type { TaxPayment } from './page'
+import type { TaxPayment, ReservaPendiente, ReservaVigente } from './page'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +81,9 @@ export default function ImpuestoClient({
   pensionByBimestre,
   hasSsData,
   taxPayments,
+  reservasPendientes,
+  reservasVigentes,
+  saldo241215,
 }: {
   year: number
   availableYears: number[]
@@ -85,6 +91,9 @@ export default function ImpuestoClient({
   pensionByBimestre: number[]
   hasSsData: boolean[]
   taxPayments: TaxPayment[]
+  reservasPendientes: ReservaPendiente[]
+  reservasVigentes: ReservaVigente[]
+  saldo241215: number
 }) {
   const router = useRouter()
 
@@ -100,6 +109,52 @@ export default function ImpuestoClient({
 
   const [loadingBim, setLoadingBim] = useState<number | null>(null)
   const [errors,     setErrors]     = useState<Record<number, string>>({})
+
+  // Reserva para impuestos (custodia socio)
+  const [loadingReserva, setLoadingReserva] = useState<string | null>(null)
+  const [errReserva,     setErrReserva]     = useState<Record<string, string>>({})
+  const [montoCierre,    setMontoCierre]    = useState<Record<string, string>>({})
+  const [loadingCierre,  setLoadingCierre]  = useState<string | null>(null)
+  const [errCierre,      setErrCierre]      = useState<Record<string, string>>({})
+
+  const totalReservado = reservasVigentes.reduce((s, v) => s + v.reservado, 0)
+  const hayCausado     = saldo241215 > 0
+
+  // Valor efectivo del input de cierre: lo que el usuario escribió, o el tope por defecto.
+  const montoCierreVal = (v: ReservaVigente) =>
+    montoCierre[v.terceroId] ?? String(Math.min(v.reservado, saldo241215))
+
+  const handleRegistrarReserva = async (id: string) => {
+    setLoadingReserva(id)
+    setErrReserva(e => ({ ...e, [id]: '' }))
+    const result = await registrarReservaAction(id)
+    if (result.ok) router.refresh()
+    else setErrReserva(e => ({ ...e, [id]: result.error ?? 'Error al registrar' }))
+    setLoadingReserva(null)
+  }
+
+  const handleCerrarReserva = async (v: ReservaVigente) => {
+    const monto = Math.round(parseFloat(montoCierreVal(v)) || 0)
+    setLoadingCierre(v.terceroId)
+    setErrCierre(e => ({ ...e, [v.terceroId]: '' }))
+    if (monto <= 0) {
+      setErrCierre(e => ({ ...e, [v.terceroId]: 'Ingrese un monto > 0' })); setLoadingCierre(null); return
+    }
+    if (monto > v.reservado) {
+      setErrCierre(e => ({ ...e, [v.terceroId]: 'El monto supera la reserva del socio' })); setLoadingCierre(null); return
+    }
+    if (monto > saldo241215) {
+      setErrCierre(e => ({ ...e, [v.terceroId]: 'El monto supera el impuesto causado (241215)' })); setLoadingCierre(null); return
+    }
+    const result = await cerrarReservaAction(v.terceroId, monto)
+    if (result.ok) {
+      setMontoCierre(m => { const n = { ...m }; delete n[v.terceroId]; return n })  // re-siembra al tope tras refrescar
+      router.refresh()
+    } else {
+      setErrCierre(e => ({ ...e, [v.terceroId]: result.error ?? 'Error al cerrar' }))
+    }
+    setLoadingCierre(null)
+  }
 
   // Per-bimestre computed data
   const bimData = useMemo(() => {
@@ -323,6 +378,142 @@ export default function ImpuestoClient({
           <p className="text-white font-bold text-lg tabular-nums">{formatCOP(totalPagar)}</p>
         </div>
       )}
+
+      {/* ── Sección A · Registrar reserva (custodia socio) ─────────────────── */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-[#0F172A]">Reserva para impuestos (custodia socio)</h2>
+            <p className="text-sm text-[#64748B] mt-0.5">
+              Plata entregada a un socio para resguardar un impuesto futuro. Sale del banco hacia el socio:{' '}
+              <span className="font-medium">DB 13251005 (socio) / CR 11100510</span>.
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xs font-semibold text-[#64748B]">Reservado vigente</p>
+            <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalReservado)}</p>
+          </div>
+        </div>
+
+        {reservasPendientes.length === 0 ? (
+          <p className="text-sm text-[#94A3B8] bg-[#F8FAFC] rounded-lg p-4">
+            No hay movimientos pendientes. Categoriza la salida en <span className="font-medium">Bancos</span> con
+            la categoría «Reserva para impuestos (custodia socio)» y asígnale el socio; aparecerá aquí.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold text-[#94A3B8] border-b border-[#E2E8F0]">
+                  <th className="py-2 pr-3">Fecha</th>
+                  <th className="py-2 pr-3">Socio</th>
+                  <th className="py-2 pr-3 text-right">Monto</th>
+                  <th className="py-2 pr-3">Descripción</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {reservasPendientes.map(r => (
+                  <tr key={r.id} className="border-b border-[#F1F5F9]">
+                    <td className="py-2 pr-3 text-[#64748B] whitespace-nowrap">{fmtDate(r.fecha)}</td>
+                    <td className="py-2 pr-3 text-[#0F172A]">{r.socio}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-[#0F172A]">{formatCOP(r.monto)}</td>
+                    <td className="py-2 pr-3 text-[#94A3B8] max-w-xs truncate">{r.descripcion}</td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => handleRegistrarReserva(r.id)}
+                        disabled={loadingReserva === r.id}
+                        className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors whitespace-nowrap"
+                      >
+                        {loadingReserva === r.id ? 'Registrando…' : 'Registrar reserva'}
+                      </button>
+                      {errReserva[r.id] && <p className="text-xs text-red-500 mt-1">{errReserva[r.id]}</p>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Sección B · Cerrar reserva contra el impuesto causado ───────────── */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-[#0F172A]">Cerrar reserva contra el impuesto</h2>
+            <p className="text-sm text-[#64748B] mt-0.5">
+              Cuando el impuesto ya está causado (saldo en 241215), cancélalo con la plata reservada:{' '}
+              <span className="font-medium">DB 241215 / CR 13251005 (socio)</span>.
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xs font-semibold text-[#64748B]">Impuesto causado (241215)</p>
+            <p className={`text-lg font-bold tabular-nums ${hayCausado ? 'text-[#0F172A]' : 'text-[#94A3B8]'}`}>
+              {formatCOP(saldo241215)}
+            </p>
+          </div>
+        </div>
+
+        {!hayCausado && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            ⚠ 241215 no tiene impuesto causado. Primero causa el RST del bimestre (DB gasto / CR 241215);
+            los botones de cierre se habilitan cuando exista saldo.
+          </p>
+        )}
+
+        {reservasVigentes.length === 0 ? (
+          <p className="text-sm text-[#94A3B8] bg-[#F8FAFC] rounded-lg p-4">
+            No hay reservas vigentes por cerrar. Registra una reserva en la sección de arriba.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold text-[#94A3B8] border-b border-[#E2E8F0]">
+                  <th className="py-2 pr-3">Socio</th>
+                  <th className="py-2 pr-3 text-right">Reservado</th>
+                  <th className="py-2 pr-3 text-right">Monto a cerrar</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {reservasVigentes.map(v => {
+                  const tope = Math.min(v.reservado, saldo241215)
+                  return (
+                    <tr key={v.terceroId} className="border-b border-[#F1F5F9]">
+                      <td className="py-2 pr-3 text-[#0F172A]">{v.socio}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums text-[#0F172A]">{formatCOP(v.reservado)}</td>
+                      <td className="py-2 pr-3 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          step="10000"
+                          max={tope}
+                          value={montoCierreVal(v)}
+                          onChange={e => setMontoCierre(m => ({ ...m, [v.terceroId]: e.target.value }))}
+                          disabled={!hayCausado}
+                          className="w-36 text-right border border-[#E2E8F0] rounded-lg px-2 py-1 text-sm bg-white text-[#0F172A] disabled:bg-[#F1F5F9] disabled:text-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                      </td>
+                      <td className="py-2 text-right">
+                        <button
+                          onClick={() => handleCerrarReserva(v)}
+                          disabled={!hayCausado || loadingCierre === v.terceroId}
+                          className="bg-[#0F172A] hover:bg-[#1E293B] disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors whitespace-nowrap"
+                        >
+                          {loadingCierre === v.terceroId ? 'Cerrando…' : 'Cerrar contra impuesto'}
+                        </button>
+                        {errCierre[v.terceroId] && <p className="text-xs text-red-500 mt-1">{errCierre[v.terceroId]}</p>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Disclaimer */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
