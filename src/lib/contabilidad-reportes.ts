@@ -191,6 +191,8 @@ export type ReportesContador = {
     totalIngresosOper: number; totalCostos: number; totalGastosOper: number
     totalErogSocios: number; totalIngresosFin: number; totalGastosFin: number
     utilidadBruta: number; utilidadOperacional: number; utilidad: number
+    // Menor ingreso del periodo por notas crédito (NC) que anulan facturas de otros meses.
+    ncReversionIngreso: number
   }
 }
 
@@ -276,13 +278,19 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
   // La utilidad del ejercicio no cambia: las erogaciones a socios siguen restando, solo se reubican.
   const utilidad            = utilidadOperacional - totalErogSocios + totalIngresosFin - totalGastosFin
 
+  // Menor ingreso del periodo por NC (comprobante NC, DB a cuentas 4x). Mismo cálculo que la
+  // pantalla, ahora en el lib compartido para que la nota salga IGUAL en pantalla y en Excel.
+  const ncReversionIngreso = lineas
+    .filter(l => l.tipo === 'NC' && l.cuenta.startsWith('4') && enPeriodo(l, inicio, corte))
+    .reduce((s, l) => s + l.debito - l.credito, 0)
+
   return {
     periodo, corte, diario, mayor, balance,
     esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad },
     eri: {
       ingresosOper, costos, gastosOper, erogSocios, ingresosFin, gastosFin,
       totalIngresosOper, totalCostos, totalGastosOper, totalErogSocios, totalIngresosFin, totalGastosFin,
-      utilidadBruta, utilidadOperacional, utilidad,
+      utilidadBruta, utilidadOperacional, utilidad, ncReversionIngreso,
     },
   }
 }

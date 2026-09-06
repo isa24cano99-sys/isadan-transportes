@@ -50,6 +50,7 @@ function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: Rep
   for (let i = 1; i < aoa.length; i++) {
     const sub = esSubtotal?.(aoa[i])
     const tot = esTotalGeneral?.(aoa[i])
+    const esNota = typeof aoa[i][0] === 'string' && (aoa[i][0] as string).startsWith('Nota sobre el ingreso')
     const row = ws.addRow((aoa[i] as any[]).map(N))
     row.eachCell((c: any) => {
       if (typeof c.value === 'number') { c.numFmt = '#,##0'; c.alignment = { horizontal: 'right' } }
@@ -62,6 +63,15 @@ function estilarHoja(ws: any, titulo: string, aoa: Row[], cols: number[], d: Rep
         c.border = { top: { style: 'double', color: { argb: 'FF374151' } }, bottom: { style: 'double', color: { argb: 'FF374151' } } }
       }
     })
+    // Fila de NOTA (menor ingreso por NC): itálica + resaltado ámbar, fusionada y con ajuste de texto.
+    if (esNota) {
+      ws.mergeCells(row.number, 1, row.number, header.length)
+      const c = ws.getCell(row.number, 1)
+      c.font = { italic: true, color: { argb: 'FF92400E' } }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }
+      c.alignment = { wrapText: true, vertical: 'top' }
+      row.height = 60
+    }
   }
   cols.forEach((w, i) => { ws.getColumn(i + 1).width = w })
   // Panel inmovilizado bajo la fila de encabezado. topLeftCell EXPLÍCITO (A8) — no dejar que
@@ -195,6 +205,15 @@ function aoaERI(d: ReportesContador): Row[] {
   seccion('INGRESOS FINANCIEROS / NO OPERACIONALES', e.ingresosFin, e.totalIngresosFin)
   seccion('GASTOS FINANCIEROS / NO OPERACIONALES', e.gastosFin, e.totalGastosFin)
   rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL EJERCICIO', e.utilidad])
+  // Nota al pie: menor ingreso por NC que anulan facturas de otros meses (mismo texto que la
+  // pantalla web /contabilidad/estado-resultados; sale del lib compartido, no puede desincronizarse).
+  if (e.ncReversionIngreso > 0) {
+    const es08 = d.periodo === '2026-08'
+    const bruto = e.totalIngresosOper + e.ncReversionIngreso
+    const nota = `Nota sobre el ingreso del mes: ${formatCOP(e.ncReversionIngreso)} del menor ingreso presentado corresponde a notas crédito que anulan facturas${es08 ? ' de julio' : ' emitidas en meses anteriores'}${es08 ? ' (anuladas y re-emitidas)' : ''}, no a una caída real de la operación de este mes. El ingreso bruto del periodo, antes de esas anulaciones, fue ${formatCOP(bruto)}. Quien compare dos meses no debe leer esta baja como que el negocio se derrumbó.`
+    rows.push(['', '', '', ''])
+    rows.push([nota, '', '', ''])
+  }
   return rows
 }
 
