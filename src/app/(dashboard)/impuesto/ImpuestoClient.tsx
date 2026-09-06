@@ -222,6 +222,20 @@ export default function ImpuestoClient({
         </select>
       </div>
 
+      {/* Señal de pendiente: bimestre 4 (jul-ago) sin causar, esperando el cálculo real */}
+      {year === 2026 && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">⚠ Bimestre 4 (jul-ago): impuesto SIMPLE PENDIENTE de causar</p>
+          <p className="text-sm text-amber-800 mt-1 leading-relaxed">
+            Aún <strong>no se ha causado</strong> el asiento real (DB 540505 / CR 241215). Se está esperando el
+            <strong> cálculo definitivo del contador</strong> (formulario 2593: ICA por municipio + tope/arrastre de
+            excedente de pensión). Base gravable real del bimestre: <strong>$187.497.142</strong> (neta de NC).
+            Estimado de referencia @1,1% ≈ <strong>$2.062.469</strong> — solo referencia, no posteado.
+            Los valores calculados abajo usan la fórmula simplificada de la app, que <strong>no es la definitiva</strong>.
+          </p>
+        </div>
+      )}
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
