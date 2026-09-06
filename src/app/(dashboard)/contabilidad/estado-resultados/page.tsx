@@ -1,7 +1,22 @@
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
 import { getPeriodosContables, getPeriodoAbierto } from '@/lib/contabilidad-saldos'
 import { reportesContador, type SaldoPeriodo } from '@/lib/contabilidad-reportes'
 import { formatCOP } from '@/lib/utils'
+
+// Menor ingreso del periodo causado por notas crédito (NC) que anulan facturas de otros
+// meses. DB a cuentas 4x dentro de comprobantes NC = ingreso revertido. Si es > 0 se muestra
+// una nota, para que quien compare meses no lea la baja como una caída real de la operación.
+async function ncReversionIngreso(periodo: string): Promise<number> {
+  const { data } = await supabase
+    .from('journal_entry_lines')
+    .select('debito, credito, journal_entries!inner(tipo_comprobante, estado, periodo)')
+    .like('cuenta_puc', '4%')
+    .eq('journal_entries.tipo_comprobante', 'NC')
+    .eq('journal_entries.estado', 'CONTABILIZADO')
+    .eq('journal_entries.periodo', periodo)
+  return (data ?? []).reduce((s: number, l: any) => s + Number(l.debito || 0) - Number(l.credito || 0), 0)
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +63,7 @@ export default async function EstadoResultadosPage({ searchParams }: { searchPar
   const defecto = (abierto && periodos.includes(abierto)) ? abierto : (periodos[0] ?? '')
   const sel = sp.periodo && periodos.includes(sp.periodo) ? sp.periodo : defecto
   const e = sel ? (await reportesContador(sel)).eri : null
+  const ncRev = sel ? await ncReversionIngreso(sel) : 0
 
   return (
     <div className="p-6 max-w-3xl">
@@ -70,6 +86,17 @@ export default async function EstadoResultadosPage({ searchParams }: { searchPar
           </Link>
         ))}
       </div>
+
+      {e && ncRev > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <span className="font-semibold">Nota sobre el ingreso del mes:</span>{' '}
+          {formatCOP(ncRev)} del menor ingreso presentado corresponde a{' '}
+          <strong>notas crédito que anulan facturas{sel === '2026-08' ? ' de julio' : ' emitidas en meses anteriores'}</strong>
+          {sel === '2026-08' ? ' (anuladas y re-emitidas)' : ''}, <strong>no a una caída real de la operación de este mes</strong>.
+          El ingreso bruto del periodo, antes de esas anulaciones, fue {formatCOP(e.totalIngresosOper + ncRev)}. Quien compare
+          dos meses no debe leer esta baja como que el negocio se derrumbó.
+        </div>
+      )}
 
       {!e ? (
         <p className="text-sm text-[#64748B] bg-white border border-[#E2E8F0] rounded-xl p-6">No hay periodos con asientos.</p>
