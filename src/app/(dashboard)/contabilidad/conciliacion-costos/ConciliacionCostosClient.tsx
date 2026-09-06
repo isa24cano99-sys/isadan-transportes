@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
 import { parseXlsx, mapDian, type DianRow } from '@/lib/dian-xlsx'
 import { type EstadoFE, type FeEstado } from '@/lib/facturas-estado'
-import { postearCostoDianAction, importarDianConciliacionAction, vincularFeBancoAction, type CostoResultado, type DianImportResult } from './actions'
+import { postearCostoDianAction, importarDianConciliacionAction, vincularFeBancoAction, marcarAnuladaNCAction, type CostoResultado, type DianImportResult } from './actions'
 import { Upload, CheckCircle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
 export type { EstadoFE }
 export type CuentaCosto = { codigo: string; nombre: string }
 export type EgresoBanco = { id: string; date: string; amount: number; description: string }
 export type ItemCosto = FeEstado & { tratamiento: 'a' | 'c' }
+export type FacturaAnulada = { id: string; folio: string; fecha: string; emisor: string; monto: number }
 
 function EstadoBadge({ estado, etiqueta }: { estado: EstadoFE; etiqueta: string | null }) {
   const verde = 'text-emerald-700 bg-emerald-100'
@@ -31,9 +32,10 @@ function EstadoBadge({ estado, etiqueta }: { estado: EstadoFE; etiqueta: string 
 
 const days = (a: string, b: string) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000)
 
-function Fila({ it, cuentas, egresos, onDone }: { it: ItemCosto; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; onDone: (r: CostoResultado) => void }) {
+function Fila({ it, cuentas, egresos, onDone, onAnular }: { it: ItemCosto; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; onDone: (r: CostoResultado) => void; onAnular: (id: string) => void }) {
   const [cuenta, setCuenta] = useState(it.cuentaSugerida ?? '')
   const [trat, setTrat] = useState<'a' | 'c'>(it.tratamiento)
+  const [anulando, setAnulando] = useState(false)
   // egreso sugerido por defecto: mismo monto ±7 días (la heurística que ya marcó el tratamiento)
   const sugeridoBanco = egresos.find(e => Math.round(e.amount) === Math.round(it.monto) && days(e.date, it.fecha) <= 7)?.id ?? ''
   const [bancoId, setBancoId] = useState(sugeridoBanco)
@@ -56,6 +58,12 @@ function Fila({ it, cuentas, egresos, onDone }: { it: ItemCosto; cuentas: Cuenta
     }
     setLoading(false)
     onDone(res)
+  }
+
+  const anular = async () => {
+    if (!confirm(`¿Marcar la factura ${it.folio} de ${it.emisor} (${formatCOP(it.monto)}) como ANULADA por NC recibida?\n\nSale de las candidatas. NO genera ningún asiento — es puro estado, el registro se conserva.`)) return
+    setAnulando(true)
+    onAnular(it.id)   // el padre postea y refresca; la fila desaparece
   }
 
   const selCls = 'border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-xs bg-white text-[#0F172A]'
@@ -104,6 +112,12 @@ function Fila({ it, cuentas, egresos, onDone }: { it: ItemCosto; cuentas: Cuenta
           </div>
         ) : (
           <span className="text-xs text-[#CBD5E1]">—</span>
+        )}
+        {it.estado !== 'contabilizada' && (
+          <button onClick={anular} disabled={anulando}
+            className="mt-1.5 block text-[10px] text-[#94A3B8] hover:text-red-600 hover:underline disabled:opacity-40">
+            {anulando ? '…' : '✕ Anulada por NC (sacar de la lista)'}
+          </button>
         )}
       </td>
     </tr>
@@ -186,7 +200,7 @@ function ImportDian({ onImported }: { onImported: () => void }) {
   )
 }
 
-export default function ConciliacionCostosClient({ items, cuentas, egresos }: { items: ItemCosto[]; cuentas: CuentaCosto[]; egresos: EgresoBanco[] }) {
+export default function ConciliacionCostosClient({ items, cuentas, egresos, anuladas }: { items: ItemCosto[]; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; anuladas: FacturaAnulada[] }) {
   const router = useRouter()
   const [resultados, setResultados] = useState<CostoResultado[]>([])
 
@@ -194,6 +208,9 @@ export default function ConciliacionCostosClient({ items, cuentas, egresos }: { 
     setResultados(p => [r, ...p.filter(x => x.id !== r.id)])
     if (r.ok) setTimeout(() => router.refresh(), 600)
   }
+
+  const anularNC = async (id: string) => { const r = await marcarAnuladaNCAction(id, true); if (r.ok) router.refresh() }
+  const restaurarNC = async (id: string) => { const r = await marcarAnuladaNCAction(id, false); if (r.ok) router.refresh() }
 
   const total = items.reduce((s, i) => s + i.monto, 0)
 
@@ -231,7 +248,7 @@ export default function ConciliacionCostosClient({ items, cuentas, egresos }: { 
                 </tr>
               </thead>
               <tbody>
-                {items.map(it => <Fila key={it.id} it={it} cuentas={cuentas} egresos={egresos} onDone={onDone} />)}
+                {items.map(it => <Fila key={it.id} it={it} cuentas={cuentas} egresos={egresos} onDone={onDone} onAnular={anularNC} />)}
               </tbody>
               <tfoot>
                 <tr className="bg-[#F8FAFC] font-semibold border-t-2 border-[#E2E8F0]">
@@ -241,6 +258,24 @@ export default function ConciliacionCostosClient({ items, cuentas, egresos }: { 
                 </tr>
               </tfoot>
             </table>
+          </div>
+        </div>
+      )}
+
+      {anuladas.length > 0 && (
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
+          <p className="text-xs font-semibold text-[#64748B] mb-2">
+            Anuladas por NC recibida ({anuladas.length}) — fuera de candidatas, sin efecto contable
+          </p>
+          <div className="space-y-1.5">
+            {anuladas.map(a => (
+              <div key={a.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-[#64748B] line-through decoration-[#CBD5E1]">
+                  <span className="text-[#94A3B8]">{a.fecha}</span> · {a.emisor} · FE {a.folio} · <span className="tabular-nums">{formatCOP(a.monto)}</span>
+                </span>
+                <button onClick={() => restaurarNC(a.id)} className="text-xs text-[#2563EB] hover:underline shrink-0">Restaurar</button>
+              </div>
+            ))}
           </div>
         </div>
       )}

@@ -32,6 +32,11 @@ export async function facturasConEstado(desde: string, hasta: string): Promise<F
     .neq('nit_issuer', F2X)
     .gte('issue_date', desde).lt('issue_date', hasta)
     .neq('document_type', 'Application response')
+    // Las notas crédito recibidas NO son facturas a postear (reducen un costo, no lo crean):
+    // se excluyen de las candidatas. Su tratamiento va por el evento "Nota crédito recibida".
+    .neq('document_type', 'Nota de crédito electrónica')
+    // Facturas que el proveedor anuló+re-emitió, marcadas a mano → fuera de candidatas.
+    .eq('anulada_nc', false)
     .order('issue_date').order('id', { ascending: true }).range(from, to))
 
   const [cg, le, bt] = await Promise.all([

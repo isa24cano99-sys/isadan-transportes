@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
 import { facturasConEstado } from '@/lib/facturas-estado'
 import Link from 'next/link'
-import ConciliacionCostosClient, { type ItemCosto, type CuentaCosto, type EgresoBanco } from './ConciliacionCostosClient'
+import ConciliacionCostosClient, { type ItemCosto, type CuentaCosto, type EgresoBanco, type FacturaAnulada } from './ConciliacionCostosClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,14 +47,26 @@ async function getData(periodo: string) {
     return { ...v, tratamiento: (pagado ? 'a' : 'c') as 'a' | 'c' }
   })
 
-  return { items, cuentas: (cuentas ?? []) as CuentaCosto[], egresos }
+  // Facturas marcadas como anuladas por NC (fuera de candidatas) — para poder verlas/restaurarlas.
+  const { data: anulRows } = await supabase
+    .from('dian_invoices_import')
+    .select('id, folio, issue_date, name_issuer, total, terceros(razon_social)')
+    .eq('grupo', 'RECIBIDO').eq('anulada_nc', true)
+    .gte('issue_date', inicio).lt('issue_date', fin)
+    .order('issue_date')
+  const anuladas: FacturaAnulada[] = (anulRows ?? []).map((v: any) => ({
+    id: v.id, folio: String(v.folio), fecha: v.issue_date as string,
+    emisor: (v.terceros?.razon_social ?? v.name_issuer ?? '—') as string, monto: Number(v.total),
+  }))
+
+  return { items, cuentas: (cuentas ?? []) as CuentaCosto[], egresos, anuladas }
 }
 
 export default async function ConciliacionCostosPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
   const [meses, sp] = await Promise.all([getMesesDisponibles(), searchParams])
   const defecto = meses[meses.length - 1] ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
   const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : defecto
-  const { items, cuentas, egresos } = await getData(sel)
+  const { items, cuentas, egresos, anuladas } = await getData(sel)
 
   return (
     <div className="p-6 max-w-5xl">
@@ -83,7 +95,7 @@ export default async function ConciliacionCostosPage({ searchParams }: { searchP
         ))}
       </div>
 
-      <ConciliacionCostosClient items={items} cuentas={cuentas} egresos={egresos} />
+      <ConciliacionCostosClient items={items} cuentas={cuentas} egresos={egresos} anuladas={anuladas} />
     </div>
   )
 }

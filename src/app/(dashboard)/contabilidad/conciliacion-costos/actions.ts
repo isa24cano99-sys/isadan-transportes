@@ -10,6 +10,16 @@ import { formatCOP } from '@/lib/utils'
 
 export type CostoResultado = { id: string; ref: string; ok: boolean; mensaje: string }
 
+// Marca (o restaura) una factura DIAN recibida como "anulada por NC recibida". Puro estado:
+// no postea nada. Al marcarla sale de las candidatas (facturasConEstado la filtra); restaurarla
+// la devuelve. Se conserva el registro — nunca se borra.
+export async function marcarAnuladaNCAction(importId: string, anulada: boolean): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('dian_invoices_import').update({ anulada_nc: anulada }).eq('id', importId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/contabilidad/conciliacion-costos')
+  return { ok: true }
+}
+
 const ISADAN = '902030120'                       // ISADAN TRANSPORTES (emisor o receptor)
 const ACUSE  = 'Application response'             // acuses de recibo (no son facturas ni NC)
 
