@@ -14,10 +14,15 @@
 -- (d) postear_cierre_reserva_impuesto.  Aplicar en SQL Editor.
 -- ============================================================================
 
--- (a) Cuenta 1325 — cuenta por cobrar a socios (hoja postable). Idempotente.
+-- (a) Cuenta 1325 — cuenta por cobrar a socios (hoja postable, espeja 23551005 por pagar
+--     a socios). NO lleva "Efectivo": la plata está en manos del socio, no bajo control
+--     directo de la empresa. Idempotente.
 insert into puc_accounts (codigo, nombre, tipo, naturaleza, exige_tercero, exige_centro_costo, active)
-  select '13251005', 'Efectivo reservado para impuestos (custodia socio)', 'ACTIVO', 'DEBITO', true, false, true
+  select '13251005', 'Cuentas por cobrar a socios - reserva impuesto', 'ACTIVO', 'DEBITO', true, false, true
   where not exists (select 1 from puc_accounts where codigo = '13251005');
+-- Rename para BDs donde la cuenta ya existía con el nombre viejo ("Efectivo reservado…").
+update puc_accounts set nombre = 'Cuentas por cobrar a socios - reserva impuesto'
+ where codigo = '13251005' and nombre = 'Efectivo reservado para impuestos (custodia socio)';
 
 -- (b) Categoría bancaria para categorizar la salida real en Bancos. Idempotente.
 insert into transaction_categories (name, description, puc_code, type, active)
