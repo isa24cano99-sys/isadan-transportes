@@ -1,27 +1,16 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
-import MesSelectorLinks, { rangoMes } from '@/components/MesSelectorLinks'
+import { nombreTercero } from '@/lib/tercero-nombre'
 import CruceClient from './CruceClient'
-
-const PISO = '2026-07-01'   // corte apertura: nada pre-corte
-
-// Meses (invoice_date) con AR no-PAGADA post-corte, más-reciente-primero.
-async function getMeses(): Promise<string[]> {
-  const rows = await fetchAll<any>((from, to) => supabase
-    .from('accounts_receivable_entries').select('invoice_date')
-    .neq('status', 'PAGADA').gte('invoice_date', PISO).order('id', { ascending: true }).range(from, to))
-  return [...new Set(rows.map((r: any) => r.invoice_date?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
-}
 
 export const dynamic = 'force-dynamic'
 
-// Elegibles = AR entries no PAGADA, cuyo tercero tiene anticipo disponible en 28050510
-// (CR - DB > 0) Y cartera facturada en 13050501 (DB - CR > 0), y que aún no tienen un
-// cruce CX contabilizado. El monto mostrado = MIN(anticipo del tercero, cartera del
-// tercero, saldo de la factura). Es un estimado: la función recalcula en firme al
-// confirmar (si cruzas dos facturas del mismo tercero, la segunda toma el anticipo ya
-// reducido). Cero automatismo — Isabella confirma cada cruce.
-async function getElegibles(periodo: string | null) {
+// Elegibles = terceros con anticipo disponible en 28050510 (CR - DB > 0) Y cartera
+// facturada en 13050501 (DB - CR > 0), calculados desde el LIBRO CONTABLE real
+// (journal_entry_lines CONTABILIZADO), no desde accounts_receivable_entries. Así el
+// cruce ve toda la facturación posteada (CF), incluidas las que no crean AR entry.
+// El monto = MIN(anticipo, cartera) del tercero. Cero automatismo — Isabella confirma.
+async function getElegibles() {
   const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('cuenta_puc, tercero_id, debito, credito, journal_entries!inner(estado)')
@@ -39,70 +28,59 @@ async function getElegibles(periodo: string | null) {
     else cartera.set(l.tercero_id, (cartera.get(l.tercero_id) ?? 0) + d - c)
   }
 
-  const cx = await fetchAll<any>((from, to) => supabase
-    .from('journal_entries').select('origen_id')
-    .eq('origen_tabla', 'accounts_receivable_entries')
-    .eq('tipo_comprobante', 'CX').eq('estado', 'CONTABILIZADO')
-    .order('id', { ascending: true }).range(from, to))
-  const cruzadas = new Set(cx.map(x => x.origen_id))
+  const ids = [...anticipo.keys()].filter(t => (anticipo.get(t) ?? 0) > 0 && (cartera.get(t) ?? 0) > 0)
+  if (!ids.length) return []
 
-  // Anticipo/cartera por tercero son saldos TOTALES (no por mes). Solo la lista de facturas
-  // se acota: al piso post-corte ('Todos') o al mes elegido. Pre-corte nunca (ya está en CA-1).
-  const desde = periodo ? rangoMes(periodo).inicio : PISO
-  const hasta = periodo ? rangoMes(periodo).fin : null
-  const entries = await fetchAll<any>((from, to) => {
-    let q = supabase
-      .from('accounts_receivable_entries')
-      .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, invoice_date, terceros(razon_social)')
-      .neq('status', 'PAGADA')
-      .gte('invoice_date', desde)
-    if (hasta) q = q.lt('invoice_date', hasta)
-    return q.order('invoice_number').order('id', { ascending: true }).range(from, to)
-  })
+  // Nombres (fuente única: terceros) y conteo de facturas (CF) que componen la cartera.
+  const ter = await fetchAll<any>((from, to) => supabase
+    .from('terceros')
+    .select('id, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona')
+    .in('id', ids).range(from, to))
+  const nom = new Map((ter as any[]).map(t => [t.id, nombreTercero(t)]))
 
-  return entries
-    .filter((e: any) =>
-      e.tercero_id && !cruzadas.has(e.id)
-      && (anticipo.get(e.tercero_id) ?? 0) > 0
-      && (cartera.get(e.tercero_id) ?? 0) > 0)
-    .map((e: any) => {
-      const ant = anticipo.get(e.tercero_id) ?? 0
-      const car = cartera.get(e.tercero_id) ?? 0
-      const saldoFact = Number(e.invoice_amount) - Number(e.advance_amount)
+  const cf = await fetchAll<any>((from, to) => supabase
+    .from('journal_entry_lines')
+    .select('tercero_id, journal_entries!inner(tipo_comprobante, estado)')
+    .eq('cuenta_puc', '13050501')
+    .eq('journal_entries.tipo_comprobante', 'CF')
+    .eq('journal_entries.estado', 'CONTABILIZADO')
+    .in('tercero_id', ids).range(from, to))
+  const facturas = new Map<string, number>()
+  for (const l of cf as any[]) facturas.set(l.tercero_id, (facturas.get(l.tercero_id) ?? 0) + 1)
+
+  return ids
+    .map(t => {
+      const ant = anticipo.get(t) ?? 0
+      const car = cartera.get(t) ?? 0
       return {
-        id: e.id,
-        // Nombre autoritativo desde el tercero (fuente única); client_name es un snapshot
-        // de texto viejo que puede traer el typo del archivo original (ver terceros-fuente-unica).
-        cliente: (e.terceros?.razon_social ?? e.client_name) as string,
-        factura: e.invoice_number as string,
-        saldoFactura: saldoFact,
+        id: t,
+        cliente: (nom.get(t) ?? t.slice(0, 8)) as string,
         anticipoDisp: ant,
-        carteraTercero: car,
-        monto: Math.min(ant, car, saldoFact),
+        carteraPendiente: car,
+        facturas: facturas.get(t) ?? 0,
+        monto: Math.min(ant, car),
       }
     })
     .filter(e => e.monto > 0)
+    .sort((a, b) => b.monto - a.monto)
 }
 
-export default async function CrucePage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
-  const [meses, sp] = await Promise.all([getMeses(), searchParams])
-  const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
-  const elegibles = await getElegibles(sel === 'todos' ? null : sel)
+export default async function CrucePage() {
+  const elegibles = await getElegibles()
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-5">
         <h1 className="text-xl font-semibold text-[#0F172A]">Cruce de cartera</h1>
         <p className="text-sm text-[#64748B] mt-0.5">
-          Facturas con cartera contabilizada cuyo cliente tiene un anticipo disponible. El cruce
-          reclasifica el anticipo contra la cartera (DB 28050510 / CR 13050501) y abona la factura.
-          Nada se cruza sin tu confirmación.
+          Clientes con cartera facturada (13050501) que además tienen un anticipo disponible
+          (28050510). El cruce reclasifica el anticipo contra la cartera (DB 28050510 / CR 13050501)
+          por el menor de los dos saldos. Nada se cruza sin tu confirmación.
         </p>
         <p className="text-xs text-[#94A3B8] mt-1.5">
-          El monto es el menor entre el anticipo disponible del cliente, su cartera pendiente y el
-          saldo de la factura. La función recalcula en firme al confirmar.
+          Saldos tomados del libro contable real (asientos contabilizados), no de una tabla aparte —
+          incluye toda la facturación posteada del tercero.
         </p>
       </div>
-      <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/cruce-cartera" />
       <CruceClient elegibles={elegibles} />
     </div>
   )

@@ -8,10 +8,9 @@ import { cruzarCarteraAction, type CruceResultado } from './actions'
 type Elegible = {
   id: string
   cliente: string
-  factura: string
-  saldoFactura: number
   anticipoDisp: number
-  carteraTercero: number
+  carteraPendiente: number
+  facturas: number
   monto: number
 }
 
@@ -32,7 +31,7 @@ export default function CruceClient({ elegibles }: { elegibles: Elegible[] }) {
     const lista = elegibles.filter(e => ids.includes(e.id))
     if (!lista.length || loading) return
     setLoading(true); setResultados([])
-    const res = await cruzarCarteraAction(lista.map(e => ({ id: e.id, ref: `${e.cliente} · ${e.factura}` })))
+    const res = await cruzarCarteraAction(lista.map(e => ({ id: e.id, ref: e.cliente })))
     setResultados(res)
     setSel(new Set())
     setLoading(false)
@@ -55,7 +54,7 @@ export default function CruceClient({ elegibles }: { elegibles: Elegible[] }) {
 
       {elegibles.length === 0 ? (
         <p className="text-sm text-[#64748B] bg-white border border-[#E2E8F0] rounded-xl p-6">
-          No hay carteras con anticipo disponible para cruzar.
+          No hay clientes con anticipo disponible y cartera pendiente para cruzar.
         </p>
       ) : (
         <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
@@ -67,8 +66,7 @@ export default function CruceClient({ elegibles }: { elegibles: Elegible[] }) {
                     <input type="checkbox" checked={sel.size === elegibles.length && elegibles.length > 0} onChange={toggleAll} />
                   </th>
                   <th className="text-left px-3 py-2.5 font-medium">Cliente</th>
-                  <th className="text-left px-3 py-2.5 font-medium">Factura</th>
-                  <th className="text-right px-3 py-2.5 font-medium">Saldo factura</th>
+                  <th className="text-right px-3 py-2.5 font-medium">Cartera pendiente</th>
                   <th className="text-right px-3 py-2.5 font-medium">Anticipo disp.</th>
                   <th className="text-right px-3 py-2.5 font-medium">A cruzar</th>
                   <th className="w-16 px-3 py-2.5"></th>
@@ -78,9 +76,11 @@ export default function CruceClient({ elegibles }: { elegibles: Elegible[] }) {
                 {elegibles.map(e => (
                   <tr key={e.id} className="border-b border-[#E2E8F0] last:border-0 hover:bg-[#F8FAFC]">
                     <td className="px-3 py-2.5"><input type="checkbox" checked={sel.has(e.id)} onChange={() => toggle(e.id)} /></td>
-                    <td className="px-3 py-2.5 text-[#0F172A]">{e.cliente}</td>
-                    <td className="px-3 py-2.5 text-[#64748B] whitespace-nowrap">{e.factura}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-[#64748B] whitespace-nowrap">{formatCOP(e.saldoFactura)}</td>
+                    <td className="px-3 py-2.5 text-[#0F172A]">
+                      {e.cliente}
+                      <span className="ml-2 text-[11px] text-[#94A3B8]">{e.facturas} factura(s)</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-[#64748B] whitespace-nowrap">{formatCOP(e.carteraPendiente)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-[#64748B] whitespace-nowrap">{formatCOP(e.anticipoDisp)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-[#0F172A] whitespace-nowrap">{formatCOP(e.monto)}</td>
                     <td className="px-3 py-2.5 text-right">
