@@ -11,6 +11,9 @@ function buildLegalizationPayload(formData: FormData) {
   const date       = formData.get('trip_date') as string
   const freight    = Number(formData.get('freight') ?? 0)
   const advance    = Number(formData.get('advance') ?? 0)
+  // Anticipo entregado en efectivo (caja) AL aprobar — opcional, distinto de `advance`
+  // (que es la referencia de liquidación). Si >0, aprobar_legalizacion lo postea DB 13301510 / CR 110505.
+  const anticipoCaja = Number(formData.get('anticipo_caja') ?? 0)
   const percentage = Number(formData.get('percentage') ?? 0)
   const comision   = Number(formData.get('comision_empresa') ?? 0)
 
@@ -73,17 +76,17 @@ function buildLegalizationPayload(formData: FormData) {
   }
 
   // total_expenses = fijos + adicionales + porcentaje + comisión; balance (generado) = advance - total_expenses
-  return { trip_id, driver_id, date, freight, advance, gastos_viaje, expenses, weight_kg, price_per_ton }
+  return { trip_id, driver_id, date, freight, advance, anticipoCaja, gastos_viaje, expenses, weight_kg, price_per_ton }
 }
 
 export async function crearLegalizacionAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { trip_id, driver_id, date, freight, advance, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, freight, advance, anticipoCaja, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 
   const { data: leg, error: legError } = await supabase
     .from('legalizations')
-    .insert({ trip_id, driver_id, date, freight_value: freight, advance_amount: advance, total_expenses: gastos_viaje, status: 'BORRADOR' })
+    .insert({ trip_id, driver_id, date, freight_value: freight, advance_amount: advance, anticipo_caja: anticipoCaja > 0 ? anticipoCaja : null, total_expenses: gastos_viaje, status: 'BORRADOR' })
     .select('id')
     .single()
 
@@ -117,13 +120,13 @@ export async function actualizarLegalizacionAction(id: string, formData: FormDat
     return { ok: false, error: 'Esta legalización está aprobada (contabilizada). Usa "Reabrir para corregir" para modificarla.' }
   }
 
-  const { trip_id, driver_id, date, freight, advance, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
+  const { trip_id, driver_id, date, freight, advance, anticipoCaja, gastos_viaje, expenses, weight_kg, price_per_ton } = buildLegalizationPayload(formData)
 
   if (!trip_id || !date) return { ok: false, error: 'Selecciona un viaje y fecha' }
 
   const { error: legError } = await supabase
     .from('legalizations')
-    .update({ trip_id, driver_id, date, freight_value: freight, advance_amount: advance, total_expenses: gastos_viaje })
+    .update({ trip_id, driver_id, date, freight_value: freight, advance_amount: advance, anticipo_caja: anticipoCaja > 0 ? anticipoCaja : null, total_expenses: gastos_viaje })
     .eq('id', id)
 
   if (legError) return { ok: false, error: 'Error al actualizar la legalización' }

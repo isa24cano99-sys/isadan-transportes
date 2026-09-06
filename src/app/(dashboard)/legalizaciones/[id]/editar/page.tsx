@@ -34,7 +34,7 @@ async function getData(id: string) {
   const [{ data: leg }, { data: expenses }, { data: trips }, { data: cats }, feClasificadas] = await Promise.all([
     supabase
       .from('legalizations')
-      .select('id, trip_id, date, advance_amount, total_expenses, status, driver_id, freight_value, trips(freight_value)')
+      .select('id, trip_id, date, advance_amount, anticipo_caja, total_expenses, status, driver_id, freight_value, trips(freight_value)')
       .eq('id', id)
       .single(),
     supabase
@@ -122,6 +122,7 @@ export default async function EditarLegalizacionPage({ params }: { params: Promi
     trip_date:   leg.date ?? '',
     freight,
     advance:     leg.advance_amount ?? 0,
+    anticipoCaja: leg.anticipo_caja ?? undefined,
     percentage,
     comision,
     fixedExpenses,

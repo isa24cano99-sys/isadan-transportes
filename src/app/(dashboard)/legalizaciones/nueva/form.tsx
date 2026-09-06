@@ -47,6 +47,7 @@ export interface LegalizacionInitialData {
   trip_date: string
   freight: number
   advance: number
+  anticipoCaja?: number
   percentage: number
   comision: number
   fixedExpenses: Record<string, number>   // solo tipos SIN FE (los demás fijos)
@@ -88,6 +89,8 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
   const [tripDate,    setTripDate]    = useState(initialData?.trip_date ?? '')
   const [freight,     setFreight]     = useState(initialData ? String(initialData.freight) : '')
   const [advance,     setAdvance]     = useState(initialData ? String(initialData.advance) : '')
+  // Anticipo entregado en efectivo (caja) AL aprobar — opcional. Distinto de `advance`.
+  const [anticipoCaja, setAnticipoCaja] = useState(initialData?.anticipoCaja ? String(initialData.anticipoCaja) : '')
   // Default 10%. En edición, muestra el valor guardado si existe (> 0); si no, 10.
   const [percentage,  setPercentage]  = useState(
     initialData && initialData.percentage > 0 ? String(initialData.percentage) : '10',
@@ -235,6 +238,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
     fd.set('trip_date',     tripDate)
     fd.set('freight',       freight)
     fd.set('advance',       advance)
+    fd.set('anticipo_caja', anticipoCaja)
     fd.set('percentage',    percentage)
     fd.set('comision_empresa', comision)
     fd.set('weight_kg',     weightKg)
@@ -365,6 +369,35 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
             <label className={labelCls}>Anticipo (COP)</label>
             <input name="advance" type="number" min="0" value={advance} onChange={e => setAdvance(e.target.value)} placeholder="0" className={inputCls} />
           </div>
+        </div>
+
+        {/* Anticipo entregado en EFECTIVO (caja) al aprobar — opcional. Solo para el caso informal
+            (se entrega y se legaliza junto, sin transacción bancaria). El anticipo por banco NO va aquí:
+            entra por su transacción bancaria real para que concilie. */}
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-[#0F172A]">
+            <input
+              type="checkbox"
+              checked={anticipoCaja !== ''}
+              onChange={e => setAnticipoCaja(e.target.checked ? String(num(advance) || '') : '')}
+            />
+            Anticipo entregado en efectivo (caja) al aprobar
+          </label>
+          {anticipoCaja !== '' && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                name="anticipo_caja_visible"
+                type="number" min="0" value={anticipoCaja}
+                onChange={e => setAnticipoCaja(e.target.value)}
+                placeholder="0"
+                className={`${inputCls} max-w-[200px]`}
+              />
+              <span className="text-xs text-[#64748B]">
+                Origen: <span className="font-medium">Caja (110505)</span>. Se contabiliza con la aprobación
+                (DB 13301510 / CR 110505). El anticipo por banco NO se pone aquí.
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
