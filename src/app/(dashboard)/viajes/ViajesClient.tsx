@@ -12,6 +12,7 @@ import { generarFacturaAction } from './[id]/actions'
 import { getViajesExportData, type ViajeExportRow } from './export-actions'
 import { useUrlState } from '@/lib/useUrlState'
 import { nombreTercero } from '@/lib/tercero-nombre'
+import MesSelector from '@/components/MesSelector'
 
 // Columnas del export enriquecido (nombres legibles, sin UUIDs). num=true → formato #,##0.
 const EXPORT_COLS: { h: string; get: (r: ViajeExportRow) => string | number; w: number; num?: boolean }[] = [
@@ -130,6 +131,10 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
     for (const t of trips) if (t.drivers) m.set(t.drivers.id, t.drivers.full_name)
     return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [trips])
+  // Meses con viajes (por load_date), más-reciente-primero, para el selector de mes.
+  const mesesDisponibles = useMemo(
+    () => [...new Set(trips.map(t => t.load_date?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse(),
+    [trips])
 
   const filtered = useMemo(() => {
     const pl = plateBuscar.trim().toLowerCase()
@@ -236,10 +241,12 @@ export default function ViajesClient({ trips }: { trips: Trip[] }) {
         ))}
       </div>
 
-      {/* ── Exportar (respeta tab + filtros activos) ── */}
-      <div className="flex justify-end mb-3">
+      {/* ── Selector de mes (llena desde/hasta) + Exportar ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+        <MesSelector meses={mesesDisponibles} desde={desde} hasta={hasta}
+          onRango={(d, h) => { setDesde(d); setHasta(h) }} />
         <button onClick={handleExport} disabled={exporting || filtered.length === 0}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#374151] hover:bg-[#F8FAFC] disabled:opacity-50 transition-colors">
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#374151] hover:bg-[#F8FAFC] disabled:opacity-50 transition-colors shrink-0">
           {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
           {exporting ? 'Generando…' : `Exportar a Excel (${filtered.length})`}
         </button>

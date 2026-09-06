@@ -7,6 +7,7 @@ import { FileText, Search, Pencil, Trash2, Filter, X, RotateCcw } from 'lucide-r
 import { eliminarLegalizacionAction, cambiarEstadoLegalizacionAction, reabrirLegalizacionAction } from './actions'
 import { ExportComprobanteButton } from './ExportComprobanteButton'
 import { useUrlState } from '@/lib/useUrlState'
+import MesSelector from '@/components/MesSelector'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   BORRADOR:  { label: 'Borrador',  className: 'bg-gray-100 text-gray-600' },
@@ -88,6 +89,11 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
     return [...s].sort((a, b) => a.localeCompare(b))
   }, [legalizaciones])
 
+  // Meses con legalizaciones (por `date` = fecha del viaje), más-reciente-primero.
+  const mesesDisponibles = useMemo(
+    () => [...new Set(legalizaciones.map(l => l.date?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse(),
+    [legalizaciones])
+
   const filtered = useMemo(() => {
     return legalizaciones.filter(leg => {
       if (plateFilter) {
@@ -133,6 +139,12 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
           <button onClick={() => setMensaje(null)} className="shrink-0 opacity-60 hover:opacity-100"><X size={14} /></button>
         </div>
       )}
+
+      {/* Selector de mes (llena desde/hasta) — siempre visible */}
+      <div className="mb-3">
+        <MesSelector meses={mesesDisponibles} desde={desde} hasta={hasta}
+          onRango={(d, h) => { setDesde(d); setHasta(h) }} />
+      </div>
 
       {/* Filtros */}
       <button onClick={() => setFiltersOpen(o => !o)}
