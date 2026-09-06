@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
+import MesSelectorLinks from '@/components/MesSelectorLinks'
 import CausacionesClient from './CausacionesClient'
 
 export const dynamic = 'force-dynamic'
@@ -39,8 +40,11 @@ async function getViajesPendientes() {
     }))
 }
 
-export default async function CausacionesPage() {
-  const viajes = await getViajesPendientes()
+export default async function CausacionesPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
+  const [viajes, sp] = await Promise.all([getViajesPendientes(), searchParams])
+  const meses = [...new Set(viajes.map((v: any) => v.fecha?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
+  const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
+  const filtrados = sel === 'todos' ? viajes : viajes.filter((v: any) => v.fecha.slice(0, 7) === sel)
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-5">
@@ -54,7 +58,8 @@ export default async function CausacionesPage() {
           (evento 2, emisión FEIT) — es un estado transitorio correcto hasta que exista esa pantalla.
         </p>
       </div>
-      <CausacionesClient viajes={viajes} />
+      <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/causaciones" />
+      <CausacionesClient viajes={filtrados} />
     </div>
   )
 }

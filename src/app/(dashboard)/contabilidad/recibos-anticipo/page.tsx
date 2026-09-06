@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
+import MesSelectorLinks from '@/components/MesSelectorLinks'
 import RecibosClient from './RecibosClient'
 
 export const dynamic = 'force-dynamic'
@@ -38,8 +39,11 @@ async function getAnticipos() {
     }))
 }
 
-export default async function RecibosPage() {
-  const movimientos = await getAnticipos()
+export default async function RecibosPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
+  const [movimientos, sp] = await Promise.all([getAnticipos(), searchParams])
+  const meses = [...new Set(movimientos.map((m: any) => m.fecha?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
+  const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
+  const filtrados = sel === 'todos' ? movimientos : movimientos.filter((m: any) => m.fecha.slice(0, 7) === sel)
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-5">
@@ -53,7 +57,8 @@ export default async function RecibosPage() {
           Estos anticipos se cruzan luego contra cartera (evento 4).
         </p>
       </div>
-      <RecibosClient movimientos={movimientos} />
+      <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/recibos-anticipo" />
+      <RecibosClient movimientos={filtrados} />
     </div>
   )
 }

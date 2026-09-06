@@ -1,6 +1,17 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
+import MesSelectorLinks, { rangoMes } from '@/components/MesSelectorLinks'
 import CruceClient from './CruceClient'
+
+const PISO = '2026-07-01'   // corte apertura: nada pre-corte
+
+// Meses (invoice_date) con AR no-PAGADA post-corte, más-reciente-primero.
+async function getMeses(): Promise<string[]> {
+  const rows = await fetchAll<any>((from, to) => supabase
+    .from('accounts_receivable_entries').select('invoice_date')
+    .neq('status', 'PAGADA').gte('invoice_date', PISO).order('id', { ascending: true }).range(from, to))
+  return [...new Set(rows.map((r: any) => r.invoice_date?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -10,7 +21,7 @@ export const dynamic = 'force-dynamic'
 // tercero, saldo de la factura). Es un estimado: la función recalcula en firme al
 // confirmar (si cruzas dos facturas del mismo tercero, la segunda toma el anticipo ya
 // reducido). Cero automatismo — Isabella confirma cada cruce.
-async function getElegibles() {
+async function getElegibles(periodo: string | null) {
   const lines = await fetchAll<any>((from, to) => supabase
     .from('journal_entry_lines')
     .select('cuenta_puc, tercero_id, debito, credito, journal_entries!inner(estado)')
@@ -35,14 +46,19 @@ async function getElegibles() {
     .order('id', { ascending: true }).range(from, to))
   const cruzadas = new Set(cx.map(x => x.origen_id))
 
-  const entries = await fetchAll<any>((from, to) => supabase
-    .from('accounts_receivable_entries')
-    .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, invoice_date, terceros(razon_social)')
-    .neq('status', 'PAGADA')
-    // Solo julio en adelante: las facturas pre-corte ya están netas en la apertura (CA-1);
-    // cruzar su anticipo/cartera duplicaría contra ese saldo histórico (mismo corte que periodo_bloqueado).
-    .gte('invoice_date', '2026-07-01')
-    .order('invoice_number').order('id', { ascending: true }).range(from, to))
+  // Anticipo/cartera por tercero son saldos TOTALES (no por mes). Solo la lista de facturas
+  // se acota: al piso post-corte ('Todos') o al mes elegido. Pre-corte nunca (ya está en CA-1).
+  const desde = periodo ? rangoMes(periodo).inicio : PISO
+  const hasta = periodo ? rangoMes(periodo).fin : null
+  const entries = await fetchAll<any>((from, to) => {
+    let q = supabase
+      .from('accounts_receivable_entries')
+      .select('id, client_name, invoice_number, invoice_amount, advance_amount, status, tercero_id, invoice_date, terceros(razon_social)')
+      .neq('status', 'PAGADA')
+      .gte('invoice_date', desde)
+    if (hasta) q = q.lt('invoice_date', hasta)
+    return q.order('invoice_number').order('id', { ascending: true }).range(from, to)
+  })
 
   return entries
     .filter((e: any) =>
@@ -68,8 +84,10 @@ async function getElegibles() {
     .filter(e => e.monto > 0)
 }
 
-export default async function CrucePage() {
-  const elegibles = await getElegibles()
+export default async function CrucePage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
+  const [meses, sp] = await Promise.all([getMeses(), searchParams])
+  const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
+  const elegibles = await getElegibles(sel === 'todos' ? null : sel)
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-5">
@@ -84,6 +102,7 @@ export default async function CrucePage() {
           saldo de la factura. La función recalcula en firme al confirmar.
         </p>
       </div>
+      <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/cruce-cartera" />
       <CruceClient elegibles={elegibles} />
     </div>
   )

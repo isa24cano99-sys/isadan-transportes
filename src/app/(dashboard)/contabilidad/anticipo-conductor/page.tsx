@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
+import MesSelectorLinks from '@/components/MesSelectorLinks'
 import AnticipoConductorClient from './AnticipoConductorClient'
 
 export const dynamic = 'force-dynamic'
@@ -41,8 +42,11 @@ async function getAnticipos() {
     }))
 }
 
-export default async function AnticipoConductorPage() {
-  const movimientos = await getAnticipos()
+export default async function AnticipoConductorPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
+  const [movimientos, sp] = await Promise.all([getAnticipos(), searchParams])
+  const meses = [...new Set(movimientos.map((m: any) => m.fecha?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
+  const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
+  const filtrados = sel === 'todos' ? movimientos : movimientos.filter((m: any) => m.fecha.slice(0, 7) === sel)
   return (
     <div className="p-6 max-w-4xl">
       <div className="mb-5">
@@ -56,7 +60,8 @@ export default async function AnticipoConductorPage() {
           lo acredita cuando se legaliza el gasto. Solo aparecen movimientos cuyo tercero es conductor.
         </p>
       </div>
-      <AnticipoConductorClient movimientos={movimientos} />
+      <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/anticipo-conductor" />
+      <AnticipoConductorClient movimientos={filtrados} />
     </div>
   )
 }
