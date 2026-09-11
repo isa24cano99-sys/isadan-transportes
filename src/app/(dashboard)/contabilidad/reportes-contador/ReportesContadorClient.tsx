@@ -282,7 +282,8 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url; a.download = `reportes-contador-${data.periodo}.xlsx`; a.click()
+      const [aY, aM] = data.periodo.split('-')
+      a.href = url; a.download = `Reporte ${MESES[Number(aM)]}-${aY}.xlsx`; a.click()
       URL.revokeObjectURL(url)
     } finally {
       setLoading(false)
@@ -318,7 +319,7 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
         className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
         {loading ? 'Generando…' : `Descargar Excel (5 hojas) · ${data.periodo}`}
       </button>
-      <p className="text-xs text-[#94A3B8]">Un solo archivo <code>reportes-contador-{data.periodo}.xlsx</code> con pestañas: Libro Diario · Libro Mayor · Balance de Comprobación · Balance por Tercero · ESF · ERI.</p>
+      <p className="text-xs text-[#94A3B8]">Un solo archivo <code>Reporte {MESES[Number(data.periodo.split('-')[1])]}-{data.periodo.split('-')[0]}.xlsx</code> con pestañas: Libro Diario · Libro Mayor · Balance de Comprobación · Balance por Tercero · ESF · ERI.</p>
     </div>
   )
 }
