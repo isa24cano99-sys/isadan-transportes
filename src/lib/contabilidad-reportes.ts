@@ -88,6 +88,40 @@ export function saldosDesdeLineas(lineas: LineaRep[], periodo: string): SaldoPer
   })).sort((x, y) => x.cuenta.localeCompare(y.cuenta))
 }
 
+// ── Balance de Comprobación POR TERCERO: como saldosDesdeLineas pero una fila por
+// cuenta+tercero. Cuentas exige_tercero → una fila por cada tercero con movimiento;
+// cuentas sin tercero → una sola fila (tercero null). Como saldoNaturaleza es lineal,
+// la suma de los terceros de una cuenta == el total de esa cuenta en el Balance normal.
+export type SaldoTercero = SaldoPeriodo & { tercero: string | null; terceroNit: string | null }
+
+export function saldosPorTerceroDesdeLineas(lineas: LineaRep[], periodo: string): SaldoTercero[] {
+  const inicio = `${periodo}-01`, fin = ultimoDiaMes(periodo)
+  const acc = new Map<string, {
+    cuenta: string; nombre: string; nat: string; tercero: string | null; nit: string | null
+    antD: number; antC: number; perD: number; perC: number
+  }>()
+  for (const l of lineas) {
+    const terceroKey = l.exigeTercero ? (l.terceroId ?? l.terceroNit ?? '(sin tercero)') : ''
+    const key = `${l.cuenta}|${terceroKey}`
+    let a = acc.get(key)
+    if (!a) {
+      a = { cuenta: l.cuenta, nombre: l.nombre, nat: l.naturaleza,
+            tercero: l.exigeTercero ? l.tercero : null, nit: l.exigeTercero ? l.terceroNit : null,
+            antD: 0, antC: 0, perD: 0, perC: 0 }
+      acc.set(key, a)
+    }
+    if (esAnterior(l, inicio)) { a.antD += l.debito; a.antC += l.credito }
+    else if (enPeriodo(l, inicio, fin)) { a.perD += l.debito; a.perC += l.credito }
+  }
+  return [...acc.values()].map(a => ({
+    cuenta: a.cuenta, nombre: a.nombre, naturaleza: a.nat, clase: a.cuenta.charAt(0),
+    tercero: a.tercero, terceroNit: a.nit,
+    saldoAnterior: saldoNaturaleza(a.nat, a.antD, a.antC),
+    debitoPeriodo: a.perD, creditoPeriodo: a.perC,
+    saldoFinal: saldoNaturaleza(a.nat, a.antD + a.perD, a.antC + a.perC),
+  })).sort((x, y) => x.cuenta.localeCompare(y.cuenta) || (x.tercero ?? '').localeCompare(y.tercero ?? ''))
+}
+
 // ── Libro Mayor / auxiliar por cuenta y TERCERO (Bug A) ───────────────────────
 // Regla general: si la cuenta exige_tercero, se subdivide por tercero (cada uno con
 // su saldo anterior + movimientos + saldo corriente). Si no, un solo grupo "—".
@@ -184,6 +218,7 @@ export type ReportesContador = {
   diario: AsientoRep[]
   mayor: CuentaMayorRep[]
   balance: SaldoPeriodo[]
+  balancePorTercero: SaldoTercero[]
   esf: { activo: SaldoPeriodo[]; pasivo: SaldoPeriodo[]; patrimonio: SaldoPeriodo[]; totalActivo: number; totalPasivo: number; totalPatrimonio: number; utilidad: number }
   eri: {
     ingresosOper: SaldoPeriodo[]; costos: SaldoPeriodo[]; gastosOper: SaldoPeriodo[]
@@ -212,6 +247,7 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
   const diario  = diarioDesdeLineas(lineas, periodo)
   const mayor   = mayorDesdeLineas(lineas, periodo)
   const balance = saldosDesdeLineas(lineas, periodo)
+  const balancePorTercero = saldosPorTerceroDesdeLineas(lineas, periodo)
 
   // ── ESF: cuentas de balance (clase 1/2/3), saldo final acumulado ──
   let activo       = balance.filter(b => b.clase === '1')
@@ -285,7 +321,7 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
     .reduce((s, l) => s + l.debito - l.credito, 0)
 
   return {
-    periodo, corte, diario, mayor, balance,
+    periodo, corte, diario, mayor, balance, balancePorTercero,
     esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad },
     eri: {
       ingresosOper, costos, gastosOper, erogSocios, ingresosFin, gastosFin,

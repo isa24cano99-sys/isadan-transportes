@@ -96,8 +96,8 @@ function portada(ws: any, d: ReportesContador, chk: { balance: boolean; mayor: b
   add()
   add('ÍNDICE').getCell(2).font = { bold: true }
   add('1 · Libro Diario'); add('2 · Libro Mayor (auxiliar por cuenta y tercero)')
-  add('3 · Balance de Comprobación'); add('4 · Estado de Situación Financiera (ESF)')
-  add('5 · Estado de Resultados Integral (ERI)')
+  add('3 · Balance de Comprobación'); add('4 · Balance de Comprobación por Tercero')
+  add('5 · Estado de Situación Financiera (ESF)'); add('6 · Estado de Resultados Integral (ERI)')
   add()
   add('VERIFICACIÓN DE CONSISTENCIA').getCell(2).font = { bold: true }
   const linea = (ok: boolean, label: string, val?: number) => {
@@ -154,6 +154,19 @@ function aoaBalance(d: ReportesContador): Row[] {
   const totD = d.balance.reduce((s, b) => s + b.debitoPeriodo, 0)
   const totC = d.balance.reduce((s, b) => s + b.creditoPeriodo, 0)
   rows.push(['', 'TOTALES', '', '', totD, totC, ''])
+  return rows
+}
+// Balance de Comprobación POR TERCERO: mismo esquema, con columna Tercero y una fila por
+// cuenta+tercero (cuentas exige_tercero → una fila por tercero; sin tercero → una fila en blanco).
+// El total por cuenta (sumando terceros) coincide EXACTO con el Balance normal (saldoNaturaleza lineal).
+function aoaBalanceTercero(d: ReportesContador): Row[] {
+  const rows: Row[] = [['Cuenta', 'Nombre', 'Naturaleza', 'Tercero', 'Saldo anterior', 'Débito periodo', 'Crédito periodo', 'Saldo final']]
+  for (const b of d.balancePorTercero) {
+    rows.push([b.cuenta, b.nombre, b.naturaleza === 'DEBITO' ? 'DB' : 'CR', b.tercero ?? '', b.saldoAnterior, b.debitoPeriodo || '', b.creditoPeriodo || '', b.saldoFinal])
+  }
+  const totD = d.balancePorTercero.reduce((s, b) => s + b.debitoPeriodo, 0)
+  const totC = d.balancePorTercero.reduce((s, b) => s + b.creditoPeriodo, 0)
+  rows.push(['', 'TOTALES', '', '', '', totD, totC, ''])
   return rows
 }
 
@@ -251,6 +264,7 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
         ['Libro Diario', 'LIBRO DIARIO', aoaDiario(data), [12, 12, 12, 30, 30, 14, 12, 20, 30, 15, 15]],
         ['Libro Mayor', 'LIBRO MAYOR (auxiliar por cuenta y tercero)', aoaMayor(data), [12, 28, 30, 14, 12, 12, 18, 26, 15, 15, 16]],
         ['Balance de Comprobación', 'BALANCE DE COMPROBACIÓN', aoaBalance(data), [12, 34, 10, 16, 16, 16, 16]],
+        ['Balance por Tercero', 'BALANCE DE COMPROBACIÓN POR TERCERO', aoaBalanceTercero(data), [12, 30, 10, 30, 15, 15, 15, 15]],
         ['ESF', 'ESTADO DE SITUACIÓN FINANCIERA', aoaESF(data), [14, 12, 40, 16, 16, 16]],
         ['ERI', 'ESTADO DE RESULTADOS INTEGRAL', aoaERI(data), [14, 12, 40, 18]],
       ]
@@ -304,7 +318,7 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
         className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
         {loading ? 'Generando…' : `Descargar Excel (5 hojas) · ${data.periodo}`}
       </button>
-      <p className="text-xs text-[#94A3B8]">Un solo archivo <code>reportes-contador-{data.periodo}.xlsx</code> con pestañas: Libro Diario · Libro Mayor · Balance de Comprobación · ESF · ERI.</p>
+      <p className="text-xs text-[#94A3B8]">Un solo archivo <code>reportes-contador-{data.periodo}.xlsx</code> con pestañas: Libro Diario · Libro Mayor · Balance de Comprobación · Balance por Tercero · ESF · ERI.</p>
     </div>
   )
 }
