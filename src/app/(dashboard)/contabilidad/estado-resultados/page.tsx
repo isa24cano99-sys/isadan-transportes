@@ -96,8 +96,12 @@ export default async function EstadoResultadosPage({ searchParams }: { searchPar
           <Grupo titulo="Ingresos financieros / no operacionales" cuentas={e.ingresosFin} total={e.totalIngresosFin} signo="+ " />
           <Grupo titulo="Gastos financieros / no operacionales" cuentas={e.gastosFin} total={e.totalGastosFin} signo="− " />
           <div className="bg-[#0F172A] text-white rounded-xl px-4 py-3 flex items-center justify-between">
-            <span className="text-sm font-semibold uppercase tracking-wide">Utilidad (pérdida) del ejercicio</span>
+            <span className="text-sm font-semibold uppercase tracking-wide">Utilidad (pérdida) del mes</span>
             <span className={`text-base font-bold tabular-nums ${e.utilidad < 0 ? 'text-red-400' : 'text-emerald-300'}`}>{formatCOP(e.utilidad)}</span>
+          </div>
+          <div className="bg-[#1E293B] text-white rounded-xl px-4 py-2.5 flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wide text-white/80">Resultado acumulado del ejercicio (julio a la fecha)</span>
+            <span className={`text-sm font-bold tabular-nums ${e.utilidadAcumulada < 0 ? 'text-red-300' : 'text-emerald-200'}`}>{formatCOP(e.utilidadAcumulada)}</span>
           </div>
         </div>
       )}

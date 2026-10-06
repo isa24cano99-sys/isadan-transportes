@@ -108,7 +108,7 @@ function portada(ws: any, d: ReportesContador, chk: { balance: boolean; mayor: b
   linea(chk.balance, 'Balance cuadra (Σ débito = Σ crédito)', chk.totD)
   linea(chk.mayor, 'Libro Mayor = Balance por cuenta')
   linea(chk.esf, 'ESF: Activo = Pasivo + Patrimonio', chk.activo)
-  linea(chk.eri, 'ERI ↔ ESF (Utilidad del ejercicio)', chk.utilidad)
+  linea(chk.eri, 'ERI ↔ ESF (resultado acumulado del ejercicio)', chk.utilidad)
 }
 
 // Etiqueta exacta de la fila de cierre — se usa también como predicado de estilo.
@@ -181,9 +181,12 @@ function aoaESF(d: ReportesContador): Row[] {
   seccion('PASIVO', d.esf.pasivo)
   rows.push(['', '', 'TOTAL PASIVO', '', '', d.esf.totalPasivo])
   seccion('PATRIMONIO', d.esf.patrimonio)
-  rows.push(['', '', 'Utilidad (pérdida) del ejercicio', '', '', d.esf.utilidad])
+  rows.push(['', '', 'Resultado acumulado del ejercicio (julio a la fecha de corte)', '', '', d.esf.utilidad])
   rows.push(['', '', 'TOTAL PATRIMONIO', '', '', d.esf.totalPatrimonio + d.esf.utilidad])
   rows.push(['', '', 'PASIVO + PATRIMONIO', '', '', d.esf.totalPasivo + d.esf.totalPatrimonio + d.esf.utilidad])
+  rows.push([])
+  rows.push(['Nota', '', 'El "Resultado acumulado del ejercicio" acumula clases 4-6 de julio a la fecha de corte. ' +
+    'El resultado de enero a junio está en 3610 (apertura). El cierre de resultados a 3610 se hace una sola vez al año (31-dic).'])
   // Nota al pie: desagregación del anticipo a trabajadores (13301510) en el ESF vs. su saldo
   // neto en el Balance de Comprobación. Cifras dinámicas tomadas del propio split.
   const deu = d.esf.activo.find(b => b.cuenta === '13301510')?.saldoFinal
@@ -217,7 +220,8 @@ function aoaERI(d: ReportesContador): Row[] {
   seccion('EROGACIONES A FAVOR DE LOS SOCIOS', e.erogSocios, e.totalErogSocios)
   seccion('INGRESOS FINANCIEROS / NO OPERACIONALES', e.ingresosFin, e.totalIngresosFin)
   seccion('GASTOS FINANCIEROS / NO OPERACIONALES', e.gastosFin, e.totalGastosFin)
-  rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL EJERCICIO', e.utilidad])
+  rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL MES', e.utilidad])
+  rows.push(['', '', '= RESULTADO ACUMULADO DEL EJERCICIO (julio a la fecha de corte)', e.utilidadAcumulada])
   // Nota al pie: menor ingreso por NC que anulan facturas de otros meses (mismo texto que la
   // pantalla web /contabilidad/estado-resultados; sale del lib compartido, no puede desincronizarse).
   if (e.ncReversionIngreso > 0) {
@@ -240,7 +244,9 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
   const activo = data.esf.totalActivo
   const pasivoMasPat = data.esf.totalPasivo + data.esf.totalPatrimonio + data.esf.utilidad
   const esfCuadra = Math.abs(activo - pasivoMasPat) < 0.01
-  const eriEsfConecta = Math.abs(data.eri.utilidad - data.esf.utilidad) < 0.01
+  // El ESF usa el resultado ACUMULADO; se compara contra el acumulado del ERI, no el del mes
+  // (si no, agosto saldría en rojo aunque cuadre).
+  const eriEsfConecta = Math.abs(data.eri.utilidadAcumulada - data.esf.utilidad) < 0.01
   // Balance saldo final por cuenta == Libro Mayor saldo final por cuenta
   const mayorByCuenta = new Map(data.mayor.map(c => [c.cuenta, c.saldoFinal]))
   const mayorCuadra = data.balance.every(b => Math.abs((mayorByCuenta.get(b.cuenta) ?? 0) - b.saldoFinal) < 0.01)
@@ -257,7 +263,7 @@ export default function ReportesContadorClient({ data }: { data: ReportesContado
       const generado = new Date().toLocaleString('es-CO', { dateStyle: 'long', timeStyle: 'short' })
       portada(wb.addWorksheet('Portada'), data, {
         balance: balanceCuadra, mayor: mayorCuadra, esf: esfCuadra, eri: eriEsfConecta,
-        totD, activo, utilidad: data.eri.utilidad,
+        totD, activo, utilidad: data.esf.utilidad,
       }, generado)
 
       const hojas: [string, string, Row[], number[]][] = [

@@ -83,9 +83,13 @@ export default async function EstadoSituacionPage({ searchParams }: { searchPara
           <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
             <Seccion titulo="Patrimonio" cuentas={e.patrimonio} total={patrimonioTotal} />
             <div className="flex items-center justify-between py-2 px-4 border-t border-[#F1F5F9] text-sm">
-              <span className="text-[#0F172A] font-medium">Utilidad (pérdida) del ejercicio</span>
+              <span className="text-[#0F172A] font-medium">Resultado acumulado del ejercicio (julio a la fecha de corte)</span>
               <Monto v={e.utilidad} bold />
             </div>
+            <p className="text-[11px] text-[#94A3B8] px-4 pb-2 leading-snug">
+              El resultado de enero a junio está en 3610 (apertura). Esta línea acumula julio hasta
+              el corte; el cierre de resultados a 3610 se hace una sola vez al año (31-dic).
+            </p>
           </div>
 
           <div className="bg-[#0F172A] text-white rounded-xl px-4 py-3">

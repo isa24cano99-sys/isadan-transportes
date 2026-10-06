@@ -65,6 +65,18 @@ export async function fetchLineasReporte(hasta?: string): Promise<LineaRep[]> {
 const esAnterior = (l: LineaRep, inicio: string) => l.tipo === 'CA' || l.fecha < inicio
 const enPeriodo  = (l: LineaRep, inicio: string, fin: string) => l.tipo !== 'CA' && l.fecha >= inicio && l.fecha <= fin
 
+// Resultado ACUMULADO del ejercicio hasta la fecha de corte: neto de clases 4-7 excluyendo
+// la apertura (CA) y los cierres (CC). Como el cierre de resultados es ANUAL, enero–junio está
+// en 3610 (apertura) y julio→corte queda abierto en las 4-7; este acumulado es lo que el ESF
+// debe mostrar como "Utilidad del ejercicio" para cuadrar en cualquier mes (no solo el primero).
+// Para una cuenta de ingreso (4) credito−debito suma; para costo/gasto (5/6/7) credito−debito
+// resta — la misma expresión sirve para todas.
+export function resultadoAcumulado(lineas: LineaRep[], corte: string): number {
+  return lineas
+    .filter(l => ['4', '5', '6', '7'].includes(l.cuenta.charAt(0)) && l.tipo !== 'CA' && l.tipo !== 'CC' && l.fecha <= corte)
+    .reduce((s, l) => s + l.credito - l.debito, 0)
+}
+
 // ── Balance de comprobación (y base del ESF): saldo anterior / mov / final ─────
 export type SaldoPeriodo = {
   cuenta: string; nombre: string; naturaleza: string; clase: string
@@ -226,6 +238,9 @@ export type ReportesContador = {
     totalIngresosOper: number; totalCostos: number; totalGastosOper: number
     totalErogSocios: number; totalIngresosFin: number; totalGastosFin: number
     utilidadBruta: number; utilidadOperacional: number; utilidad: number
+    // Resultado acumulado del ejercicio (julio → corte), = esf.utilidad. El ERI muestra la
+    // utilidad del MES (utilidad) y además esta línea acumulada.
+    utilidadAcumulada: number
     // Menor ingreso del periodo por notas crédito (NC) que anulan facturas de otros meses.
     ncReversionIngreso: number
   }
@@ -313,6 +328,8 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
   const utilidadOperacional = utilidadBruta - totalGastosOper
   // La utilidad del ejercicio no cambia: las erogaciones a socios siguen restando, solo se reubican.
   const utilidad            = utilidadOperacional - totalErogSocios + totalIngresosFin - totalGastosFin
+  // Acumulado del ejercicio (julio → corte): lo que el ESF usa como "Utilidad del ejercicio".
+  const utilidadAcumulada   = resultadoAcumulado(lineas, corte)
 
   // Menor ingreso del periodo por NC (comprobante NC, DB a cuentas 4x). Mismo cálculo que la
   // pantalla, ahora en el lib compartido para que la nota salga IGUAL en pantalla y en Excel.
@@ -322,11 +339,12 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
 
   return {
     periodo, corte, diario, mayor, balance, balancePorTercero,
-    esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad },
+    // El ESF usa el ACUMULADO como utilidad del ejercicio (para cuadrar en cualquier mes).
+    esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad: utilidadAcumulada },
     eri: {
       ingresosOper, costos, gastosOper, erogSocios, ingresosFin, gastosFin,
       totalIngresosOper, totalCostos, totalGastosOper, totalErogSocios, totalIngresosFin, totalGastosFin,
-      utilidadBruta, utilidadOperacional, utilidad, ncReversionIngreso,
+      utilidadBruta, utilidadOperacional, utilidad, utilidadAcumulada, ncReversionIngreso,
     },
   }
 }
