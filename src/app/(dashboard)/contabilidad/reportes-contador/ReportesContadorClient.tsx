@@ -220,7 +220,9 @@ function aoaERI(d: ReportesContador): Row[] {
   seccion('EROGACIONES A FAVOR DE LOS SOCIOS', e.erogSocios, e.totalErogSocios)
   seccion('INGRESOS FINANCIEROS / NO OPERACIONALES', e.ingresosFin, e.totalIngresosFin)
   seccion('GASTOS FINANCIEROS / NO OPERACIONALES', e.gastosFin, e.totalGastosFin)
-  rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL MES', e.utilidad])
+  rows.push(['', '', '= UTILIDAD ANTES DE IMPUESTOS', e.utilidadAntesImpuestos])
+  seccion('IMPUESTO DE RENTA Y COMPLEMENTARIOS (SIMPLE)', e.impuestoRenta, e.totalImpuestoRenta)
+  rows.push(['', '', '= UTILIDAD (PÉRDIDA) DEL EJERCICIO', e.utilidad])
   rows.push(['', '', '= RESULTADO ACUMULADO DEL EJERCICIO (julio a la fecha de corte)', e.utilidadAcumulada])
   // Nota al pie: menor ingreso por NC que anulan facturas de otros meses (mismo texto que la
   // pantalla web /contabilidad/estado-resultados; sale del lib compartido, no puede desincronizarse).

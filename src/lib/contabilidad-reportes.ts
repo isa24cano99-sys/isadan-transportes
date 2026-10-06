@@ -235,9 +235,14 @@ export type ReportesContador = {
   eri: {
     ingresosOper: SaldoPeriodo[]; costos: SaldoPeriodo[]; gastosOper: SaldoPeriodo[]
     erogSocios: SaldoPeriodo[]; ingresosFin: SaldoPeriodo[]; gastosFin: SaldoPeriodo[]
+    impuestoRenta: SaldoPeriodo[]
     totalIngresosOper: number; totalCostos: number; totalGastosOper: number
     totalErogSocios: number; totalIngresosFin: number; totalGastosFin: number
-    utilidadBruta: number; utilidadOperacional: number; utilidad: number
+    totalImpuestoRenta: number
+    // Utilidad ANTES de impuestos (= la antigua "utilidad", sin la clase 54) y la del ejercicio
+    // después de restar el impuesto de renta (SIMPLE). La del ejercicio no cambia de valor: el
+    // impuesto solo se separa de "gastos operacionales" a su propia línea.
+    utilidadBruta: number; utilidadOperacional: number; utilidadAntesImpuestos: number; utilidad: number
     // Resultado acumulado del ejercicio (julio → corte), = esf.utilidad. El ERI muestra la
     // utilidad del MES (utilidad) y además esta línea acumulada.
     utilidadAcumulada: number
@@ -314,20 +319,27 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
   // personal del socio, no operativo — señalado por el revisor).
   const EROG_EXTRA = new Set(['52959510', '52959511'])
   const esErogSocio  = (b: SaldoPeriodo) => b.cuenta.startsWith('5297') || EROG_EXTRA.has(b.cuenta)
+  // Impuesto de renta y complementarios (SIMPLE): clase 54 (54050510 ICA + 54050505 nacional).
+  // Se saca de "gastos operacionales" a su propia sección, después de la utilidad antes de impuestos.
+  const esImpuestoRenta = (b: SaldoPeriodo) => sub(b) === '54'
   const ingresosOper = balance.filter(b => sub(b) === '41')
   const ingresosFin  = balance.filter(b => b.clase === '4' && sub(b) !== '41')
   const costos       = balance.filter(b => b.clase === '6' || b.clase === '7')
   const gastosFin    = balance.filter(b => sub(b) === '53')
   const erogSocios   = balance.filter(esErogSocio)
-  const gastosOper   = balance.filter(b => b.clase === '5' && sub(b) !== '53' && !esErogSocio(b))
+  const impuestoRenta = balance.filter(esImpuestoRenta)
+  const gastosOper   = balance.filter(b => b.clase === '5' && sub(b) !== '53' && !esErogSocio(b) && !esImpuestoRenta(b))
   const sumMov = (arr: SaldoPeriodo[]) => arr.reduce((s, b) => s + montoGrupo(b, true), 0)
   const totalIngresosOper = sumMov(ingresosOper), totalIngresosFin = sumMov(ingresosFin)
   const totalCostos = sumMov(costos), totalGastosOper = sumMov(gastosOper), totalGastosFin = sumMov(gastosFin)
   const totalErogSocios = sumMov(erogSocios)
+  const totalImpuestoRenta = sumMov(impuestoRenta)
   const utilidadBruta       = totalIngresosOper - totalCostos
   const utilidadOperacional = utilidadBruta - totalGastosOper
-  // La utilidad del ejercicio no cambia: las erogaciones a socios siguen restando, solo se reubican.
-  const utilidad            = utilidadOperacional - totalErogSocios + totalIngresosFin - totalGastosFin
+  // Utilidad antes de impuestos: erogaciones a socios siguen restando, el impuesto NO (va aparte).
+  const utilidadAntesImpuestos = utilidadOperacional - totalErogSocios + totalIngresosFin - totalGastosFin
+  // La utilidad del ejercicio no cambia de valor: el impuesto ya restaba dentro de gastos operacionales.
+  const utilidad            = utilidadAntesImpuestos - totalImpuestoRenta
   // Acumulado del ejercicio (julio → corte): lo que el ESF usa como "Utilidad del ejercicio".
   const utilidadAcumulada   = resultadoAcumulado(lineas, corte)
 
@@ -342,9 +354,10 @@ export async function reportesContador(periodo: string): Promise<ReportesContado
     // El ESF usa el ACUMULADO como utilidad del ejercicio (para cuadrar en cualquier mes).
     esf: { activo, pasivo, patrimonio, totalActivo, totalPasivo, totalPatrimonio, utilidad: utilidadAcumulada },
     eri: {
-      ingresosOper, costos, gastosOper, erogSocios, ingresosFin, gastosFin,
+      ingresosOper, costos, gastosOper, erogSocios, ingresosFin, gastosFin, impuestoRenta,
       totalIngresosOper, totalCostos, totalGastosOper, totalErogSocios, totalIngresosFin, totalGastosFin,
-      utilidadBruta, utilidadOperacional, utilidad, utilidadAcumulada, ncReversionIngreso,
+      totalImpuestoRenta,
+      utilidadBruta, utilidadOperacional, utilidadAntesImpuestos, utilidad, utilidadAcumulada, ncReversionIngreso,
     },
   }
 }

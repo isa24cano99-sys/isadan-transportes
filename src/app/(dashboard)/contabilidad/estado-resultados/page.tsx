@@ -95,8 +95,10 @@ export default async function EstadoResultadosPage({ searchParams }: { searchPar
           <Grupo titulo="Erogaciones a favor de los socios" cuentas={e.erogSocios} total={e.totalErogSocios} signo="− " />
           <Grupo titulo="Ingresos financieros / no operacionales" cuentas={e.ingresosFin} total={e.totalIngresosFin} signo="+ " />
           <Grupo titulo="Gastos financieros / no operacionales" cuentas={e.gastosFin} total={e.totalGastosFin} signo="− " />
+          <Subtotal label="= Utilidad antes de impuestos" v={e.utilidadAntesImpuestos} />
+          <Grupo titulo="Impuesto de renta y complementarios (SIMPLE)" cuentas={e.impuestoRenta} total={e.totalImpuestoRenta} signo="− " />
           <div className="bg-[#0F172A] text-white rounded-xl px-4 py-3 flex items-center justify-between">
-            <span className="text-sm font-semibold uppercase tracking-wide">Utilidad (pérdida) del mes</span>
+            <span className="text-sm font-semibold uppercase tracking-wide">Utilidad (pérdida) del ejercicio</span>
             <span className={`text-base font-bold tabular-nums ${e.utilidad < 0 ? 'text-red-400' : 'text-emerald-300'}`}>{formatCOP(e.utilidad)}</span>
           </div>
           <div className="bg-[#1E293B] text-white rounded-xl px-4 py-2.5 flex items-center justify-between">

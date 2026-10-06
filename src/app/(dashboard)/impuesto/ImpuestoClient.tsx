@@ -222,16 +222,18 @@ export default function ImpuestoClient({
         </select>
       </div>
 
-      {/* Señal de pendiente: bimestre 4 (jul-ago) sin causar, esperando el cálculo real */}
+      {/* Bimestre 4 (jul-ago): CAUSADO según el borrador del contador (formulario 2593) */}
       {year === 2026 && (
-        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-900">⚠ Bimestre 4 (jul-ago): impuesto SIMPLE PENDIENTE de causar</p>
-          <p className="text-sm text-amber-800 mt-1 leading-relaxed">
-            Aún <strong>no se ha causado</strong> el asiento real (DB 540505 / CR 241215). Se está esperando el
-            <strong> cálculo definitivo del contador</strong> (formulario 2593: ICA por municipio + tope/arrastre de
-            excedente de pensión). Base gravable real del bimestre: <strong>$187.497.142</strong> (neta de NC).
-            Estimado de referencia @1,1% ≈ <strong>$2.062.469</strong> — solo referencia, no posteado.
-            Los valores calculados abajo usan la fórmula simplificada de la app, que <strong>no es la definitiva</strong>.
+        <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4">
+          <p className="text-sm font-semibold text-emerald-900">✓ Bimestre 4 (jul-ago): impuesto SIMPLE CAUSADO según el borrador del contador</p>
+          <p className="text-sm text-emerald-800 mt-1 leading-relaxed">
+            Asiento real posteado (<strong>CG-156</strong>, 31-ago-2026) con el borrador del formulario 2593:
+            <strong> ICA $2.072.000</strong> (54050510) + <strong>componente nacional $3.504.000</strong> (54050505)
+            = <strong>$5.576.000</strong> acreditado a 241215 (régimen simple por pagar), tercero DIAN.
+            Base gravable del bimestre: $187.496.000. Si el contador cambia la cifra en la declaración definitiva,
+            se ajusta <strong>solo la diferencia</strong> por asiento adicional, no se re-causa.
+            Los valores calculados abajo siguen usando la <strong>fórmula simplificada</strong> de la app (referencial),
+            que <strong>no es la base de esta causación</strong>.
           </p>
         </div>
       )}
