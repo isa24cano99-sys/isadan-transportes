@@ -40,12 +40,13 @@ export default async function CierrePeriodoPage() {
       <div className="mb-5">
         <h1 className="text-xl font-semibold text-[#0F172A]">Cierre de periodo</h1>
         <p className="text-sm text-[#64748B] mt-0.5">
-          Cerrar un mes postea el asiento de cierre (CC) que traslada el resultado a 3610 Resultados
-          Acumulados y bloquea nuevos asientos con fecha en ese mes.
+          Cerrar un mes lo <strong>bloquea</strong> (no acepta nuevos asientos con fecha en ese mes) y corre las
+          reclasificaciones de presentación. El <strong>cierre de resultados es anual</strong> (31-dic): el cierre
+          mensual <strong>NO</strong> cancela las clases 4-6 contra 3610 — así cada mes conserva su utilidad en el ERI.
         </p>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
           ⚠ Cierra un mes solo cuando esté <strong>completo</strong> (toda la nómina, costos y facturas capturados).
-          Reabrir quita el candado pero <strong>no borra</strong> el CC — para re-cerrar hay que anularlo con una reversión.
+          Reabrir solo quita el candado.
         </p>
       </div>
       <CierrePeriodoClient filas={filas} />

@@ -6,16 +6,15 @@ import { revalidatePath } from 'next/cache'
 export type CierreResultado = { ok: boolean; mensaje: string }
 
 /**
- * Cierra un periodo: postea el asiento de cierre (CC) que zanjea clase 4-7 a 3610
- * y marca el periodo CERRADO. La función valida anti-duplicado y movimiento.
+ * Cierra un periodo: lo BLOQUEA y corre las reclasificaciones de presentación (saldos
+ * débito 220501 → 133005). NO cancela clases 4-6 contra resultados — el cierre de
+ * RESULTADOS es anual (31-dic), no mensual. La función rechaza si el periodo ya está CERRADO.
  */
 export async function cerrarPeriodoAction(periodo: string): Promise<CierreResultado> {
-  const { data, error } = await supabase.rpc('postear_cierre_periodo', { p_periodo: `${periodo}-01` })
+  const { error } = await supabase.rpc('postear_cierre_periodo', { p_periodo: `${periodo}-01` })
   if (error) return { ok: false, mensaje: error.message }
-  const { data: a } = await supabase
-    .from('journal_entries').select('consecutivo').eq('id', data as string).single()
   revalidatePath('/contabilidad/cierre-periodo')
-  return { ok: true, mensaje: `Periodo ${periodo} cerrado · asiento CC-${a?.consecutivo}` }
+  return { ok: true, mensaje: `Periodo ${periodo} bloqueado; el cierre de resultados es anual (no mensual).` }
 }
 
 /**

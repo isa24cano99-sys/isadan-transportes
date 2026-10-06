@@ -33,7 +33,7 @@ const FASES: Fase[] = [
   { titulo: 'Nómina y cierre', pasos: [
     { n: 8, label: 'Nómina mensual', desc: 'Capturar la nómina del mes', href: '/contabilidad/nomina-mensual', icon: UsersRound },
     { n: 9, label: 'Seguridad social', desc: 'Consolidar aportes y pagar a Aportes en Línea', href: '/contabilidad/seguridad-social', icon: ShieldCheck },
-    { n: 10, label: 'Cierre de periodo', desc: 'Cerrar el mes y trasladar el resultado', href: '/contabilidad/cierre-periodo', icon: Lock },
+    { n: 10, label: 'Cierre de periodo', desc: 'Bloquear el mes (el cierre de resultados es anual)', href: '/contabilidad/cierre-periodo', icon: Lock },
   ] },
 ]
 
