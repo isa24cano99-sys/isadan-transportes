@@ -75,6 +75,32 @@ export async function postearIngresoFinancieroAction(
 }
 
 /**
+ * Apertura de CDT (DB 12250505 CDT (Bancolombia) / CR 11100510 Banco). Mueve plata del
+ * banco a una inversión a término. postear_apertura_cdt valida categoría (12250505),
+ * dirección EGRESO, monto>0, vencimiento posterior a la apertura, pre-corte, anti-dup;
+ * el tercero del CDT es SIEMPRE Bancolombia (aunque el movimiento no lo tenga asignado).
+ */
+export async function postearAperturaCdtAction(
+  movimientos: { id: string; ref: string; vencimiento: string }[],
+): Promise<PagoResultado[]> {
+  const resultados: PagoResultado[] = []
+  for (const m of movimientos) {
+    const { data, error } = await supabase.rpc('postear_apertura_cdt', {
+      p_bank_transaction_id: m.id, p_vencimiento: m.vencimiento,
+    })
+    if (error) {
+      resultados.push({ btId: m.id, ref: m.ref, ok: false, mensaje: error.message })
+    } else {
+      const { data: asiento } = await supabase
+        .from('journal_entries').select('consecutivo').eq('id', data as string).single()
+      resultados.push({ btId: m.id, ref: m.ref, ok: true, mensaje: `Contabilizado · asiento CB-${asiento?.consecutivo}` })
+    }
+  }
+  revalidatePath('/contabilidad/pago-proveedores')
+  return resultados
+}
+
+/**
  * Consolida ≥2 gastos directos en UN solo asiento (patrón Dataico): una línea de débito
  * por transacción (a su cuenta/tercero) + una de crédito al banco por el total, bajo la
  * descripción que escribe el usuario. postear_gastos_consolidados valida cada bt y exige

@@ -42,25 +42,32 @@ async function getMovimientos() {
   // ingreso financiero: clase 4, excepto el flete 41450510 (va por facturación con su FEIT)
   const catsIngreso = (cats ?? []).filter((c: any) => c.puc_code && /^4/.test(c.puc_code) && c.puc_code !== '41450510').map((c: any) => c.id)
   const catsGasto = (cats ?? []).filter((c: any) => c.puc_code && /^[56]/.test(c.puc_code) && !excluidoGasto(c.puc_code)).map((c: any) => c.id)
+  // apertura de CDT (inversión a término): activo clase 12, mecanismo propio DB 12250505 / CR banco
+  const catsCdt = (cats ?? []).filter((c: any) => c.puc_code === '12250505').map((c: any) => c.id)
 
   const bts = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions')
     .select('id, date, amount, description, category_id, tercero_id, matched_invoice_id, type, terceros(razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona)')
-    .in('category_id', [...catsPago, ...catsInterno, ...catsIngreso, ...catsGasto])
+    .in('category_id', [...catsPago, ...catsInterno, ...catsIngreso, ...catsGasto, ...catsCdt])
     .gte('date', '2026-07-01')
     .order('date').order('id', { ascending: true }).range(from, to))
 
   const catsPagoSet = new Set(catsPago)
   const catsInternoSet = new Set(catsInterno)
   const catsIngresoSet = new Set(catsIngreso)
+  const catsCdtSet = new Set(catsCdt)
   const pagos: any[] = []
   const gastos: any[] = []
   const internos: any[] = []
   const ingresos: any[] = []
+  const cdts: any[] = []
   for (const b of bts as any[]) {
     if (contabilizado(b)) continue
     const cat = catById.get(b.category_id)
-    if (catsPagoSet.has(b.category_id)) {
+    if (catsCdtSet.has(b.category_id)) {
+      if (b.type !== 'EGRESO') continue  // la apertura de CDT es plata que SALE del banco
+      cdts.push({ id: b.id, fecha: b.date, monto: Number(b.amount), descripcion: b.description ?? '' })
+    } else if (catsPagoSet.has(b.category_id)) {
       if (!b.tercero_id) continue  // pago a proveedor exige tercero (proveedor)
       pagos.push({ id: b.id, fecha: b.date, monto: Number(b.amount), tercero: b.terceros ? nombreTercero(b.terceros) : '—', descripcion: b.description ?? '' })
     } else if (catsInternoSet.has(b.category_id)) {
@@ -85,7 +92,7 @@ async function getMovimientos() {
       })
     }
   }
-  return { pagos, gastos, internos, ingresos }
+  return { pagos, gastos, internos, ingresos, cdts }
 }
 
 // Mes ABIERTO por defecto (el más reciente marcado ABIERTO en periodos_contables).
@@ -96,7 +103,7 @@ async function mesAbierto(): Promise<string> {
 }
 
 export default async function PagosGastosPage() {
-  const [{ pagos, gastos, internos, ingresos }, mesInicial, { data: veh }] = await Promise.all([
+  const [{ pagos, gastos, internos, ingresos, cdts }, mesInicial, { data: veh }] = await Promise.all([
     getMovimientos(), mesAbierto(),
     supabase.from('vehicles').select('plate').order('plate'),
   ])
@@ -114,7 +121,7 @@ export default async function PagosGastosPage() {
           Nada se contabiliza sin tu confirmación.
         </p>
       </div>
-      <PagoProveedoresClient pagos={pagos} gastos={gastos} internos={internos} ingresos={ingresos} mesInicial={mesInicial} placas={placas} />
+      <PagoProveedoresClient pagos={pagos} gastos={gastos} internos={internos} ingresos={ingresos} cdts={cdts} mesInicial={mesInicial} placas={placas} />
     </div>
   )
 }

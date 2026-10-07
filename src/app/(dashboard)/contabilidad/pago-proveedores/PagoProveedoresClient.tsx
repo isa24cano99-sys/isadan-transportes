@@ -3,16 +3,18 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { postearPagoProveedorAction, postearGastoDirectoAction, postearGastosConsolidadosAction, postearTransferenciaInternaAction, postearIngresoFinancieroAction, type PagoResultado } from './actions'
+import { postearPagoProveedorAction, postearGastoDirectoAction, postearGastosConsolidadosAction, postearTransferenciaInternaAction, postearIngresoFinancieroAction, postearAperturaCdtAction, type PagoResultado } from './actions'
 
 type PagoRow    = { id: string; fecha: string; monto: number; tercero: string; descripcion: string }
 type GastoRow   = PagoRow & { categoria: string; puc: string; exigeCeco: boolean }
 type InternoRow = { id: string; fecha: string; monto: number; descripcion: string; categoria: string; direccion: string }
 type IngresoRow = { id: string; fecha: string; monto: number; descripcion: string; categoria: string; puc: string }
+type CdtRow     = { id: string; fecha: string; monto: number; descripcion: string }
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const VENC_CDT_DEFAULT = '2027-02-01'
 
-export default function PagoProveedoresClient({ pagos, gastos, internos, ingresos, mesInicial, placas }: { pagos: PagoRow[]; gastos: GastoRow[]; internos: InternoRow[]; ingresos: IngresoRow[]; mesInicial: string; placas: string[] }) {
+export default function PagoProveedoresClient({ pagos, gastos, internos, ingresos, cdts, mesInicial, placas }: { pagos: PagoRow[]; gastos: GastoRow[]; internos: InternoRow[]; ingresos: IngresoRow[]; cdts: CdtRow[]; mesInicial: string; placas: string[] }) {
   const router = useRouter()
   const [year, setYear]   = useState(Number(mesInicial.slice(0, 4)))
   const [month, setMonth] = useState(Number(mesInicial.slice(5, 7)))
@@ -22,6 +24,7 @@ export default function PagoProveedoresClient({ pagos, gastos, internos, ingreso
   const [descripcion, setDescripcion] = useState('')
   const [fechaGrupo, setFechaGrupo] = useState('')
   const [cecoById, setCecoById] = useState<Map<string, string>>(new Map())  // gasto id → placa (centro de costo)
+  const [vencById, setVencById] = useState<Map<string, string>>(new Map())  // cdt id → fecha de vencimiento
 
   // Filtro de mes: solo se muestran las candidatas del mes seleccionado (no se mezclan meses).
   const mes = `${year}-${String(month).padStart(2, '0')}`
@@ -29,7 +32,10 @@ export default function PagoProveedoresClient({ pagos, gastos, internos, ingreso
   const gastos_ = useMemo(() => gastos.filter(g => g.fecha.slice(0, 7) === mes), [gastos, mes])
   const internos_ = useMemo(() => internos.filter(t => t.fecha.slice(0, 7) === mes), [internos, mes])
   const ingresos_ = useMemo(() => ingresos.filter(i => i.fecha.slice(0, 7) === mes), [ingresos, mes])
-  const cambiarMes = (y: number, m: number) => { setYear(y); setMonth(m); setSel(new Set()); setDescripcion(''); setFechaGrupo(''); setCecoById(new Map()) }
+  const cdts_ = useMemo(() => cdts.filter(c => c.fecha.slice(0, 7) === mes), [cdts, mes])
+  const vencDe = (id: string) => vencById.get(id) ?? VENC_CDT_DEFAULT
+  const setVenc = (id: string, v: string) => setVencById(prev => { const n = new Map(prev); n.set(id, v); return n })
+  const cambiarMes = (y: number, m: number) => { setYear(y); setMonth(m); setSel(new Set()); setDescripcion(''); setFechaGrupo(''); setCecoById(new Map()); setVencById(new Map()) }
 
   // gastos cuya cuenta exige centro de costo (placa) + helper para fijarla
   const cecoRequerido = useMemo(() => new Set(gastos_.filter(g => g.exigeCeco).map(g => g.id)), [gastos_])
@@ -38,13 +44,14 @@ export default function PagoProveedoresClient({ pagos, gastos, internos, ingreso
 
   // índices id → tipo/ref/monto/fecha para despachar al RPC correcto y sumar totales
   const meta = useMemo(() => {
-    const m = new Map<string, { tipo: 'pago' | 'gasto' | 'interno' | 'ingreso'; ref: string; monto: number; fecha: string }>()
+    const m = new Map<string, { tipo: 'pago' | 'gasto' | 'interno' | 'ingreso' | 'cdt'; ref: string; monto: number; fecha: string }>()
     pagos_.forEach(p => m.set(p.id, { tipo: 'pago', ref: `${p.tercero} · ${p.fecha}`, monto: p.monto, fecha: p.fecha }))
     gastos_.forEach(g => m.set(g.id, { tipo: 'gasto', ref: `${g.categoria} · ${g.fecha}`, monto: g.monto, fecha: g.fecha }))
     internos_.forEach(t => m.set(t.id, { tipo: 'interno', ref: `${t.direccion} · ${t.fecha}`, monto: t.monto, fecha: t.fecha }))
     ingresos_.forEach(i => m.set(i.id, { tipo: 'ingreso', ref: `${i.categoria} · ${i.fecha}`, monto: i.monto, fecha: i.fecha }))
+    cdts_.forEach(c => m.set(c.id, { tipo: 'cdt', ref: `CDT ${c.fecha}`, monto: c.monto, fecha: c.fecha }))
     return m
-  }, [pagos_, gastos_, internos_, ingresos_])
+  }, [pagos_, gastos_, internos_, ingresos_, cdts_])
 
   // selección de GASTOS (para consolidar): default fecha = la más tardía; guard mismo mes
   const selGasto = useMemo(() => [...sel].filter(id => meta.get(id)?.tipo === 'gasto'), [sel, meta])
@@ -76,12 +83,14 @@ export default function PagoProveedoresClient({ pagos, gastos, internos, ingreso
     const gastoIds = ids.filter(id => meta.get(id)?.tipo === 'gasto')
     const internoIds = ids.filter(id => meta.get(id)?.tipo === 'interno')
     const ingresoIds = ids.filter(id => meta.get(id)?.tipo === 'ingreso')
+    const cdtIds = ids.filter(id => meta.get(id)?.tipo === 'cdt')
     setLoading(true); setResultados([])
     const res: PagoResultado[] = []
     if (pagoIds.length)    res.push(...await postearPagoProveedorAction(pagoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
     if (gastoIds.length)   res.push(...await postearGastoDirectoAction(gastoIds.map(id => ({ id, ref: meta.get(id)!.ref, centroCosto: cecoById.get(id) }))))
     if (internoIds.length) res.push(...await postearTransferenciaInternaAction(internoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
     if (ingresoIds.length) res.push(...await postearIngresoFinancieroAction(ingresoIds.map(id => ({ id, ref: meta.get(id)!.ref }))))
+    if (cdtIds.length)     res.push(...await postearAperturaCdtAction(cdtIds.map(id => ({ id, ref: meta.get(id)!.ref, vencimiento: vencDe(id) }))))
     setResultados(res); setSel(new Set()); setLoading(false); router.refresh()
   }
 
@@ -118,7 +127,7 @@ export default function PagoProveedoresClient({ pagos, gastos, internos, ingreso
     </tr>
   )
 
-  const nada = pagos_.length === 0 && gastos_.length === 0 && internos_.length === 0 && ingresos_.length === 0
+  const nada = pagos_.length === 0 && gastos_.length === 0 && internos_.length === 0 && ingresos_.length === 0 && cdts_.length === 0
 
   const selCls = 'border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
   return (
@@ -269,6 +278,44 @@ export default function PagoProveedoresClient({ pagos, gastos, internos, ingreso
                     <td className="px-3 py-2 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(i.monto)}</td>
                     <td className="px-3 py-2 text-right">
                       <button onClick={() => postear([i.id])} disabled={loading}
+                        className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-50">Contabilizar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ── SECCIÓN 5: APERTURA DE CDT (inversión a término) ── */}
+      {cdts_.length > 0 && (
+        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-[#EEF2FF] border-b border-[#C7D2FE]">
+            <p className="text-sm font-semibold text-[#4338CA]">Apertura de CDT (inversión a término)</p>
+            <p className="text-[11px] text-[#6366F1]">Mueve plata del banco a un CDT · DB 12250505 CDT (Bancolombia) / CR 11100510 Banco. Elige el vencimiento (los intereses se pagan al final del plazo).</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-[#E2E8F0]">
+                <th className="w-9 px-3 py-2"><input type="checkbox" className={chk}
+                  checked={cdts_.length > 0 && cdts_.every(c => sel.has(c.id))} onChange={e => toggleMany(cdts_.map(c => c.id), e.target.checked)} /></th>
+                <th className={th}>Fecha</th><th className={th}>Descripción (banco)</th>
+                <th className={`${th} text-right`}>Monto</th><th className={th}>Vencimiento</th><th className="w-20 px-3 py-2"></th>
+              </tr></thead>
+              <tbody>
+                {cdts_.map(c => (
+                  <tr key={c.id} className="border-b border-[#E2E8F0] last:border-0 hover:bg-[#F8FAFC]">
+                    <td className="px-3 py-2"><input type="checkbox" className={chk} checked={sel.has(c.id)} onChange={() => toggle(c.id)} /></td>
+                    <td className="px-3 py-2 text-[#64748B] whitespace-nowrap">{c.fecha}</td>
+                    <td className="px-3 py-2 text-[#64748B] max-w-[220px] truncate">{c.descripcion || '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(c.monto)}</td>
+                    <td className="px-3 py-2">
+                      <input type="date" value={vencDe(c.id)} min={c.fecha} onChange={e => setVenc(c.id, e.target.value)}
+                        className="border border-[#C7D2FE] rounded px-1.5 py-0.5 text-xs bg-[#EEF2FF] text-[#4338CA]" />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => postear([c.id])} disabled={loading || vencDe(c.id) <= c.fecha}
                         className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-50">Contabilizar</button>
                     </td>
                   </tr>
