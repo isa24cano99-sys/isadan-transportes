@@ -129,7 +129,7 @@ export type VincularResult = { ok: true; asiento: string } | { ok: false; error:
  * futuro no se olvida en un lado. Orden postear→enlazar: un rechazo del guard no deja link huérfano.
  */
 export async function vincularFeBancoAction(
-  input: { bankTxnId: string; importId: string; cuentaPuc: string },
+  input: { bankTxnId: string; importId: string; cuentaPuc: string; placa?: string },
 ): Promise<VincularResult> {
   if (!input.bankTxnId || !input.importId || !input.cuentaPuc) {
     return { ok: false, error: 'Faltan datos (banco, factura o cuenta de costo).' }
@@ -154,6 +154,7 @@ export async function vincularFeBancoAction(
   // 1) postear el costo (pago directo, CR 11100510). El guard rechaza si la FE ya está causada.
   const { data: entryId, error } = await supabase.rpc('postear_costo_dian', {
     p_import_id: input.importId, p_cuenta_puc: input.cuentaPuc, p_credito_puc: '11100510',
+    p_placa: input.placa ?? null,
   })
   if (error) return { ok: false, error: error.message }
 
@@ -220,13 +221,14 @@ export async function getFacturasVinculablesAction(periodo: string): Promise<FeE
  * (mostrada, editable, no forzada). Si ya tenía una, NO la sobrescribe (se corrige en /terceros).
  */
 export async function postearCostoDianAction(
-  input: { importId: string; terceroId: string | null; cuentaPuc: string; tratamiento: 'a' | 'c'; ref: string },
+  input: { importId: string; terceroId: string | null; cuentaPuc: string; tratamiento: 'a' | 'c'; ref: string; placa?: string },
 ): Promise<CostoResultado> {
   const credito = input.tratamiento === 'a' ? '11100510' : '220501'
   const { data, error } = await supabase.rpc('postear_costo_dian', {
     p_import_id: input.importId,
     p_cuenta_puc: input.cuentaPuc,
     p_credito_puc: credito,
+    p_placa: input.placa ?? null,
   })
   if (error) return { id: input.importId, ref: input.ref, ok: false, mensaje: error.message }
 

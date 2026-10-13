@@ -9,7 +9,7 @@ import { postearCostoDianAction, importarDianConciliacionAction, vincularFeBanco
 import { Upload, CheckCircle, FileSpreadsheet, RefreshCw } from 'lucide-react'
 
 export type { EstadoFE }
-export type CuentaCosto = { codigo: string; nombre: string }
+export type CuentaCosto = { codigo: string; nombre: string; exigeCeco: boolean }
 export type EgresoBanco = { id: string; date: string; amount: number; description: string }
 export type ItemCosto = FeEstado & { tratamiento: 'a' | 'c' }
 export type FacturaAnulada = { id: string; folio: string; fecha: string; emisor: string; monto: number }
@@ -32,9 +32,10 @@ function EstadoBadge({ estado, etiqueta }: { estado: EstadoFE; etiqueta: string 
 
 const days = (a: string, b: string) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000)
 
-function Fila({ it, cuentas, egresos, onDone, onAnular }: { it: ItemCosto; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; onDone: (r: CostoResultado) => void; onAnular: (id: string) => void }) {
+function Fila({ it, cuentas, egresos, placas, onDone, onAnular }: { it: ItemCosto; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; placas: string[]; onDone: (r: CostoResultado) => void; onAnular: (id: string) => void }) {
   const [cuenta, setCuenta] = useState(it.cuentaSugerida ?? '')
   const [trat, setTrat] = useState<'a' | 'c'>(it.tratamiento)
+  const [placa, setPlaca] = useState('')
   const [anulando, setAnulando] = useState(false)
   // egreso sugerido por defecto: mismo monto ±7 días (la heurística que ya marcó el tratamiento)
   const sugeridoBanco = egresos.find(e => Math.round(e.amount) === Math.round(it.monto) && days(e.date, it.fecha) <= 7)?.id ?? ''
@@ -43,18 +44,22 @@ function Fila({ it, cuentas, egresos, onDone, onAnular }: { it: ItemCosto; cuent
   const sinClasificar = !it.cuentaSugerida
   const accionable = it.estado === 'sin_asignar'     // solo las sin asignar se contabilizan aquí
   const fijaraFuturo = sinClasificar && accionable && !!cuenta
+  // La cuenta elegida exige centro de costo (placa) → selector obligatorio, sin "Sin asignar".
+  const exigeCeco = !!cuentas.find(c => c.codigo === cuenta)?.exigeCeco
+  const faltaPlaca = exigeCeco && !placa
 
   const contabilizar = async () => {
-    if (!cuenta || loading) return
+    if (!cuenta || loading || faltaPlaca) return
     if (trat === 'a' && !bancoId) return   // pago directo exige elegir el egreso
     setLoading(true)
     const ref = `${it.emisor} · FE ${it.folio}`
+    const placaArg = exigeCeco ? placa : undefined
     let res: CostoResultado
     if (trat === 'a') {
-      const v = await vincularFeBancoAction({ bankTxnId: bancoId, importId: it.id, cuentaPuc: cuenta })
+      const v = await vincularFeBancoAction({ bankTxnId: bancoId, importId: it.id, cuentaPuc: cuenta, placa: placaArg })
       res = { id: it.id, ref, ok: v.ok, mensaje: v.ok ? `Pago directo contabilizado · ${v.asiento} (egreso vinculado)` : v.error }
     } else {
-      res = await postearCostoDianAction({ importId: it.id, terceroId: it.terceroId, cuentaPuc: cuenta, tratamiento: 'c', ref })
+      res = await postearCostoDianAction({ importId: it.id, terceroId: it.terceroId, cuentaPuc: cuenta, tratamiento: 'c', ref, placa: placaArg })
     }
     setLoading(false)
     onDone(res)
@@ -102,12 +107,20 @@ function Fila({ it, cuentas, egresos, onDone, onAnular }: { it: ItemCosto; cuent
                 {egresos.map(e => <option key={e.id} value={e.id}>{fmtEgreso(e)}</option>)}
               </select>
             )}
-            <button onClick={contabilizar} disabled={!cuenta || loading || (trat === 'a' && !bancoId)}
+            {exigeCeco && (
+              <select value={placa} onChange={e => setPlaca(e.target.value)}
+                className="border border-amber-300 rounded-lg px-2 py-1.5 text-xs bg-amber-50 text-[#B45309]">
+                <option value="">placa (obligatoria)…</option>
+                {placas.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )}
+            <button onClick={contabilizar} disabled={!cuenta || loading || faltaPlaca || (trat === 'a' && !bancoId)}
               className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-40 disabled:no-underline">
               {loading ? '…' : 'Contabilizar'}
             </button>
             {it.cuentaSugerida && <div className="text-[10px] text-emerald-600 w-full">Sugerido del proveedor · editable</div>}
             {fijaraFuturo && <div className="text-[10px] text-amber-700 w-full">⚠ Se fija como cuenta de este proveedor para el futuro</div>}
+            {faltaPlaca && <div className="text-[10px] text-amber-700 w-full">Esta cuenta exige placa (centro de costo) — elígela para poder contabilizar.</div>}
             {trat === 'a' && !bancoId && <div className="text-[10px] text-amber-700 w-full">Elige el egreso que pagó esta factura para dejar la trazabilidad.</div>}
           </div>
         ) : (
@@ -200,7 +213,7 @@ function ImportDian({ onImported }: { onImported: () => void }) {
   )
 }
 
-export default function ConciliacionCostosClient({ items, cuentas, egresos, anuladas }: { items: ItemCosto[]; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; anuladas: FacturaAnulada[] }) {
+export default function ConciliacionCostosClient({ items, cuentas, egresos, anuladas, placas }: { items: ItemCosto[]; cuentas: CuentaCosto[]; egresos: EgresoBanco[]; anuladas: FacturaAnulada[]; placas: string[] }) {
   const router = useRouter()
   const [resultados, setResultados] = useState<CostoResultado[]>([])
 
@@ -248,7 +261,7 @@ export default function ConciliacionCostosClient({ items, cuentas, egresos, anul
                 </tr>
               </thead>
               <tbody>
-                {items.map(it => <Fila key={it.id} it={it} cuentas={cuentas} egresos={egresos} onDone={onDone} onAnular={anularNC} />)}
+                {items.map(it => <Fila key={it.id} it={it} cuentas={cuentas} egresos={egresos} placas={placas} onDone={onDone} onAnular={anularNC} />)}
               </tbody>
               <tfoot>
                 <tr className="bg-[#F8FAFC] font-semibold border-t-2 border-[#E2E8F0]">

@@ -24,8 +24,12 @@ async function getMesesDisponibles(): Promise<string[]> {
 // Antes fijo a julio ('2026-07-01'..'2026-08-01'); ahora [inicio, fin) del mes elegido, tanto para
 // las FE como para la ventana de banco del pre-sugerido de pago (±7 días, que es la tolerancia de days()).
 async function getData(periodo: string) {
-  const { data: cuentas } = await supabase
-    .from('puc_accounts').select('codigo, nombre').like('codigo', '6145%').eq('active', true).order('codigo')
+  const [{ data: cuentasRaw }, { data: veh }] = await Promise.all([
+    supabase.from('puc_accounts').select('codigo, nombre, exige_centro_costo').like('codigo', '6145%').eq('active', true).order('codigo'),
+    supabase.from('vehicles').select('plate').order('plate'),
+  ])
+  const cuentas: CuentaCosto[] = (cuentasRaw ?? []).map((c: any) => ({ codigo: c.codigo, nombre: c.nombre, exigeCeco: !!c.exige_centro_costo }))
+  const placas = (veh ?? []).map((v: any) => v.plate as string)
 
   const inicio = `${periodo}-01`
   const [y, m] = periodo.split('-').map(Number)
@@ -59,14 +63,14 @@ async function getData(periodo: string) {
     emisor: (v.terceros?.razon_social ?? v.name_issuer ?? '—') as string, monto: Number(v.total),
   }))
 
-  return { items, cuentas: (cuentas ?? []) as CuentaCosto[], egresos, anuladas }
+  return { items, cuentas, egresos, anuladas, placas }
 }
 
 export default async function ConciliacionCostosPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
   const [meses, sp] = await Promise.all([getMesesDisponibles(), searchParams])
   const defecto = meses[meses.length - 1] ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
   const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : defecto
-  const { items, cuentas, egresos, anuladas } = await getData(sel)
+  const { items, cuentas, egresos, anuladas, placas } = await getData(sel)
 
   return (
     <div className="p-6 max-w-5xl">
@@ -95,7 +99,7 @@ export default async function ConciliacionCostosPage({ searchParams }: { searchP
         ))}
       </div>
 
-      <ConciliacionCostosClient items={items} cuentas={cuentas} egresos={egresos} anuladas={anuladas} />
+      <ConciliacionCostosClient items={items} cuentas={cuentas} egresos={egresos} anuladas={anuladas} placas={placas} />
     </div>
   )
 }
