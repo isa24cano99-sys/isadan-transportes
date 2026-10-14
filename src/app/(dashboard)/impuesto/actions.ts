@@ -71,3 +71,41 @@ export async function cerrarReservaAction(
   revalidatePath('/impuesto', 'layout')
   return { ok: true }
 }
+
+// ── Pago del impuesto (DIAN) ────────────────────────────────────────────────────
+
+export type PagoImpuestoInput = {
+  fecha:             string
+  total:             number
+  mora:              number
+  reserva:           number
+  caja:              number
+  banco:             number
+  bankTransactionId: string | null
+  terceroSocio:      string | null
+  recibo:            string | null
+}
+
+// UN solo asiento CG: DB 241215 (total−mora) + DB 53959510 (mora) / CR 13251005 (reserva socio)
+// + CR 110505 (caja) + CR 11100510 (banco). Todos los guards (fuentes=total, saldo 241215 a la
+// fecha, reserva del socio a la fecha, enlace+anti-dup de banco) viven en la función SQL.
+export async function postearPagoImpuestoAction(
+  input: PagoImpuestoInput,
+): Promise<{ ok: boolean; error?: string; consecutivo?: number }> {
+  const { data, error } = await supabase.rpc('postear_pago_impuesto_simple', {
+    p_fecha:               input.fecha,
+    p_total:               input.total,
+    p_mora:                input.mora,
+    p_reserva:             input.reserva,
+    p_caja:                input.caja,
+    p_banco:               input.banco,
+    p_bank_transaction_id: input.bankTransactionId,
+    p_tercero_socio:       input.terceroSocio,
+    p_recibo:              input.recibo,
+  })
+  if (error) return { ok: false, error: error.message }
+  const { data: asiento } = await supabase
+    .from('journal_entries').select('consecutivo').eq('id', data as string).single()
+  revalidatePath('/impuesto', 'layout')
+  return { ok: true, consecutivo: asiento?.consecutivo as number }
+}

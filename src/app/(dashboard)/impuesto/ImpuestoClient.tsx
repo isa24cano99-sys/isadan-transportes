@@ -3,11 +3,13 @@
 import { useRouter } from 'next/navigation'
 import { useState, useMemo } from 'react'
 import {
-  marcarPagadoAction, registrarReservaAction, cerrarReservaAction,
+  marcarPagadoAction, registrarReservaAction, cerrarReservaAction, postearPagoImpuestoAction,
   type MarcarPagadoInput,
 } from './actions'
 import { formatCOP } from '@/lib/utils'
-import type { TaxPayment, ReservaPendiente, ReservaVigente } from './page'
+import type {
+  TaxPayment, ReservaPendiente, ReservaVigente, ReservaLineaFecha, EgresoBanco,
+} from './page'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +74,188 @@ function Divider() {
   return <div className="border-t border-[#E2E8F0] my-1" />
 }
 
+// ── Sección C · Registrar pago del impuesto (DIAN) ──────────────────────────────
+// UN solo asiento CG: DB 241215 (total−mora) + DB 53959510 (mora) / CR 13251005
+// (reserva socio) + CR 110505 (caja) + CR 11100510 (banco). El disponible de la
+// reserva se calcula A LA FECHA elegida y se recalcula si la fecha cambia.
+function PagoImpuestoSection({
+  reservasVigentes, saldo241215, reservaLineas, egresos, onDone,
+}: {
+  reservasVigentes: ReservaVigente[]
+  saldo241215: number
+  reservaLineas: ReservaLineaFecha[]
+  egresos: EgresoBanco[]
+  onDone: () => void
+}) {
+  const [fecha,   setFecha]   = useState('')
+  const [total,   setTotal]   = useState('')
+  const [mora,    setMora]    = useState('')
+  const [reserva, setReserva] = useState('')
+  const [caja,    setCaja]    = useState('')
+  const [banco,   setBanco]   = useState('')
+  const [bankTx,  setBankTx]  = useState('')
+  const [recibo,  setRecibo]  = useState('')
+  const [socio,   setSocio]   = useState(reservasVigentes[0]?.terceroId ?? '')
+  const [busy,    setBusy]    = useState(false)
+  const [err,     setErr]     = useState('')
+  const [ok,      setOk]      = useState('')
+
+  const n = (s: string) => Math.round(parseFloat(s) || 0)
+  const vTotal = n(total), vMora = n(mora), vReserva = n(reserva), vCaja = n(caja), vBanco = n(banco)
+  const sumaFuentes = vReserva + vCaja + vBanco
+  const abono       = vTotal - vMora       // lo que abona al pasivo 241215
+
+  // Disponible de reserva del socio A LA FECHA elegida (suma de netos con fecha ≤ fecha).
+  const dispReserva = useMemo(() => {
+    if (!socio || !fecha) return null
+    return reservaLineas
+      .filter(l => l.terceroId === socio && l.fecha && l.fecha <= fecha)
+      .reduce((s, l) => s + l.neto, 0)
+  }, [socio, fecha, reservaLineas])
+
+  // Validaciones (mismas que la función SQL; aquí solo para habilitar el botón y avisar)
+  const problemas: string[] = []
+  if (!fecha)                              problemas.push('Elige la fecha del pago.')
+  if (vTotal <= 0)                         problemas.push('El total debe ser mayor que 0.')
+  if (vMora < 0 || vReserva < 0 || vCaja < 0 || vBanco < 0) problemas.push('Los montos no pueden ser negativos.')
+  if (vMora >= vTotal && vTotal > 0)       problemas.push('La mora no puede ser igual o mayor al total.')
+  if (vTotal > 0 && sumaFuentes !== vTotal) problemas.push(`Las fuentes (${formatCOP(sumaFuentes)}) deben sumar el total (${formatCOP(vTotal)}).`)
+  if (abono > 0 && abono > saldo241215)    problemas.push(`El abono al pasivo (${formatCOP(abono)}) supera el saldo de 241215 (${formatCOP(saldo241215)}).`)
+  if (vReserva > 0 && !socio)              problemas.push('Para usar reserva, elige el socio.')
+  if (vReserva > 0 && dispReserva !== null && vReserva > dispReserva)
+    problemas.push(`La reserva usada (${formatCOP(vReserva)}) supera lo disponible a la fecha (${formatCOP(dispReserva)}).`)
+  if (vBanco > 0 && !bankTx)               problemas.push('Si usas banco, enlaza el movimiento bancario (EGRESO).')
+
+  const puede = problemas.length === 0 && !busy
+
+  const registrar = async () => {
+    setBusy(true); setErr(''); setOk('')
+    const r = await postearPagoImpuestoAction({
+      fecha, total: vTotal, mora: vMora, reserva: vReserva, caja: vCaja, banco: vBanco,
+      bankTransactionId: vBanco > 0 ? bankTx : null,
+      terceroSocio: vReserva > 0 ? socio : null,
+      recibo: recibo.trim() || null,
+    })
+    setBusy(false)
+    if (r.ok) {
+      setOk(`Contabilizado · asiento CG-${r.consecutivo}`)
+      setTotal(''); setMora(''); setReserva(''); setCaja(''); setBanco(''); setBankTx(''); setRecibo('')
+      onDone()
+    } else {
+      setErr(r.error ?? 'Error al contabilizar')
+    }
+  }
+
+  const field = 'w-full border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+  const lbl   = 'text-xs font-semibold text-[#64748B] mb-1 block'
+
+  return (
+    <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-[#0F172A]">Registrar pago del impuesto</h2>
+          <p className="text-sm text-[#64748B] mt-0.5">
+            UN asiento que salda el pasivo con las fuentes reales de plata:{' '}
+            <span className="font-medium">DB 241215 (total − mora) · DB 53959510 (mora) / CR 13251005 (reserva socio) · CR 110505 (caja) · CR 11100510 (banco)</span>.
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-xs font-semibold text-[#64748B]">Saldo impuesto (241215)</p>
+          <p className="text-lg font-bold tabular-nums text-[#0F172A]">{formatCOP(saldo241215)}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div>
+          <label className={lbl}>Fecha del pago</label>
+          <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className={field} />
+        </div>
+        <div>
+          <label className={lbl}>Total pagado</label>
+          <input type="number" min="0" step="1000" value={total} onChange={e => setTotal(e.target.value)} className={field} />
+        </div>
+        <div>
+          <label className={lbl}>Mora (opcional)</label>
+          <input type="number" min="0" step="1000" value={mora} onChange={e => setMora(e.target.value)} className={field} />
+        </div>
+      </div>
+
+      <div className="rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] p-3 space-y-3">
+        <p className="text-xs font-semibold text-[#64748B]">Fuentes de pago (deben sumar el total)</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className={lbl}>Reserva (socio)</label>
+            <input type="number" min="0" step="1000" value={reserva} onChange={e => setReserva(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className={lbl}>Caja (110505)</label>
+            <input type="number" min="0" step="1000" value={caja} onChange={e => setCaja(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className={lbl}>Banco (11100510)</label>
+            <input type="number" min="0" step="1000" value={banco} onChange={e => setBanco(e.target.value)} className={field} />
+          </div>
+        </div>
+
+        {vReserva > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Socio de la reserva</label>
+              <select value={socio} onChange={e => setSocio(e.target.value)} className={field}>
+                {reservasVigentes.length === 0 && <option value="">— sin reservas —</option>}
+                {reservasVigentes.map(v => <option key={v.terceroId} value={v.terceroId}>{v.socio}</option>)}
+              </select>
+            </div>
+            <div className="flex items-end">
+              <p className="text-xs text-[#64748B]">
+                Disponible de reserva a la fecha:{' '}
+                <span className="font-bold tabular-nums text-[#0F172A]">
+                  {dispReserva === null ? '— elige fecha —' : formatCOP(dispReserva)}
+                </span>
+              </p>
+            </div>
+          </div>
+        )}
+
+        {vBanco > 0 && (
+          <div>
+            <label className={lbl}>Movimiento bancario (EGRESO) que financia la parte de banco</label>
+            <select value={bankTx} onChange={e => setBankTx(e.target.value)} className={field}>
+              <option value="">— elige el egreso —</option>
+              {egresos.map(e => (
+                <option key={e.id} value={e.id}>{e.fecha} · {formatCOP(e.monto)} · {e.descripcion || '—'}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className={lbl}>Recibo DIAN / soporte (opcional)</label>
+        <input type="text" value={recibo} onChange={e => setRecibo(e.target.value)} placeholder="N.º de recibo o referencia" className={field} />
+      </div>
+
+      {problemas.length > 0 && (
+        <ul className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-0.5 list-disc list-inside">
+          {problemas.map((p, i) => <li key={i}>{p}</li>)}
+        </ul>
+      )}
+      {err && <p className="text-sm text-red-600">✗ {err}</p>}
+      {ok  && <p className="text-sm text-emerald-700">✓ {ok}</p>}
+
+      <div className="flex justify-end">
+        <button
+          onClick={registrar}
+          disabled={!puede}
+          className="bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          {busy ? 'Contabilizando…' : 'Registrar pago del impuesto'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ImpuestoClient({
@@ -84,6 +268,8 @@ export default function ImpuestoClient({
   reservasPendientes,
   reservasVigentes,
   saldo241215,
+  reservaLineas,
+  egresos,
 }: {
   year: number
   availableYears: number[]
@@ -94,6 +280,8 @@ export default function ImpuestoClient({
   reservasPendientes: ReservaPendiente[]
   reservasVigentes: ReservaVigente[]
   saldo241215: number
+  reservaLineas: ReservaLineaFecha[]
+  egresos: EgresoBanco[]
 }) {
   const router = useRouter()
 
@@ -530,6 +718,15 @@ export default function ImpuestoClient({
           </div>
         )}
       </div>
+
+      {/* ── Sección C · Registrar pago del impuesto ──────────────────────────── */}
+      <PagoImpuestoSection
+        reservasVigentes={reservasVigentes}
+        saldo241215={saldo241215}
+        reservaLineas={reservaLineas}
+        egresos={egresos}
+        onDone={() => router.refresh()}
+      />
 
       {/* Disclaimer */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
