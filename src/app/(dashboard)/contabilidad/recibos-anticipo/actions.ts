@@ -33,3 +33,16 @@ export async function registrarAnticiposAction(
   revalidatePath('/contabilidad/recibos-anticipo')
   return resultados
 }
+
+/**
+ * Asigna el tercero (cliente) a un movimiento bancario que llegó sin tercero. Solo escribe
+ * bank_transactions.tercero_id — NO contabiliza. Tras asignarlo, el movimiento pasa a la lista
+ * normal de anticipos (deja de estar "falta tercero").
+ */
+export async function asignarTerceroAction(btId: string, terceroId: string): Promise<{ ok: boolean; error?: string }> {
+  if (!btId || !terceroId) return { ok: false, error: 'Falta el movimiento o el tercero.' }
+  const { error } = await supabase.from('bank_transactions').update({ tercero_id: terceroId }).eq('id', btId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/contabilidad/recibos-anticipo')
+  return { ok: true }
+}

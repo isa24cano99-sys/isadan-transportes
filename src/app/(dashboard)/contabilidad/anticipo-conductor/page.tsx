@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 async function getAnticipos() {
   const { data: cat } = await supabase
     .from('transaction_categories').select('id').eq('puc_code', '13301510').limit(1).maybeSingle()
-  if (!cat) return []
+  if (!cat) return { movimientos: [], sinTercero: [], conductores: [] }
 
   const { data: cb } = await supabase
     .from('journal_entries').select('origen_id')
@@ -23,6 +23,9 @@ async function getAnticipos() {
   const driverByTer = new Map(
     (drivers ?? []).filter((d: any) => d.tercero_id).map((d: any) => [d.tercero_id, d.full_name]),
   )
+  const conductores = (drivers ?? []).filter((d: any) => d.tercero_id)
+    .map((d: any) => ({ id: d.tercero_id as string, nombre: d.full_name as string }))
+    .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
 
   const bts = await fetchAll<any>((from, to) => supabase
     .from('bank_transactions')
@@ -31,19 +34,21 @@ async function getAnticipos() {
     .gte('date', '2026-07-01')
     .order('date').order('id', { ascending: true }).range(from, to))
 
-  return bts
+  const movimientos = bts
     .filter((b: any) => b.tercero_id && driverByTer.has(b.tercero_id) && !conCB.has(b.id))
-    .map((b: any) => ({
-      id:          b.id,
-      fecha:       b.date as string,
-      monto:       Number(b.amount),
-      conductor:   (driverByTer.get(b.tercero_id) ?? '—') as string,
-      descripcion: (b.description ?? '') as string,
-    }))
+    .map((b: any) => ({ id: b.id, fecha: b.date as string, monto: Number(b.amount), conductor: (driverByTer.get(b.tercero_id) ?? '—') as string, descripcion: (b.description ?? '') as string }))
+
+  // Movimientos de la categoría SIN conductor (tercero NULL o no es un driver) y aún sin CB →
+  // "falta tercero" para asignar el conductor en la misma pantalla (no se esconden).
+  const sinTercero = bts
+    .filter((b: any) => !conCB.has(b.id) && !(b.tercero_id && driverByTer.has(b.tercero_id)))
+    .map((b: any) => ({ id: b.id, fecha: b.date as string, monto: Number(b.amount), descripcion: (b.description ?? '') as string }))
+
+  return { movimientos, sinTercero, conductores }
 }
 
 export default async function AnticipoConductorPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
-  const [movimientos, sp] = await Promise.all([getAnticipos(), searchParams])
+  const [{ movimientos, sinTercero, conductores }, sp] = await Promise.all([getAnticipos(), searchParams])
   const meses = [...new Set(movimientos.map((m: any) => m.fecha?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
   const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
   const filtrados = sel === 'todos' ? movimientos : movimientos.filter((m: any) => m.fecha.slice(0, 7) === sel)
@@ -61,7 +66,7 @@ export default async function AnticipoConductorPage({ searchParams }: { searchPa
         </p>
       </div>
       <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/anticipo-conductor" />
-      <AnticipoConductorClient movimientos={filtrados} />
+      <AnticipoConductorClient movimientos={filtrados} sinTercero={sinTercero} conductores={conductores} />
     </div>
   )
 }

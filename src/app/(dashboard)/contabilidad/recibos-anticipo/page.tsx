@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 async function getAnticipos() {
   const { data: cat } = await supabase
     .from('transaction_categories').select('id').eq('puc_code', '28050510').limit(1).maybeSingle()
-  if (!cat) return []
+  if (!cat) return { movimientos: [], sinTercero: [], clientes: [] }
 
   const { data: rc } = await supabase
     .from('journal_entries').select('origen_id')
@@ -28,19 +28,28 @@ async function getAnticipos() {
     .gte('date', '2026-07-01')
     .order('date').order('id', { ascending: true }).range(from, to))
 
-  return bts
+  // Clientes (es_cliente) para el selector de "falta tercero".
+  const cli = await fetchAll<any>((from, to) => supabase
+    .from('terceros').select('id, razon_social, primer_nombre, otros_nombres, primer_apellido, segundo_apellido, tipo_persona')
+    .eq('es_cliente', true).is('merged_into', null).order('razon_social', { ascending: true }).range(from, to))
+  const clientes = (cli as any[]).map(t => ({ id: t.id as string, nombre: nombreTercero(t) }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre))
+
+  const movimientos = bts
     .filter((b: any) => b.tercero_id && b.terceros?.es_cliente && !conRC.has(b.id))
-    .map((b: any) => ({
-      id:          b.id,
-      fecha:       b.date as string,
-      monto:       Number(b.amount),
-      cliente:     b.terceros ? nombreTercero(b.terceros) : '—',
-      descripcion: (b.description ?? '') as string,
-    }))
+    .map((b: any) => ({ id: b.id, fecha: b.date as string, monto: Number(b.amount), cliente: b.terceros ? nombreTercero(b.terceros) : '—', descripcion: (b.description ?? '') as string }))
+
+  // Movimientos de la categoría SIN tercero (o con tercero que no es cliente) y aún sin RC →
+  // se muestran como "falta tercero" para asignarlo en la misma pantalla (no se esconden).
+  const sinTercero = bts
+    .filter((b: any) => !conRC.has(b.id) && (!b.tercero_id || !b.terceros?.es_cliente))
+    .map((b: any) => ({ id: b.id, fecha: b.date as string, monto: Number(b.amount), descripcion: (b.description ?? '') as string }))
+
+  return { movimientos, sinTercero, clientes }
 }
 
 export default async function RecibosPage({ searchParams }: { searchParams: Promise<{ periodo?: string }> }) {
-  const [movimientos, sp] = await Promise.all([getAnticipos(), searchParams])
+  const [{ movimientos, sinTercero, clientes }, sp] = await Promise.all([getAnticipos(), searchParams])
   const meses = [...new Set(movimientos.map((m: any) => m.fecha?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse()
   const sel = sp.periodo && meses.includes(sp.periodo) ? sp.periodo : 'todos'
   const filtrados = sel === 'todos' ? movimientos : movimientos.filter((m: any) => m.fecha.slice(0, 7) === sel)
@@ -58,7 +67,7 @@ export default async function RecibosPage({ searchParams }: { searchParams: Prom
         </p>
       </div>
       <MesSelectorLinks meses={meses} sel={sel} basePath="/contabilidad/recibos-anticipo" />
-      <RecibosClient movimientos={filtrados} />
+      <RecibosClient movimientos={filtrados} sinTercero={sinTercero} clientes={clientes} />
     </div>
   )
 }

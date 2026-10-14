@@ -3,13 +3,66 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
-import { registrarAnticiposAction, type ReciboResultado } from './actions'
+import { registrarAnticiposAction, asignarTerceroAction, type ReciboResultado } from './actions'
 
 type Movimiento = {
   id: string; fecha: string; monto: number; cliente: string; descripcion: string
 }
+type SinTercero = { id: string; fecha: string; monto: number; descripcion: string }
+type Cliente = { id: string; nombre: string }
 
-export default function RecibosClient({ movimientos }: { movimientos: Movimiento[] }) {
+function FaltaTerceroSection({ rows, clientes }: { rows: SinTercero[]; clientes: Cliente[] }) {
+  const router = useRouter()
+  const [terByBt, setTerByBt] = useState<Map<string, string>>(new Map())
+  const [busy, setBusy] = useState<string | null>(null)
+  const set = (id: string, t: string) => setTerByBt(p => { const n = new Map(p); t ? n.set(id, t) : n.delete(id); return n })
+  const asignar = async (id: string) => {
+    const t = terByBt.get(id); if (!t || busy) return
+    setBusy(id)
+    const r = await asignarTerceroAction(id, t)
+    setBusy(null)
+    if (r.ok) router.refresh()
+  }
+  if (rows.length === 0) return null
+  return (
+    <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
+      <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200">
+        <p className="text-sm font-semibold text-amber-800">⚠ Falta tercero ({rows.length})</p>
+        <p className="text-[11px] text-amber-700">Movimientos categorizados como anticipo de cliente pero sin cliente asignado — asígnalo aquí para poder registrarlos. No se contabilizan sin tercero.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-[#E2E8F0] text-[#64748B] text-xs">
+            <th className="text-left px-3 py-2 font-medium">Fecha</th><th className="text-left px-3 py-2 font-medium">Descripción (banco)</th>
+            <th className="text-right px-3 py-2 font-medium">Monto</th><th className="text-left px-3 py-2 font-medium">Cliente</th><th className="w-20 px-3 py-2"></th>
+          </tr></thead>
+          <tbody>
+            {rows.map(m => (
+              <tr key={m.id} className="border-b border-[#E2E8F0] last:border-0 hover:bg-[#FFFBEB]">
+                <td className="px-3 py-2 text-[#64748B] whitespace-nowrap">{m.fecha}</td>
+                <td className="px-3 py-2 text-[#64748B]">{m.descripcion || '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-[#0F172A] whitespace-nowrap">{formatCOP(m.monto)}</td>
+                <td className="px-3 py-2">
+                  <select value={terByBt.get(m.id) ?? ''} onChange={e => set(m.id, e.target.value)}
+                    className="border border-amber-300 rounded-lg px-2 py-1 text-xs bg-amber-50 text-[#B45309] max-w-[220px]">
+                    <option value="">— elige cliente —</option>
+                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <button onClick={() => asignar(m.id)} disabled={!terByBt.get(m.id) || busy === m.id}
+                    className="text-xs text-[#2563EB] hover:underline font-medium disabled:opacity-40">{busy === m.id ? '…' : 'Asignar'}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export default function RecibosClient({ movimientos, sinTercero, clientes }: { movimientos: Movimiento[]; sinTercero: SinTercero[]; clientes: Cliente[] }) {
   const router = useRouter()
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
@@ -35,6 +88,8 @@ export default function RecibosClient({ movimientos }: { movimientos: Movimiento
 
   return (
     <div className="space-y-4">
+      <FaltaTerceroSection rows={sinTercero} clientes={clientes} />
+
       {resultados.length > 0 && (
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 space-y-1.5">
           <p className="text-xs font-semibold text-[#64748B] mb-1">Resultado</p>
