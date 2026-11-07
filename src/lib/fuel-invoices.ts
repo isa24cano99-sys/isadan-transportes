@@ -1,19 +1,16 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
-import { FE_LINEA_CUENTA, type FEClasificada } from '@/lib/fe-lineas'
+import type { FEClasificada } from '@/lib/fe-lineas'
 
 // SERVER-ONLY (importa supabase con service key). Solo debe importarse desde server
 // components / server actions. El tipo y la constante viven en '@/lib/fe-lineas' (client-safe);
 // los componentes 'use client' importan de ahí, NUNCA de este archivo.
 export type { FEClasificada } from '@/lib/fe-lineas'
 
-const CUENTAS = Object.values(FE_LINEA_CUENTA)
 const F2X = '900219834'
 
-// FE enlazables desde la legalización (ACPM 61450510 / cargue 61450515 / descargue 61450535).
-// Incluye las de proveedores YA clasificados en una de esas 3 cuentas Y las SIN CLASIFICAR
-// (cuenta_puc_sugerida NULL) — para que un proveedor nuevo no quede invisible. Excluye las
-// clasificadas en OTRA cuenta de costo (ruido). NC y F2X (peajes) quedan fuera.
+// FE enlazables desde la legalización. Devuelve todas las FE recibidas (factura electrónica,
+// sin NC ni F2X/peajes) con la cuenta de su tercero; el formulario filtra por línea y por mes.
 export async function getFEClasificadas(): Promise<FEClasificada[]> {
   const [data, enlaces] = await Promise.all([
     fetchAll<any>((from, to) => supabase
@@ -41,13 +38,10 @@ export async function getFEClasificadas(): Promise<FEClasificada[]> {
     asignada.set(e.matched_invoice_id, { id: e.legalization_id, ref })
   }
 
-  // clasificada en una de las 3 cuentas O sin clasificar (null) — nunca en otra cuenta de costo
-  const relevantes = (data as any[]).filter(x => {
-    const c = x.terceros?.cuenta_puc_sugerida
-    return c == null || CUENTAS.includes(c)
-  })
-
-  return relevantes.map(x => {
+  // Se devuelven TODAS las FE recibidas (no-F2X), con su `cuenta` de clasificación ('' = sin
+  // clasificar). El filtro por línea (ACPM / cargue+descargue) y el mes lo aplica el formulario;
+  // la casilla "ver todas las FE del mes" necesita además las clasificadas en otras cuentas.
+  return (data as any[]).map(x => {
     const a = asignada.get(x.id)
     return {
       id: x.id,

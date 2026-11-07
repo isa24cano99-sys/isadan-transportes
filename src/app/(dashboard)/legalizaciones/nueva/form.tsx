@@ -104,12 +104,21 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
 
   // opciones de FE para una línea de un tipo: FE del mes cuyo tercero está clasificado en
   // la cuenta de ese tipo (combustible/cargue/descargue). Selección 100% manual.
-  const feOptionsDe = (tipo: string) => {
+  // Cargue y descargue comparten proveedores (estibadores/logística): ambas listas incluyen las
+  // FE de las dos cuentas. Siempre solo FE del MES de la legalización.
+  const cuentasDe = (tipo: string): string[] => {
     const cuenta = FE_LINEA_CUENTA[tipo]
+    if (tipo === 'cargue' || tipo === 'descargue') return [FE_LINEA_CUENTA.cargue, FE_LINEA_CUENTA.descargue]
+    return cuenta ? [cuenta] : []
+  }
+  const [verTodasFE, setVerTodasFE] = useState(false)
+  const feOptionsDe = (tipo: string) => {
+    const cuentas = cuentasDe(tipo)
     const mes = (tripDate ?? '').slice(0, 7)               // 'YYYY-MM'
-    if (!cuenta || !mes) return [] as FEClasificada[]
-    // clasificada en ESTA cuenta, o SIN clasificar (cuenta '') — candidata para cualquier tipo
-    return feClasificadas.filter(fe => (fe.cuenta === cuenta || fe.cuenta === '') && (fe.issue_date ?? '').slice(0, 7) === mes)
+    if (!cuentas.length || !mes) return [] as FEClasificada[]
+    return feClasificadas.filter(fe =>
+      (fe.issue_date ?? '').slice(0, 7) === mes &&
+      (verTodasFE || fe.cuenta === '' || cuentas.includes(fe.cuenta)))   // '' = sin clasificar
   }
   // ¿esta FE ya está enlazada a OTRA legalización distinta a la que se edita? (la propia no cuenta)
   const currentLegId = initialData?.id ?? null
@@ -422,6 +431,10 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
 
         {/* Líneas con FE (acpm/cargue/descargue): repetibles, cada una su monto + su factura */}
         <div className="mt-5 pt-4 border-t border-[#E2E8F0] space-y-4">
+          <label className="flex items-center gap-2 text-xs text-[#475569] cursor-pointer">
+            <input type="checkbox" checked={verTodasFE} onChange={e => setVerTodasFE(e.target.checked)} />
+            Ver todas las FE del mes (incluye proveedores clasificados en otra cuenta)
+          </label>
           {FE_FIELDS.map(f => {
             const lines = feLines.filter(l => l.tipo === f.key)
             return (
@@ -452,6 +465,7 @@ export default function NuevaLegalizacionForm({ trips, initialData, categories, 
                             <option key={fe.id} value={fe.id}>
                               {fe.cuenta === '' ? '⚠ ' : ''}{fe.name_issuer} · {fe.issue_date} · {formatCOP(fe.total)}
                               {fe.cuenta === '' ? ' · sin clasificar' : ''}
+                              {fe.cuenta !== '' && !cuentasDe(f.key).includes(fe.cuenta) ? ` · ⚠ clasificada en ${fe.cuenta}` : ''}
                               {asignadaAOtra(fe) ? ` — ⚠ ya asignada a ${fe.asignadaRef}` : ''}
                             </option>
                           ))}
