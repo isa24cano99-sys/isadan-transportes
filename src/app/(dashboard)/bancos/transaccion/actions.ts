@@ -207,7 +207,12 @@ export async function asignarCategoriaMasivaAction(
     .update({ category_id: categoryId })
     .in('id', ids)
 
-  if (error) return { ok: false, error: error.message, updated: 0 }
+  if (error) {
+    const msg = error.message.includes('exige un tercero')
+      ? `Esta categoría exige tercero y algunas de las ${ids.length} transacciones no lo tienen. Primero asigna el tercero (modo "Proveedor" de la barra) y luego la categoría.`
+      : error.message
+    return { ok: false, error: msg, updated: 0 }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const patternUpdates: any[] = []

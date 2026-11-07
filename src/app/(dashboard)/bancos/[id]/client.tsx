@@ -131,6 +131,7 @@ export default function BankDetailClient({
   const [bulkMode,       setBulkMode]       = useState<'categoria' | 'proveedor'>('categoria')
   const [bulkCategoryId, setBulkCategoryId] = useState('')
   const [bulkAssigning,  setBulkAssigning]  = useState(false)
+  const [bulkError,      setBulkError]      = useState('')
   const [bulkSupNit,     setBulkSupNit]     = useState('')
   const [bulkSupName,    setBulkSupName]    = useState('')
   const [bulkSupTerceroId, setBulkSupTerceroId] = useState<string | null>(null)
@@ -371,12 +372,13 @@ export default function BankDetailClient({
 
   const handleBulkAssign = async () => {
     if (!bulkCategoryId || selectedIds.size === 0) return
-    setBulkAssigning(true)
+    setBulkAssigning(true); setBulkError('')
     const res = await asignarCategoriaMasivaAction([...selectedIds], bulkCategoryId)
     if (res.ok) {
       setSelectedIds(new Set()); setBulkCategoryId('')
       window.location.reload()
     } else {
+      setBulkError(res.error ?? 'No se pudo asignar la categoría')
       setBulkAssigning(false)
     }
   }
@@ -632,8 +634,12 @@ export default function BankDetailClient({
               )}
             </div>
 
+            {bulkError && (
+              <p className="text-[11px] text-red-300 sm:max-w-xs">{bulkError}</p>
+            )}
+
             <button
-              onClick={() => { setSelectedIds(new Set()); setBulkCategoryId(''); setBulkSupNit(''); setBulkSupName('') }}
+              onClick={() => { setSelectedIds(new Set()); setBulkCategoryId(''); setBulkSupNit(''); setBulkSupName(''); setBulkError('') }}
               className="shrink-0 self-end sm:self-auto"
             >
               <X size={16} className="text-[#94A3B8] hover:text-white transition-colors" />
