@@ -43,7 +43,7 @@ async function getData(id: string) {
       .eq('legalization_id', id),
     supabase
       .from('trips')
-      .select('id, trip_number, origin, destination, load_date, freight_value, advance_amount, driver_id, manifest_number, manifest_auth, weight_kg, price_per_ton, clients(name), vehicles(plate), drivers(full_name)')
+      .select('id, trip_number, origin, destination, load_date, freight_value, advance_amount, driver_id, manifest_number, manifest_auth, weight_kg, price_per_ton, clients(name), terceros(razon_social), vehicles(plate), drivers(full_name)')
       .order('created_at', { ascending: false }),
     supabase
       .from('transaction_categories')
@@ -53,7 +53,12 @@ async function getData(id: string) {
       .order('name'),
     getFEClasificadas(),
   ])
-  return { leg, expenses: expenses ?? [], trips: trips ?? [], categories: cats ?? [], feClasificadas }
+  // Cliente legado (clients) o, si el viaje no tiene fila ahí, el tercero del viaje (fuente única).
+  const tripsConCliente = (trips ?? []).map((t: any) => ({
+    ...t,
+    clients: t.clients ?? (t.terceros?.razon_social ? { name: t.terceros.razon_social } : null),
+  }))
+  return { leg, expenses: expenses ?? [], trips: tripsConCliente, categories: cats ?? [], feClasificadas }
 }
 
 export default async function EditarLegalizacionPage({ params }: { params: Promise<{ id: string }> }) {

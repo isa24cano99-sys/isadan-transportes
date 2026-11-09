@@ -54,7 +54,65 @@ export async function getTripAction(id: string): Promise<TripDetail | null> {
     .eq('id', id)
     .single()
   if (error || !data) return null
-  return data as unknown as TripDetail
+  const trip = data as unknown as TripDetail
+  // Viaje creado con un tercero que no tiene fila en el cliente legado (client_id nulo):
+  // la ficha muestra el cliente desde el TERCERO del viaje, que es la fuente única.
+  if (!trip.clients && trip.tercero_id) {
+    const cli = await resolverClienteViaje({ tercero_id: trip.tercero_id })
+    if (cli) {
+      trip.clients = {
+        id: cli.terceroId ?? '',
+        name: cli.name,
+        nit: cli.dv != null ? `${cli.nit}-${cli.dv}` : cli.nit,
+        email: cli.email,
+      }
+    }
+  }
+  return trip
+}
+
+type ClienteViaje = {
+  terceroId: string | null
+  nit: string            // NIT base, sin DV
+  dv: string | null
+  name: string
+  email: string | null
+  incompleto: boolean    // tercero incompleto para exógena (aviso suave)
+}
+
+/**
+ * Cliente de un viaje. Fuente única = trips.tercero_id (siguiendo terceros.merged_into);
+ * fallback transitorio al cliente legado (clients.tercero_id y, por último, clients.nit).
+ * No exige que el viaje tenga client_id: un viaje con tercero nuevo puede no tener fila en clients.
+ */
+async function resolverClienteViaje(trip: any): Promise<ClienteViaje | null> {
+  const client = Array.isArray(trip?.clients) ? trip.clients[0] : trip?.clients
+  let terceroId: string | null = trip?.tercero_id ?? client?.tercero_id ?? null
+
+  for (let i = 0; terceroId && i < 3; i++) {
+    const { data: t } = await supabase
+      .from('terceros')
+      .select('numero_identificacion, digito_verificacion, razon_social, email, completo, merged_into')
+      .eq('id', terceroId)
+      .maybeSingle()
+    if (!t) break
+    if (t.merged_into) { terceroId = t.merged_into; continue }   // tercero fusionado → el sobreviviente
+    if (!t.numero_identificacion) break
+    return {
+      terceroId,
+      nit: t.numero_identificacion,
+      dv: t.digito_verificacion != null ? String(t.digito_verificacion) : null,
+      name: t.razon_social || client?.name || '',
+      email: t.email ?? client?.email ?? null,
+      incompleto: t.completo === false,
+    }
+  }
+
+  if (client?.nit) {
+    const p = parseNIT(client.nit)
+    return { terceroId, nit: p.base, dv: String(p.dv), name: client.name, email: client.email ?? null, incompleto: false }
+  }
+  return null
 }
 
 export async function cambiarEstadoAction(id: string, status: string) {
@@ -73,7 +131,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     .from('trips')
     .select(`
       id, trip_number, manifest_number, origin, destination, load_date,
-      freight_value, weight_kg, price_per_ton, load_content, status,
+      freight_value, weight_kg, price_per_ton, load_content, status, tercero_id,
       clients(id, name, nit, email, tercero_id, terceros(numero_identificacion, digito_verificacion, razon_social, completo)),
       vehicles(id, plate)
     `)
@@ -83,27 +141,21 @@ export async function generarFacturaAction(tripId: string): Promise<
   if (tripErr || !raw) return { ok: false, error: 'Viaje no encontrado' }
 
   const trip = raw as any
-  const client = Array.isArray(trip.clients) ? trip.clients[0] : trip.clients
 
-  // 2. NIT autoritativo desde el TERCERO (numero_identificacion + digito_verificacion),
-  //    no de clients.nit — así la emisión usa el NIT corregido/fusionado, no una copia vieja.
-  const tercero = client && (Array.isArray(client.terceros) ? client.terceros[0] : client.terceros)
-  let nitBase: string, dv: string, customerName: string
-  if (tercero?.numero_identificacion) {
-    nitBase = tercero.numero_identificacion
-    dv = String(tercero.digito_verificacion ?? calcularDV(nitBase))
-    customerName = tercero.razon_social || client?.name || ''
-  } else if (client?.nit) {
-    // fallback transitorio: cliente aún sin tercero enlazado
-    const p = parseNIT(client.nit); nitBase = p.base; dv = p.dv
-    customerName = client.name
-  } else {
-    return { ok: false, error: 'El cliente no tiene tercero ni NIT. Créalo/complétalo en /terceros antes de facturar.' }
+  // 2. Cliente autoritativo = el TERCERO del viaje (trips.tercero_id), con NIT y DV del tercero
+  //    (no de clients.nit) — así la emisión usa el NIT corregido/fusionado, no una copia vieja.
+  //    Un viaje creado con un tercero nuevo puede no tener fila en clients (client_id nulo).
+  const cli = await resolverClienteViaje(trip)
+  if (!cli) {
+    return { ok: false, error: 'El viaje no tiene tercero ni NIT. Asígnalo (editar viaje) o complétalo en /terceros antes de facturar.' }
   }
+  const nitBase = cli.nit
+  const dv = String(cli.dv ?? calcularDV(nitBase))
+  const customerName = cli.name
 
   // Aviso SUAVE (no bloquea): si el tercero está incompleto para exógena, se emite igual.
   // (Se volverá bloqueo duro cuando el maestro de terceros esté completo.)
-  const terceroIncompleto = !!tercero && tercero.completo === false
+  const terceroIncompleto = cli.incompleto
   if (terceroIncompleto) console.warn(`[factura] tercero ${nitBase} incompleto para exógena — se emite igual (aviso suave)`)
 
   // 3. Ensure customer exists in Dataico (non-blocking)
@@ -114,7 +166,7 @@ export async function generarFacturaAction(tripId: string): Promise<
         name: customerName,
         nit: nitBase,
         dv,
-        email: client.email ?? undefined,
+        email: cli.email ?? undefined,
       })
     }
   } catch {
@@ -164,7 +216,7 @@ export async function generarFacturaAction(tripId: string): Promise<
     invoice = await createDataicoInvoice({
       customerName:    customerName,
       customerNit:     nitBase,
-      customerEmail:   client.email ?? undefined,
+      customerEmail:   cli.email ?? undefined,
       nextConsecutive,
       date:            hoyColombia(),
       freightValue:  fleteAFacturar,
@@ -270,15 +322,14 @@ export async function registrarFacturaManualAction(params: {
   // Cliente/tercero autoritativos desde el viaje: tercero enlazado → fallback a clients.
   const { data: raw, error: tripErr } = await supabase
     .from('trips')
-    .select('id, clients(name, nit, tercero_id, terceros(numero_identificacion, razon_social))')
+    .select('id, tercero_id, clients(name, nit, email, tercero_id)')
     .eq('id', params.tripId)
     .single()
   if (tripErr || !raw) return { status: 'blocked', message: 'Viaje no encontrado' }
-  const client = Array.isArray((raw as any).clients) ? (raw as any).clients[0] : (raw as any).clients
-  const tercero = client && (Array.isArray(client.terceros) ? client.terceros[0] : client.terceros)
-  const clientName = tercero?.razon_social || client?.name || 'Cliente'
-  const clientNit  = tercero?.numero_identificacion || client?.nit || ''
-  const terceroId  = client?.tercero_id ?? null
+  const cli = await resolverClienteViaje(raw)
+  const clientName = cli?.name || 'Cliente'
+  const clientNit  = cli?.nit || ''
+  const terceroId  = cli?.terceroId ?? null
 
   // ¿El folio ya existe en invoices?
   const { data: existing } = await supabase
