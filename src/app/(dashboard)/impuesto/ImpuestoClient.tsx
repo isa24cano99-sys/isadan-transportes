@@ -3,12 +3,12 @@
 import { useRouter } from 'next/navigation'
 import { useState, useMemo } from 'react'
 import {
-  marcarPagadoAction, registrarReservaAction, cerrarReservaAction, postearPagoImpuestoAction,
-  type MarcarPagadoInput,
+  causarImpuestoAction, registrarReservaAction, cerrarReservaAction, postearPagoImpuestoAction,
 } from './actions'
 import { formatCOP } from '@/lib/utils'
+import type { BimestreLibro, EstadoImpuesto } from '@/lib/impuesto-simple'
 import type {
-  TaxPayment, ReservaPendiente, ReservaVigente, ReservaLineaFecha, EgresoBanco,
+  ReservaPendiente, ReservaVigente, ReservaLineaFecha, EgresoBanco,
 } from './page'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -25,6 +25,13 @@ const BIM_META = [
   { num: 6, title: 'Bimestre 6', months: 'Noviembre / Diciembre',     dueMonth: 1,  dueDay: 26, nextYear: true },
 ] as const
 
+
+const ESTADO_META: Record<EstadoImpuesto, { label: string; cls: string }> = {
+  SIN_CAUSAR: { label: 'Sin causar',     cls: 'bg-[#F1F5F9] text-[#475569] border-[#E2E8F0]' },
+  PENDIENTE:  { label: 'Por pagar',      cls: 'bg-amber-50 text-amber-800 border-amber-200' },
+  PARCIAL:    { label: 'Pago parcial',   cls: 'bg-blue-50 text-blue-800 border-blue-200' },
+  PAGADO:     { label: '✓ Pagado',       cls: 'bg-green-50 text-green-700 border-green-200' },
+}
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function getDueDate(year: number, meta: (typeof BIM_META)[number]): string {
@@ -261,10 +268,8 @@ function PagoImpuestoSection({
 export default function ImpuestoClient({
   year,
   availableYears,
-  incomeByBimestre,
-  pensionByBimestre,
-  hasSsData,
-  taxPayments,
+  bimestres,
+  aperturaSaldo,
   reservasPendientes,
   reservasVigentes,
   saldo241215,
@@ -273,10 +278,8 @@ export default function ImpuestoClient({
 }: {
   year: number
   availableYears: number[]
-  incomeByBimestre: number[]
-  pensionByBimestre: number[]
-  hasSsData: boolean[]
-  taxPayments: TaxPayment[]
+  bimestres: BimestreLibro[]
+  aperturaSaldo: number
   reservasPendientes: ReservaPendiente[]
   reservasVigentes: ReservaVigente[]
   saldo241215: number
@@ -285,16 +288,9 @@ export default function ImpuestoClient({
 }) {
   const router = useRouter()
 
-  // Manual pension input — only used when no SS planilla exists for a bimestre
-  const [manualPensions, setManualPensions] = useState<Record<number, string>>(() => {
-    const init: Record<number, string> = {}
-    for (const meta of BIM_META) {
-      const saved = taxPayments.find(p => p.bimestre === meta.num)
-      init[meta.num] = saved ? String(saved.pension_contribution) : '0'
-    }
-    return init
-  })
-
+  // Causación: cifras del formulario 2593 que se digitan por bimestre
+  type FormCausa = { nacional: string; ica: string; soporte: string }
+  const [formCausa, setFormCausa] = useState<Record<number, FormCausa>>({})
   const [loadingBim, setLoadingBim] = useState<number | null>(null)
   const [errors,     setErrors]     = useState<Record<number, string>>({})
 
@@ -344,50 +340,39 @@ export default function ImpuestoClient({
     setLoadingCierre(null)
   }
 
-  // Per-bimestre computed data
-  const bimData = useMemo(() => {
-    return BIM_META.map((meta, idx) => {
-      const income   = incomeByBimestre[idx]   ?? 0
-      const ssExists = hasSsData[idx]           ?? false
-      const pension  = ssExists
-        ? Math.max(0, pensionByBimestre[idx] ?? 0)
-        : Math.max(0, parseFloat(manualPensions[meta.num] ?? '0') || 0)
-      const rstGross = Math.round(income * RST_RATE)
-      const ica      = Math.round(income * ICA_RATE)
-      const rstNet   = Math.max(0, rstGross - pension - ica)
-      const total    = ica + rstNet
-      const dueDate  = getDueDate(year, meta)
-      const daysLeft = getDaysLeft(dueDate)
-      const payment  = taxPayments.find(p => p.bimestre === meta.num) ?? null
-      return { ...meta, income, ssExists, pension, rstGross, ica, rstNet, total, dueDate, daysLeft, payment }
+  // Por bimestre: lo que dice el LIBRO + calendario + estimado referencial
+  const bimData = useMemo(() => BIM_META.map((meta, idx) => {
+    const b = bimestres[idx]
+    const rstGross = Math.round(b.ingreso * RST_RATE)
+    const icaEst   = Math.round(b.ingreso * ICA_RATE)
+    const estimado = Math.max(icaEst, rstGross - b.pension)   // fórmula simplificada, solo referencia
+    const dueDate  = getDueDate(year, meta)
+    return { ...meta, ...b, estimado, dueDate, daysLeft: getDaysLeft(dueDate) }
+  }), [bimestres, year])
+
+  const totalIngreso = bimData.reduce((s, b) => s + b.ingreso, 0)
+  const totalCausado = bimData.reduce((s, b) => s + b.causado, 0)
+  const totalPagado  = bimData.reduce((s, b) => s + b.pagado, 0)
+
+  const campo = (n: number): FormCausa => formCausa[n] ?? { nacional: '', ica: '', soporte: '' }
+  const setCampo = (n: number, patch: Partial<FormCausa>) =>
+    setFormCausa(f => ({ ...f, [n]: { ...campo(n), ...patch } }))
+
+  const handleCausar = async (n: number) => {
+    const f = campo(n)
+    setLoadingBim(n)
+    setErrors(e => ({ ...e, [n]: '' }))
+    const r = await causarImpuestoAction({
+      anio: year, bimestre: n,
+      nacional: Math.round(parseFloat(f.nacional) || 0),
+      ica:      Math.round(parseFloat(f.ica) || 0),
+      soporte:  f.soporte.trim(),
     })
-  }, [incomeByBimestre, pensionByBimestre, hasSsData, manualPensions, taxPayments, year])
-
-  const totalIncome = bimData.reduce((s, b) => s + b.income, 0)
-  const totalRst    = bimData.reduce((s, b) => s + b.rstGross, 0)
-  const totalIca    = bimData.reduce((s, b) => s + b.ica, 0)
-  const totalPagar  = bimData.reduce((s, b) => s + b.total, 0)
-
-  const handleMarcarPagado = async (bim: (typeof bimData)[number]) => {
-    setLoadingBim(bim.num)
-    setErrors(e => ({ ...e, [bim.num]: '' }))
-
-    const input: MarcarPagadoInput = {
-      year,
-      bimestre:             bim.num,
-      income:               bim.income,
-      rst_gross:            bim.rstGross,
-      pension_contribution: bim.pension,
-      ica:                  bim.ica,
-      rst_net:              bim.rstNet,
-      total_to_pay:         bim.total,
-    }
-
-    const result = await marcarPagadoAction(input)
-    if (result.ok) {
+    if (r.ok) {
+      setFormCausa(x => { const c = { ...x }; delete c[n]; return c })
       router.refresh()
     } else {
-      setErrors(e => ({ ...e, [bim.num]: result.error ?? 'Error al guardar' }))
+      setErrors(e => ({ ...e, [n]: r.error ?? 'Error al causar el impuesto' }))
     }
     setLoadingBim(null)
   }
@@ -410,178 +395,149 @@ export default function ImpuestoClient({
         </select>
       </div>
 
-      {/* Bimestre 4 (jul-ago): CAUSADO según el borrador del contador (formulario 2593) */}
-      {year === 2026 && (
-        <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4">
-          <p className="text-sm font-semibold text-emerald-900">✓ Bimestre 4 (jul-ago): impuesto SIMPLE CAUSADO según el borrador del contador</p>
-          <p className="text-sm text-emerald-800 mt-1 leading-relaxed">
-            Asiento real posteado (<strong>CG-156</strong>, 31-ago-2026) con el borrador del formulario 2593:
-            <strong> ICA $2.072.000</strong> (54050510) + <strong>componente nacional $3.504.000</strong> (54050505)
-            = <strong>$5.576.000</strong> acreditado a 241215 (régimen simple por pagar), tercero DIAN.
-            Base gravable del bimestre: $187.496.000. Si el contador cambia la cifra en la declaración definitiva,
-            se ajusta <strong>solo la diferencia</strong> por asiento adicional, no se re-causa.
-            Los valores calculados abajo siguen usando la <strong>fórmula simplificada</strong> de la app (referencial),
-            que <strong>no es la base de esta causación</strong>.
-          </p>
-        </div>
-      )}
-
-      {/* Summary cards */}
+      {/* Resumen del año — todo sale del libro */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">Ingresos facturados</p>
-          <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalIncome)}</p>
-          <p className="text-xs text-[#94A3B8] mt-0.5">Facturas EMITIDAS {year}</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">Ingresos del año</p>
+          <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalIngreso)}</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Cuentas 41xx, neto de notas crédito</p>
         </div>
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">Tarifa RST</p>
-          <p className="text-lg font-bold text-[#2563EB]">3.1%</p>
-          <p className="text-xs text-[#94A3B8] mt-0.5">Sector Transporte</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">Impuesto causado</p>
+          <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalCausado)}</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Acreditado a 241215 en {year}</p>
         </div>
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">RST bruto año</p>
-          <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalRst)}</p>
-          <p className="text-xs text-[#94A3B8] mt-0.5">Antes de descuentos</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">Pagado</p>
+          <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalPagado)}</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">Aplicado al impuesto más antiguo</p>
         </div>
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-4">
-          <p className="text-xs font-semibold text-[#64748B] mb-1">ICA año</p>
-          <p className="text-lg font-bold text-[#0F172A] tabular-nums">{formatCOP(totalIca)}</p>
-          <p className="text-xs text-[#94A3B8] mt-0.5">11.5‰ — ICA Bello</p>
+          <p className="text-xs font-semibold text-[#64748B] mb-1">Por pagar hoy (241215)</p>
+          <p className={`text-lg font-bold tabular-nums ${saldo241215 > 0 ? 'text-amber-700' : 'text-green-700'}`}>{formatCOP(saldo241215)}</p>
+          <p className="text-xs text-[#94A3B8] mt-0.5">
+            {aperturaSaldo > 0 ? `Incluye ${formatCOP(aperturaSaldo)} del saldo inicial` : 'Saldo del pasivo en el libro'}
+          </p>
         </div>
       </div>
 
       {/* Bimestre cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {bimData.map(bim => {
-          const badge  = dueBadge(bim.daysLeft)
-          const isPaid = bim.payment?.paid === true
-          const err    = errors[bim.num]
+          const badge    = dueBadge(bim.daysLeft)
+          const estado   = ESTADO_META[bim.estado]
+          const pagado   = bim.estado === 'PAGADO'
+          const err      = errors[bim.num]
+          const f        = campo(bim.num)
+          const vNac     = Math.round(parseFloat(f.nacional) || 0)
+          const vIca     = Math.round(parseFloat(f.ica) || 0)
+          const puedeCausar = vNac + vIca > 0 && f.soporte.trim() !== '' && loadingBim !== bim.num
+          const sinActividad = bim.ingreso === 0 && bim.causado === 0
 
           return (
             <div
               key={bim.num}
-              className={`bg-white border rounded-xl p-5 space-y-4 ${
-                isPaid ? 'border-green-200' : 'border-[#E2E8F0]'
-              }`}
+              className={`bg-white border rounded-xl p-5 space-y-4 ${pagado ? 'border-green-200' : 'border-[#E2E8F0]'}`}
             >
               {/* Card header */}
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide">{bim.title}</p>
+                  <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide">{bim.title}</p>
                   <p className="text-base font-semibold text-[#0F172A] mt-0.5">{bim.months}</p>
                 </div>
-                {isPaid ? (
-                  <span className="shrink-0 inline-flex items-center gap-1 bg-green-50 text-green-700 text-xs font-bold px-2.5 py-1 rounded-full border border-green-200">
-                    ✓ Pagado
-                  </span>
-                ) : (
-                  <span className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-full ${badge.cls}`}>
-                    {badge.label}
-                  </span>
-                )}
+                <div className="flex flex-col items-end gap-1">
+                  {!sinActividad && (
+                    <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full border ${estado.cls}`}>{estado.label}</span>
+                  )}
+                  {!pagado && (bim.ingreso > 0 || bim.causado > 0) && (
+                    <span className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-full ${badge.cls}`}>{badge.label}</span>
+                  )}
+                </div>
               </div>
 
-              {/* Date info */}
-              {isPaid && bim.payment?.paid_date ? (
-                <p className="text-xs text-green-600 font-medium">
-                  Pagado el {fmtDate(bim.payment.paid_date)}
-                </p>
-              ) : (
-                <p className="text-xs text-[#94A3B8]">
-                  Vencimiento:{' '}
-                  <span className="font-medium text-[#64748B]">{fmtDate(bim.dueDate)}</span>
-                </p>
-              )}
+              <p className="text-xs text-[#64748B]">
+                {pagado && bim.ultimoPago
+                  ? <>Pagado el <span className="font-medium text-green-700">{fmtDate(bim.ultimoPago)}</span></>
+                  : <>Vencimiento: <span className="font-medium">{fmtDate(bim.dueDate)}</span></>}
+              </p>
 
               {/* Breakdown */}
               <div className="bg-[#F8FAFC] rounded-xl p-4 space-y-2">
-                <Row label="Ingresos gravados bimestre" value={bim.income} />
+                <Row label="Ingresos del bimestre (libro, neto de notas crédito)" value={bim.ingreso} />
+                <Row label="Pensión empresa registrada (52057010)" value={bim.pension} sub />
+                <Row label="Estimado referencial (fórmula simplificada)" value={bim.estimado} sub />
 
                 <Divider />
 
-                <Row label="RST bruto (3.1% × ingresos)" value={bim.rstGross} />
-
-                {/* Pension row — locked if SS planilla exists, editable if not */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-[#64748B] flex-1">
-                    (-) Aporte pensión empresa
-                    {bim.ssExists && (
-                      <span className="ml-1.5 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold">
-                        Planilla SS
-                      </span>
-                    )}
-                  </span>
-                  {bim.ssExists || isPaid ? (
-                    <span className="text-sm text-[#0F172A] tabular-nums w-36 text-right">
-                      {bim.pension === 0 ? '—' : formatCOP(bim.pension)}
-                    </span>
-                  ) : (
-                    <input
-                      type="number"
-                      min="0"
-                      step="10000"
-                      value={manualPensions[bim.num] ?? '0'}
-                      onChange={e => setManualPensions(p => ({ ...p, [bim.num]: e.target.value }))}
-                      placeholder="Ingrese manualmente"
-                      className="w-36 text-right border border-[#E2E8F0] rounded-lg px-2 py-1 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  )}
-                </div>
-
-                {!bim.ssExists && !isPaid && (
-                  <p className="text-xs text-amber-600 pl-3">
-                    Sin planilla SS registrada — ingrese el valor de pensión manualmente
-                  </p>
-                )}
-
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-[#64748B]">(-) ICA Bello (11.5‰ × ingresos)</span>
-                  <span className="text-sm text-[#0F172A] tabular-nums">
-                    {bim.ica === 0 ? '—' : formatCOP(bim.ica)}
-                  </span>
-                </div>
-
-                <Divider />
-
-                <Row label="RST neto (MAX(0, RST bruto − pensión − ICA))" value={bim.rstNet} bold />
+                <Row label="Causado · componente nacional (54050505)" value={bim.nacional} />
+                <Row label="Causado · ICA (54050510)" value={bim.ica} />
+                <Row label="Total causado en 241215" value={bim.causado} bold />
+                <Row label="Pagado" value={bim.pagado} />
 
                 <div className="flex items-center justify-between gap-2 pt-1 border-t-2 border-[#E2E8F0]">
-                  <span className="text-sm font-bold text-[#0F172A]">TOTAL A PAGAR (ICA + RST neto)</span>
-                  <span className="text-base font-bold text-[#2563EB] tabular-nums">
-                    {bim.total === 0 ? '$0' : formatCOP(bim.total)}
+                  <span className="text-sm font-bold text-[#0F172A]">POR PAGAR</span>
+                  <span className={`text-base font-bold tabular-nums ${bim.saldo > 0 ? 'text-[#2563EB]' : 'text-green-700'}`}>
+                    {bim.saldo > 0 ? formatCOP(bim.saldo) : '$0'}
                   </span>
                 </div>
               </div>
 
-              {/* Error */}
-              {err && <p className="text-xs text-red-500 font-medium">{err}</p>}
-
-              {/* Action button */}
-              {isPaid ? (
-                <div className="flex items-center justify-center gap-2 py-2.5 bg-green-50 rounded-lg border border-green-200">
-                  <span className="text-green-700 text-sm font-semibold">✓ Pago registrado correctamente</span>
+              {/* Causar: solo si el bimestre tiene ingresos y aún no está causado */}
+              {bim.estado === 'SIN_CAUSAR' && bim.ingreso > 0 && (
+                <div className="rounded-xl border border-[#E2E8F0] p-4 space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#0F172A]">Causar el impuesto del bimestre</p>
+                    <p className="text-xs text-[#64748B] mt-0.5">
+                      Digita las cifras de la declaración (formulario 2593). Un asiento:{' '}
+                      <span className="font-medium">DB 54050505 nacional + DB 54050510 ICA / CR 241215</span>, tercero DIAN, fechado el último día del bimestre.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs font-semibold text-[#64748B]">
+                      Componente nacional
+                      <input type="number" min="0" step="1000" value={f.nacional}
+                        onChange={e => setCampo(bim.num, { nacional: e.target.value })}
+                        className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                    </label>
+                    <label className="text-xs font-semibold text-[#64748B]">
+                      ICA
+                      <input type="number" min="0" step="1000" value={f.ica}
+                        onChange={e => setCampo(bim.num, { ica: e.target.value })}
+                        className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                    </label>
+                  </div>
+                  <label className="text-xs font-semibold text-[#64748B] block">
+                    Soporte
+                    <input type="text" value={f.soporte} placeholder="Formulario 2593 — borrador / definitivo"
+                      onChange={e => setCampo(bim.num, { soporte: e.target.value })}
+                      className="mt-1 w-full border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                  </label>
+                  {vNac + vIca > 0 && (
+                    <p className="text-xs text-[#64748B]">
+                      Se causará <span className="font-bold tabular-nums text-[#0F172A]">{formatCOP(vNac + vIca)}</span> a 241215.
+                    </p>
+                  )}
+                  {err && <p className="text-xs text-red-600 font-medium">✗ {err}</p>}
+                  <button
+                    onClick={() => handleCausar(bim.num)}
+                    disabled={!puedeCausar}
+                    className="w-full bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-40 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+                  >
+                    {loadingBim === bim.num ? 'Causando…' : 'Causar impuesto del bimestre'}
+                  </button>
                 </div>
-              ) : (
-                <button
-                  onClick={() => handleMarcarPagado(bim)}
-                  disabled={loadingBim === bim.num}
-                  className="w-full bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
-                >
-                  {loadingBim === bim.num ? 'Guardando...' : 'Marcar como pagado'}
-                </button>
               )}
+
+              {bim.estado !== 'SIN_CAUSAR' && err && <p className="text-xs text-red-600 font-medium">✗ {err}</p>}
+              {bim.estado === 'PENDIENTE' || bim.estado === 'PARCIAL' ? (
+                <p className="text-xs text-[#64748B]">
+                  Para pagarlo usa <span className="font-medium">«Registrar pago del impuesto»</span> más abajo.
+                </p>
+              ) : null}
             </div>
           )
         })}
       </div>
-
-      {/* Annual total */}
-      {totalPagar > 0 && (
-        <div className="bg-[#0F172A] rounded-xl p-4 flex items-center justify-between">
-          <p className="text-white font-semibold text-sm">Total estimado a pagar año {year}</p>
-          <p className="text-white font-bold text-lg tabular-nums">{formatCOP(totalPagar)}</p>
-        </div>
-      )}
 
       {/* ── Sección A · Registrar reserva (custodia socio) ─────────────────── */}
       <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4">
@@ -728,12 +684,14 @@ export default function ImpuestoClient({
         onDone={() => router.refresh()}
       />
 
-      {/* Disclaimer */}
+      {/* Nota */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
         <p className="text-sm text-yellow-800 leading-relaxed">
-          <span className="font-bold">IMPORTANTE:</span>{' '}
-          Ingresos tomados de facturas electrónicas EMITIDAS. Pensión tomada de planilla de seguridad social registrada.
-          Fórmula: RST bruto = ingresos × 3.1% — ICA = ingresos × 1.15% — RST neto = MAX(0, RST bruto − pensión − ICA).
+          <span className="font-bold">Cómo leer esta pantalla:</span>{' '}
+          todo sale del libro contabilizado. Ingresos = cuentas 41xx menos notas crédito; pensión = 52057010;
+          causado = lo acreditado a 241215; pagado = lo debitado a 241215, aplicado al impuesto más antiguo.
+          El «estimado referencial» es una fórmula simplificada (3,1 % de ingresos − pensión) y{' '}
+          <span className="font-semibold">no es la base de la causación</span>: las cifras reales son las de la declaración.
           Consulte su asesor contable —{' '}
           <span className="font-semibold">ISADAN Transportes SAS NIT 902030120-6</span>
         </p>

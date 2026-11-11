@@ -4,41 +4,33 @@ import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { hoyColombia } from '@/lib/fecha'
 
-export type MarcarPagadoInput = {
-  year: number
+// ── Causación del impuesto por bimestre ─────────────────────────────────────────
+
+export type CausarImpuestoInput = {
+  anio:     number
   bimestre: number
-  income: number
-  rst_gross: number
-  pension_contribution: number
-  ica: number
-  rst_net: number
-  total_to_pay: number
+  nacional: number     // componente nacional (54050505), según el formulario 2593
+  ica:      number      // ICA (54050510), según el formulario 2593
+  soporte:  string      // formulario / recibo que respalda las cifras
 }
 
-export async function marcarPagadoAction(
-  input: MarcarPagadoInput,
-): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase
-    .from('tax_payments')
-    .upsert(
-      {
-        year:                 input.year,
-        bimestre:             input.bimestre,
-        income:               input.income,
-        rst_gross:            input.rst_gross,
-        pension_contribution: input.pension_contribution,
-        ica:                  input.ica,
-        rst_net:              input.rst_net,
-        total_to_pay:         input.total_to_pay,
-        paid:                 true,
-        paid_date:            hoyColombia(),
-      },
-      { onConflict: 'year,bimestre' },
-    )
-
+// UN asiento CG: DB 54050505 (nacional) + DB 54050510 (ICA) / CR 241215, tercero DIAN, fechado el
+// último día del bimestre. Los guards (periodo abierto, no causar dos veces, soporte) viven en la función SQL.
+export async function causarImpuestoAction(
+  input: CausarImpuestoInput,
+): Promise<{ ok: boolean; error?: string; consecutivo?: number }> {
+  const { data, error } = await supabase.rpc('postear_causacion_simple_bimestre', {
+    p_anio:     input.anio,
+    p_bimestre: input.bimestre,
+    p_nacional: input.nacional,
+    p_ica:      input.ica,
+    p_soporte:  input.soporte,
+  })
   if (error) return { ok: false, error: error.message }
+  const { data: asiento } = await supabase
+    .from('journal_entries').select('consecutivo').eq('id', data as string).single()
   revalidatePath('/impuesto', 'layout')
-  return { ok: true }
+  return { ok: true, consecutivo: asiento?.consecutivo as number }
 }
 
 // ── Reserva para impuestos (custodia socio) ─────────────────────────────────────

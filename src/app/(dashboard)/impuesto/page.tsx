@@ -1,23 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAll } from '@/lib/supabase-fetch'
 import { nombreTercero } from '@/lib/tercero-nombre'
+import { calcularImpuestoLibro, type LineaImpuesto } from '@/lib/impuesto-simple'
 import ImpuestoClient from './ImpuestoClient'
-
-export type TaxPayment = {
-  id: string
-  year: number
-  bimestre: number
-  income: number
-  rst_gross: number
-  pension_contribution: number
-  ica: number
-  rst_net: number
-  total_to_pay: number
-  paid: boolean
-  paid_date: string | null
-  notes: string | null
-  created_at: string
-}
 
 export type ReservaPendiente = {
   id: string
@@ -148,48 +133,34 @@ export default async function ImpuestoPage({
   const sp   = await searchParams
   const year = parseInt(sp.año ?? '') || new Date().getFullYear()
 
-  const [invoiceRows, ssRes, taxRes, reserva] = await Promise.all([
-    fetchAll<any>((f, t) => supabase
-      .from('invoices')
-      .select('issue_date, total_amount')
-      .eq('invoice_type', 'EMITIDA')
-      .gte('issue_date', `${year}-01-01`)
-      .lte('issue_date', `${year}-12-31`)
-      .order('id', { ascending: true }).range(f, t)),
-    supabase
-      .from('payroll_social_security')
-      .select('month, pension')
-      .eq('year', year),
-    supabase
-      .from('tax_payments')
-      .select('*')
-      .eq('year', year)
-      .order('bimestre'),
+  // Todo sale del LIBRO (asientos CONTABILIZADOS): ingresos 41xx (neto de notas crédito),
+  // pensión empresa 52057010 y causación 54050505/54050510 del año elegido, y el pasivo 241215
+  // de todos los años (para aplicar los pagos al impuesto más antiguo).
+  const lineasLibro = (filtro: (q: any) => any, soloAnio: boolean) => fetchAll<any>((f, t) => {
+    let q = supabase
+      .from('journal_entry_lines')
+      .select('cuenta_puc, debito, credito, journal_entries!inner(estado, fecha, tipo_comprobante)')
+      .eq('journal_entries.estado', 'CONTABILIZADO')
+    q = filtro(q)
+    if (soloAnio) q = q.gte('journal_entries.fecha', `${year}-01-01`).lte('journal_entries.fecha', `${year}-12-31`)
+    return q.order('id', { ascending: true }).range(f, t)
+  })
+
+  const [ingresosRows, otrasRows, pasivoRows, reserva] = await Promise.all([
+    lineasLibro(q => q.like('cuenta_puc', '41%'), true),
+    lineasLibro(q => q.in('cuenta_puc', ['52057010', '54050505', '54050510']), true),
+    lineasLibro(q => q.eq('cuenta_puc', '241215'), false),
     getReservaData(),
   ])
 
-  const invoices    = invoiceRows
-  const ssRows      = ssRes.data       ?? []
-  const taxPayments = (taxRes.data     ?? []) as TaxPayment[]
-
-  // Income from invoices (EMITIDA) grouped by bimestre (0-5)
-  const incomeByBimestre: number[] = [0, 0, 0, 0, 0, 0]
-  for (const inv of invoices) {
-    if (!inv.issue_date) continue
-    const month  = new Date((inv.issue_date as string) + 'T00:00:00').getMonth() + 1
-    const bimIdx = Math.ceil(month / 2) - 1
-    incomeByBimestre[bimIdx] += Number(inv.total_amount ?? 0)
-  }
-
-  // Pension empresa from payroll_social_security grouped by bimestre
-  const pensionByBimestre: number[] = [0, 0, 0, 0, 0, 0]
-  const hasSsData: boolean[]        = [false, false, false, false, false, false]
-  for (const row of ssRows) {
-    if (!row.month) continue
-    const bimIdx = Math.ceil(row.month / 2) - 1
-    pensionByBimestre[bimIdx] += Number(row.pension ?? 0)
-    hasSsData[bimIdx] = true
-  }
+  const lineas: LineaImpuesto[] = [...ingresosRows, ...otrasRows, ...pasivoRows].map((l: any) => ({
+    cuenta:  l.cuenta_puc as string,
+    fecha:   (l.journal_entries?.fecha ?? '') as string,
+    tipo:    (l.journal_entries?.tipo_comprobante ?? '') as string,
+    debito:  Number(l.debito ?? 0),
+    credito: Number(l.credito ?? 0),
+  })).filter(l => l.fecha)
+  const impuesto = calcularImpuestoLibro(year, lineas)
 
   const currentYear    = new Date().getFullYear()
   const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i)
@@ -199,10 +170,8 @@ export default async function ImpuestoPage({
       <ImpuestoClient
         year={year}
         availableYears={availableYears}
-        incomeByBimestre={incomeByBimestre}
-        pensionByBimestre={pensionByBimestre}
-        hasSsData={hasSsData}
-        taxPayments={taxPayments}
+        bimestres={impuesto.bimestres}
+        aperturaSaldo={impuesto.aperturaSaldo}
         reservasPendientes={reserva.pendientes}
         reservasVigentes={reserva.vigentes}
         saldo241215={reserva.saldo241215}
