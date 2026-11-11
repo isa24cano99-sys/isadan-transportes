@@ -124,38 +124,10 @@ export async function registrarPagoSegSocialAction(
 
   if (upsertErr) return { ok: false, error: upsertErr.message }
 
-  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-  const mes   = `${MESES[month - 1]} ${year}`
-
-  const PUC_CODES = ['52057010', '52056910', '52057210', '52056810']
-  const { data: cats } = await supabase
-    .from('transaction_categories')
-    .select('id, puc_code')
-    .in('puc_code', PUC_CODES)
-
-  const catById = Object.fromEntries((cats ?? []).map(c => [c.puc_code, c.id]))
-
-  const txRows = rows.flatMap(r => [
-    { description: `Pensión ${r.driver_name} ${mes}`,     amount: r.pension, puc: '52057010' },
-    { description: `Salud EPS ${r.driver_name} ${mes}`,   amount: r.salud,   puc: '52056910' },
-    { description: `CCF Comfama ${r.driver_name} ${mes}`, amount: r.ccf,     puc: '52057210' },
-    { description: `ARL ${r.driver_name} ${mes}`,         amount: r.arl,     puc: '52056810' },
-  ]).map(t => ({
-    account_id:  accountId,
-    type:        'EGRESO',
-    amount:      t.amount,
-    date:        paidDate,
-    description: t.description,
-    category:    t.puc,
-    category_id: catById[t.puc] ?? null,
-    source:      'MANUAL',
-  }))
-
-  const { error: txErr } = await supabase.from('bank_transactions').insert(txRows)
-
-  if (txErr) return { ok: false, error: txErr.message }
+  // OJO: la planilla es solo informativa. Ya NO inserta egresos inventados en bank_transactions:
+  // el pago real de la PILA viene del extracto y se contabiliza en la pestaña «Seguridad social».
+  void accountId; void grandTotal
 
   revalidatePath('/nomina')
-  revalidatePath('/bancos')
   return { ok: true }
 }

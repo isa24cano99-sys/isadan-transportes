@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
 import { CheckCircle2, Info, Landmark } from 'lucide-react'
-import { getResumenSSAction, postearConsolidacionSSAction, getEstadoPagoSSAction, postearPagoSSAction, type ResumenSS, type EstadoPagoSS } from './actions'
+import { getResumenSSAction, postearConsolidacionSSAction, getEstadoPagoSSAction, postearPagoSSAction, type ResumenSS, type EstadoPagoSS } from './pila-actions'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 

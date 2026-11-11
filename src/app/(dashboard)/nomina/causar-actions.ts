@@ -89,7 +89,7 @@ export async function postearPagoNominaAction(bankTransactionId: string): Promis
   const { data, error } = await supabase.rpc('postear_pago_pasivo_banco', { p_bank_transaction_id: bankTransactionId })
   if (error) return { ok: false, mensaje: error.message }
   const { data: e } = await supabase.from('journal_entries').select('consecutivo').eq('id', data as string).single()
-  revalidatePath('/contabilidad/nomina-mensual')
+  revalidatePath('/nomina')
   return { ok: true, mensaje: `Pago de neto contabilizado · asiento CB-${e?.consecutivo}` }
 }
 
@@ -116,6 +116,6 @@ export async function postearNominaAction(input: NominaInput): Promise<NominaRes
 
   const { data: asiento } = await supabase
     .from('journal_entries').select('consecutivo').eq('id', data as string).single()
-  revalidatePath('/contabilidad/nomina-mensual')
+  revalidatePath('/nomina')
   return { ok: true, mensaje: `Nómina de ${input.driverName} (${periodo}) contabilizada · asiento CN-${asiento?.consecutivo}` }
 }

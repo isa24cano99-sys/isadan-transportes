@@ -116,7 +116,7 @@ export async function postearPagoSSAction(bankTransactionId: string): Promise<{ 
   const { data, error } = await supabase.rpc('postear_pago_ss_banco', { p_bank_transaction_id: bankTransactionId })
   if (error) return { ok: false, mensaje: error.message }
   const { data: e } = await supabase.from('journal_entries').select('consecutivo').eq('id', data as string).single()
-  revalidatePath('/contabilidad/seguridad-social')
+  revalidatePath('/nomina')
   return { ok: true, mensaje: `Pago contabilizado · asiento CB-${e?.consecutivo}` }
 }
 
@@ -131,6 +131,6 @@ export async function postearConsolidacionSSAction(
   })
   if (error) return { ok: false, mensaje: error.message }
   const { data: e } = await supabase.from('journal_entries').select('consecutivo').eq('id', data as string).single()
-  revalidatePath('/contabilidad/seguridad-social')
+  revalidatePath('/nomina')
   return { ok: true, mensaje: `Consolidación de ${periodo} contabilizada · asiento CG-${e?.consecutivo}` }
 }

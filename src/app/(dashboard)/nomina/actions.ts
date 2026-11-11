@@ -105,14 +105,6 @@ export async function guardarNominaAction(formData: FormData): Promise<{ ok: boo
   const meses  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
   const period = `${meses[month - 1]} ${year}`
 
-  const { data: existing } = await supabase
-    .from('payroll')
-    .select('id')
-    .eq('driver_id', driverId)
-    .eq('year', year)
-    .eq('month', month)
-    .maybeSingle()
-
   const { error: payrollError } = await supabase
     .from('payroll')
     .upsert({
@@ -135,64 +127,18 @@ export async function guardarNominaAction(formData: FormData): Promise<{ ok: boo
 
   if (payrollError) return { ok: false, error: payrollError.message }
 
-  const { data: driver } = await supabase
-    .from('drivers').select('full_name').eq('id', driverId).single()
-
-  const description = `Pago nómina ${driver?.full_name ?? ''} ${period}`
-
-  if (existing) {
-    await supabase
-      .from('bank_transactions')
-      .update({ amount: netPayment, description })
-      .eq('source', 'NOMINA')
-      .ilike('description', `%${driver?.full_name ?? ''}%${period}%`)
-  } else {
-    const [{ data: account }, { data: nomCat }] = await Promise.all([
-      supabase.from('bank_accounts').select('id').limit(1).single(),
-      supabase.from('transaction_categories').select('id, puc_code').ilike('name', '%nómina%conductores%').eq('active', true).maybeSingle(),
-    ])
-    if (account) {
-      await supabase.from('bank_transactions').insert({
-        account_id:  account.id,
-        type:        'EGRESO',
-        amount:      netPayment,
-        date:        hoyColombia(),
-        description,
-        category:    nomCat?.puc_code ?? 'SIN_CLASIFICAR',
-        category_id: nomCat?.id ?? null,
-        source:      'NOMINA',
-      })
-    }
-  }
-
+  // OJO: este registro es solo informativo (planilla). Ya NO crea ni edita movimientos de banco:
+  // el pago real viene del extracto y se contabiliza en la pestaña «Causar nómina» → «Pagar neto».
+  // (Antes insertaba un EGRESO inventado en bank_transactions que no existía en el extracto.)
   revalidatePath('/nomina')
-  revalidatePath('/bancos')
   return { ok: true }
 }
 
 export async function eliminarNominaAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  const { data: payroll } = await supabase
-    .from('payroll')
-    .select('driver_id, period')
-    .eq('id', id)
-    .single()
-
+  // Solo borra el registro informativo de la planilla; no toca bancos ni contabilidad.
   const { error } = await supabase.from('payroll').delete().eq('id', id)
   if (error) return { ok: false, error: error.message }
 
-  if (payroll) {
-    const { data: driver } = await supabase
-      .from('drivers').select('full_name').eq('id', payroll.driver_id).single()
-    if (driver) {
-      await supabase
-        .from('bank_transactions')
-        .delete()
-        .eq('source', 'NOMINA')
-        .ilike('description', `%${driver.full_name}%${payroll.period}%`)
-    }
-  }
-
   revalidatePath('/nomina')
-  revalidatePath('/bancos')
   return { ok: true }
 }

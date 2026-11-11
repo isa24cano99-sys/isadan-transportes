@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
-  HandCoins, PiggyBank, Users, Truck, User, Folder,
-  Wallet, Receipt, IdCard, FileCheck, Banknote, ArrowLeftRight, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
+  LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge,
+  HandCoins, Users, Truck, User, Folder,
+  Wallet, Receipt, IdCard, FileCheck, Banknote, ArrowLeftRight, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Building, TrendingUp, Lock, FileSpreadsheet, Map, type LucideIcon,
 } from 'lucide-react'
 
 type NavItem = { href: string; label: string; icon: LucideIcon; badge?: string }
@@ -23,22 +23,18 @@ const sections: NavSection[] = [
   { title: 'Operación', items: [
     { href: '/viajes',              label: 'Viajes',         icon: Route },
     { href: '/legalizaciones',      label: 'Legalizaciones', icon: ClipboardCheck },
-    { href: '/facturas',            label: 'Facturación',    icon: FileText },
     { href: '/bancos',              label: 'Bancos',         icon: Landmark },
     { href: '/bancos/conciliacion', label: 'Conciliación',   icon: GitMerge },
     { href: '/cartera',             label: 'Cartera',        icon: Wallet },
     { href: '/documentos',          label: 'Documentos',     icon: Folder },
     { href: '/prestamos',           label: 'Préstamos',      icon: HandCoins },
-    { href: '/prestaciones',        label: 'Prestaciones',   icon: PiggyBank },
-    { href: '/nomina',              label: 'Nómina',         icon: Users },
+    { href: '/nomina',              label: 'Nómina y prestaciones', icon: Users },
   ] },
   { title: 'Contabilidad', items: [
     { href: '/contabilidad/guia',              label: 'Guía / Mapa',      icon: Map },
     { href: '/contabilidad/facturacion',       label: 'Facturación',      icon: FileCheck },
     { href: '/contabilidad/recibos-anticipo',  label: 'Recibos anticipo', icon: Banknote },
     { href: '/contabilidad/cruce-cartera',     label: 'Cruce cartera',    icon: ArrowLeftRight },
-    { href: '/contabilidad/nomina-mensual',    label: 'Nómina mensual',   icon: UsersRound },
-    { href: '/contabilidad/seguridad-social',  label: 'Seguridad social', icon: ShieldCheck },
     { href: '/contabilidad/anticipo-conductor', label: 'Anticipo cond.',  icon: Coins },
     { href: '/contabilidad/peajes',            label: 'Peajes (F2X)',     icon: TrafficCone },
     { href: '/contabilidad/pago-proveedores',  label: 'Pagos y gastos bancarios', icon: CreditCard },

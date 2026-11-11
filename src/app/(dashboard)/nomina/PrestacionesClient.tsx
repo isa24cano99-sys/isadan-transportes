@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Users, FileText, UserMinus, Trash2, ChevronDown, Download, Loader2 } from 'lucide-react'
 import { formatCOP, formatDate } from '@/lib/utils'
-import { guardarPrestacionesAction, eliminarPrestacionAction, eliminarEmpleadoAction } from './actions'
+import { guardarPrestacionesAction, eliminarPrestacionAction, eliminarEmpleadoAction } from './prestaciones-actions'
 import { hoyColombia } from '@/lib/fecha'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -33,14 +33,14 @@ export async function guardarPrestacionesAction(data: {
     return { ok: false, error: `DB: ${error.message} (${error.code})` }
   }
 
-  revalidatePath('/prestaciones')
+  revalidatePath('/nomina')
   return { ok: true }
 }
 
 export async function eliminarPrestacionAction(id: string): Promise<{ ok: boolean; error?: string }> {
   const { error } = await supabase.from('social_benefits').delete().eq('id', id)
   if (error) return { ok: false, error: error.message }
-  revalidatePath('/prestaciones')
+  revalidatePath('/nomina')
   return { ok: true }
 }
 
@@ -56,6 +56,6 @@ export async function eliminarEmpleadoAction(id: string): Promise<{ ok: boolean;
     console.error('[eliminarEmpleado] employees:', error)
     return { ok: false, error: error.message }
   }
-  revalidatePath('/prestaciones')
+  revalidatePath('/nomina')
   return { ok: true }
 }

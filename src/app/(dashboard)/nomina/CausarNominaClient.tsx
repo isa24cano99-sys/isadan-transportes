@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCOP } from '@/lib/utils'
 import { CheckCircle2 } from 'lucide-react'
-import { postearNominaAction, getEstadoPagoNominaAction, postearPagoNominaAction, type NominaResultado, type PagoNominaConductor } from './actions'
+import { postearNominaAction, getEstadoPagoNominaAction, postearPagoNominaAction, type NominaResultado, type PagoNominaConductor } from './causar-actions'
 
 type Conductor = { terceroId: string; nombre: string; salario: number; auxilio: number }
 type Fondo = { id: string; nombre: string; esDefault: boolean }
@@ -44,7 +44,7 @@ const DERIV_LABELS: { key: DerivKey; label: string; formula: string }[] = [
   { key: 'aporteCaja', label: 'Aporte caja',         formula: 'sueldo × 4%' },
 ]
 
-export default function NominaClient({ conductores, fondos, pagoNomina }: { conductores: Conductor[]; fondos: Fondo[]; pagoNomina: PagoNominaConductor[] }) {
+export default function CausarNominaClient({ conductores, fondos, pagoNomina }: { conductores: Conductor[]; fondos: Fondo[]; pagoNomina: PagoNominaConductor[] }) {
   const router = useRouter()
   const [terceroId, setTerceroId] = useState(conductores[0]?.terceroId ?? '')
   const [pagos, setPagos] = useState<PagoNominaConductor[]>(pagoNomina)
