@@ -1,248 +1,180 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import {
-  RefreshCw, AlertCircle, Clock, Minus,
-  TrendingUp, DollarSign, Wallet,
-} from 'lucide-react'
-import { importarCarteraAction } from './actions'
-import type { CarteraKPIs, ClienteSummary, EstadoCartera } from './page'
-import { useUrlState } from '@/lib/useUrlState'
+import { Wallet, FileText, TrendingUp, Banknote, Search } from 'lucide-react'
+import { formatCOP } from '@/lib/utils'
+import type { ResumenCartera } from '@/lib/cartera-libro'
 
-const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
-const fmt = (v: number) => COP.format(v)
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-const ESTADO_BADGE: Record<EstadoCartera, { label: string; cls: string }> = {
-  AL_DIA:    { label: 'Al día',    cls: 'bg-green-100 text-green-800' },
-  PENDIENTE: { label: 'Pendiente', cls: 'bg-yellow-100 text-yellow-800' },
-  VENCIDO:   { label: 'Vencido',   cls: 'bg-red-100 text-red-800' },
-}
+type Filtro = 'TODOS' | 'ANTICIPO' | 'CARTERA'
+
+const money = (v: number) => (Math.abs(v) < 0.5 ? '—' : formatCOP(v))
 
 export default function CarteraClient({
-  kpis,
-  clients,
+  year, availableYears, resumen,
 }: {
-  kpis: CarteraKPIs
-  clients: ClienteSummary[]
+  year: number
+  availableYears: number[]
+  resumen: ResumenCartera
 }) {
-  const router        = useRouter()
-  const [crossing, setCrossing] = useState(false)
-  const [crossMsg, setCrossMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [filter, setFilter]     = useUrlState('estado', 'TODOS') as ['TODOS' | EstadoCartera, (v: string) => void]
+  const router = useRouter()
+  const [filtro, setFiltro] = useState<Filtro>('TODOS')
+  const [busca, setBusca]   = useState('')
 
-  const handleImportar = async () => {
-    setCrossing(true)
-    setCrossMsg(null)
-    const res = await importarCarteraAction()
-    setCrossing(false)
-    if (!res.ok) {
-      setCrossMsg({ type: 'err', text: res.error ?? 'Error al importar' })
-    } else if (res.created === 0) {
-      setCrossMsg({ type: 'ok', text: res.message ?? 'Sin cambios.' })
-    } else {
-      setCrossMsg({ type: 'ok', text: res.message ?? `${res.created} factura(s) importada(s).` })
-      setTimeout(() => router.refresh(), 800)
-    }
-  }
+  // Solo se muestran los meses del año con facturación (cualquier cliente)
+  const meses = useMemo(
+    () => resumen.porMesTotal.map((v, m) => ({ m, v })).filter(x => Math.abs(x.v) >= 0.5).map(x => x.m),
+    [resumen.porMesTotal],
+  )
 
-  const filtered = filter === 'TODOS'
-    ? clients
-    : clients.filter(c => c.estado === filter)
+  const filas = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return resumen.filas.filter(f => {
+      if (filtro === 'ANTICIPO' && f.anticipoSaldo <= 0) return false
+      if (filtro === 'CARTERA'  && f.carteraSaldo  <= 0) return false
+      if (q && !(`${f.nombre} ${f.nit ?? ''}`.toLowerCase().includes(q))) return false
+      return true
+    })
+  }, [resumen.filas, filtro, busca])
+
+  const kpis = [
+    { label: 'Anticipos de clientes',  value: resumen.anticipoTotal,  sub: 'Saldo en 28050510 sin aplicar', icon: Wallet,     cls: 'text-emerald-600 bg-emerald-50' },
+    { label: 'Cartera facturada',      value: resumen.carteraTotal,   sub: 'Saldo en 13050501 por cobrar',  icon: FileText,   cls: 'text-yellow-600 bg-yellow-50' },
+    { label: `Facturado ${year}`,      value: resumen.facturadoAnio,  sub: 'FE verificadas, neto de NC',    icon: TrendingUp, cls: 'text-[#2563EB] bg-blue-50' },
+    { label: `Anticipos recibidos ${year}`, value: resumen.recibidoAnio, sub: 'Consignaciones (recibos RC)', icon: Banknote,   cls: 'text-purple-600 bg-purple-50' },
+  ]
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-[#0F172A]">Cartera</h1>
+          <h1 className="text-lg font-semibold text-[#0F172A]">Cartera y anticipos de clientes</h1>
           <p className="text-xs text-[#64748B] mt-0.5">
-            Estado de cuentas por cobrar · {clients.length} cliente{clients.length !== 1 ? 's' : ''}
+            Lo que dice el libro por cliente · {resumen.filas.length} cliente{resumen.filas.length !== 1 ? 's' : ''}
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          {crossMsg && (
-            <span className={`text-xs px-2 py-1 rounded-lg font-medium ${
-              crossMsg.type === 'ok'
-                ? 'bg-green-50 text-green-700 border border-green-200'
-                : 'bg-red-50 text-red-700 border border-red-200'
-            }`}>
-              {crossMsg.text}
-            </span>
-          )}
-          <button
-            onClick={handleImportar}
-            disabled={crossing}
-            title="Crea la cartera (AR entry) de las facturas emitidas que aún no la tienen. No cruza anticipos: el cruce es el evento 4 contable."
-            className="flex items-center gap-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors min-h-[44px]"
-          >
-            <RefreshCw size={14} className={crossing ? 'animate-spin' : ''} />
-            {crossing ? 'Importando…' : 'Importar facturas'}
-          </button>
-        </div>
+        <select
+          value={year}
+          onChange={e => router.push(`/cartera?año=${e.target.value}`)}
+          className="border border-[#E2E8F0] rounded-xl px-3 py-2 text-sm font-medium text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+        >
+          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
       </div>
 
-      {/* Table not yet created banner */}
-      {!kpis.tableExists && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
-          <AlertCircle size={18} className="text-yellow-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-yellow-800">Tabla no creada</p>
-            <p className="text-xs text-yellow-700 mt-0.5">
-              Ejecuta el SQL del archivo <code className="font-mono bg-yellow-100 px-1 rounded">cartera/actions.ts</code> en Supabase antes de usar este módulo.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          {
-            label: 'Total facturado',
-            value: kpis.totalFacturado,
-            icon: TrendingUp,
-            iconCls: 'text-[#2563EB] bg-blue-50',
-            valueCls: 'text-[#0F172A]',
-          },
-          {
-            label: 'Anticipos recibidos',
-            value: kpis.totalAnticipos,
-            icon: Wallet,
-            iconCls: 'text-emerald-600 bg-emerald-50',
-            valueCls: 'text-[#0F172A]',
-          },
-          {
-            label: 'Cartera pendiente',
-            value: kpis.totalCartera,
-            icon: Clock,
-            iconCls: 'text-yellow-600 bg-yellow-50',
-            valueCls: kpis.totalCartera > 0 ? 'text-yellow-700' : 'text-green-700',
-          },
-          {
-            label: 'Anticipos sin aplicar',
-            value: kpis.sinAplicar,
-            icon: DollarSign,
-            iconCls: kpis.sinAplicar > 0 ? 'text-purple-600 bg-purple-50' : 'text-green-600 bg-green-50',
-            valueCls: kpis.sinAplicar > 0 ? 'text-purple-700' : 'text-green-700',
-          },
-        ].map(({ label, value, icon: Icon, iconCls, valueCls }) => (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {kpis.map(({ label, value, sub, icon: Icon, cls }) => (
           <div key={label} className="bg-white border border-[#E2E8F0] rounded-xl p-3 md:p-4">
             <div className="flex items-start gap-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconCls}`}>
-                <Icon size={15} />
-              </div>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cls}`}><Icon size={15} /></div>
               <div className="min-w-0">
-                <p className={`text-base md:text-lg font-bold tabular-nums leading-tight ${valueCls}`}>
-                  {fmt(value)}
-                </p>
+                <p className="text-base md:text-lg font-bold tabular-nums leading-tight text-[#0F172A]">{formatCOP(value)}</p>
                 <p className="text-xs text-[#64748B] mt-0.5">{label}</p>
+                <p className="text-xs text-[#64748B]">{sub}</p>
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      {clients.length > 0 && (
+      <p className="text-xs text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3 leading-relaxed">
+        <span className="font-semibold text-[#0F172A]">Cómo se mueve:</span>{' '}
+        el cliente consigna → <span className="font-medium">Recibos de anticipo</span> acredita 28050510.
+        La FE verificada → <span className="font-medium">Facturación</span> debita 13050501 (el ingreso se reconoce ahí).
+        <span className="font-medium"> Cruce de cartera</span> aplica el anticipo a la factura (DB 28050510 / CR 13050501).
+        Esta pantalla solo muestra el resultado: para registrar algo, usa esas pantallas.
+      </p>
+
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex gap-1.5 flex-wrap">
-          {(['TODOS', 'AL_DIA', 'PENDIENTE', 'VENCIDO'] as const).map(f => (
+          {([['TODOS', 'Todos'], ['ANTICIPO', 'Con anticipo'], ['CARTERA', 'Con cartera por cobrar']] as const).map(([k, label]) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
+              key={k}
+              onClick={() => setFiltro(k)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filter === f
-                  ? 'bg-[#0F172A] text-white'
-                  : 'bg-[#F1F5F9] text-[#374151] hover:bg-[#E2E8F0]'
+                filtro === k ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#374151] hover:bg-[#E2E8F0]'
               }`}
-            >
-              {f === 'TODOS' ? 'Todos' : ESTADO_BADGE[f].label}
-            </button>
+            >{label}</button>
           ))}
         </div>
-      )}
+        <div className="relative sm:ml-auto sm:w-64">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#64748B]" />
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar cliente o NIT"
+            className="w-full border border-[#E2E8F0] rounded-lg pl-8 pr-3 py-1.5 text-sm bg-white text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+          />
+        </div>
+      </div>
 
-      {/* Client table */}
-      {filtered.length > 0 ? (
+      {filas.length > 0 ? (
         <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
                   <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Cliente</th>
-                  <th className="text-left py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">NIT</th>
-                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Total facturado</th>
-                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Total pagado</th>
-                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Saldo pendiente</th>
-                  <th className="text-center py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Facturas</th>
-                  <th className="text-center py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Estado</th>
+                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Anticipo disponible</th>
+                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Cartera por cobrar</th>
+                  <th className="text-right py-3 px-4 font-semibold text-[#374151] text-xs uppercase tracking-wide">Facturado {year}</th>
+                  {meses.map(m => (
+                    <th key={m} className="text-right py-3 px-3 font-semibold text-[#374151] text-xs uppercase tracking-wide">{MESES[m]}</th>
+                  ))}
                   <th className="py-3 px-4" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
-                {filtered.map(c => {
-                  const badge  = ESTADO_BADGE[c.estado]
-                  const nitKey = encodeURIComponent(c.clientNit ?? c.clientName)
-                  return (
-                    <tr key={nitKey} className="hover:bg-[#F8FAFC] transition-colors">
-                      <td className="py-3 px-4 font-medium text-[#0F172A]">{c.clientName}</td>
-                      <td className="py-3 px-4 text-[#64748B] font-mono text-xs">{c.clientNit ?? '—'}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[#0F172A]">{fmt(c.totalFacturado)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[#64748B]">{fmt(c.totalPagado)}</td>
-                      <td className={`py-3 px-4 text-right tabular-nums font-semibold ${
-                        c.pendiente <= 0 ? 'text-green-600' : 'text-yellow-700'
-                      }`}>
-                        {fmt(Math.max(0, c.pendiente))}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="text-xs text-[#64748B]">
-                          {c.pagadaCount > 0 && (
-                            <span className="text-green-600 font-medium">{c.pagadaCount}✓ </span>
-                          )}
-                          {c.abonadaCount > 0 && (
-                            <span className="text-blue-600 font-medium">{c.abonadaCount}≈ </span>
-                          )}
-                          {c.pendienteCount > 0 && (
-                            <span className="text-yellow-600 font-medium">{c.pendienteCount}⏳</span>
-                          )}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <Link
-                          href={`/cartera/${nitKey}`}
-                          className="text-xs font-medium text-[#2563EB] hover:underline"
-                        >
-                          Ver →
+                {filas.map(f => (
+                  <tr key={f.clave} className="hover:bg-[#F8FAFC] transition-colors">
+                    <td className="py-3 px-4">
+                      <p className="font-medium text-[#0F172A]">{f.nombre}</p>
+                      <p className="text-xs text-[#64748B] font-mono">{f.nit ?? 'sin NIT'}</p>
+                    </td>
+                    <td className={`py-3 px-4 text-right tabular-nums ${f.anticipoSaldo > 0 ? 'font-semibold text-emerald-700' : f.anticipoSaldo < 0 ? 'text-red-600' : 'text-[#64748B]'}`}>
+                      {money(f.anticipoSaldo)}
+                    </td>
+                    <td className={`py-3 px-4 text-right tabular-nums ${f.carteraSaldo > 0 ? 'font-semibold text-yellow-700' : f.carteraSaldo < 0 ? 'text-red-600' : 'text-[#64748B]'}`}>
+                      {money(f.carteraSaldo)}
+                    </td>
+                    <td className="py-3 px-4 text-right tabular-nums text-[#0F172A]">{money(f.facturadoAnio)}</td>
+                    {meses.map(m => (
+                      <td key={m} className="py-3 px-3 text-right tabular-nums text-[#64748B]">{money(f.porMes[m])}</td>
+                    ))}
+                    <td className="py-3 px-4 text-right">
+                      {f.nit && (
+                        <Link href={`/cartera/${encodeURIComponent(f.nit)}?año=${year}`} className="text-xs font-medium text-[#2563EB] hover:underline">
+                          Movimientos →
                         </Link>
-                      </td>
-                    </tr>
-                  )
-                })}
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-[#F8FAFC] border-t border-[#E2E8F0] font-semibold text-[#0F172A]">
+                  <td className="py-3 px-4">Total ({filas.length})</td>
+                  <td className="py-3 px-4 text-right tabular-nums">{money(filas.reduce((s, f) => s + f.anticipoSaldo, 0))}</td>
+                  <td className="py-3 px-4 text-right tabular-nums">{money(filas.reduce((s, f) => s + f.carteraSaldo, 0))}</td>
+                  <td className="py-3 px-4 text-right tabular-nums">{money(filas.reduce((s, f) => s + f.facturadoAnio, 0))}</td>
+                  {meses.map(m => (
+                    <td key={m} className="py-3 px-3 text-right tabular-nums">{money(filas.reduce((s, f) => s + f.porMes[m], 0))}</td>
+                  ))}
+                  <td />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
-      ) : kpis.tableExists ? (
+      ) : (
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-8 text-center">
-          <div className="w-12 h-12 bg-[#F1F5F9] rounded-xl flex items-center justify-center mx-auto mb-3">
-            <Minus size={20} className="text-[#94A3B8]" />
-          </div>
-          <p className="text-sm font-medium text-[#0F172A]">
-            {filter !== 'TODOS' ? `No hay clientes con estado ${ESTADO_BADGE[filter]?.label ?? filter}` : 'No hay entradas de cartera'}
-          </p>
-          <p className="text-xs text-[#64748B] mt-1">
-            Haz clic en <strong>Cruzar anticipos</strong> para importar facturas emitidas.
-          </p>
+          <p className="text-sm font-medium text-[#0F172A]">No hay clientes con ese filtro</p>
+          <p className="text-xs text-[#64748B] mt-1">Cambia el filtro, la búsqueda o el año.</p>
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
