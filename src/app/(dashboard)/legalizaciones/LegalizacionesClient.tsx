@@ -282,10 +282,12 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                         </Link>
                       )}
                       <ExportComprobanteButton legId={leg.id} compact />
-                      <button onClick={() => setDeleteTarget(leg)}
-                        className="text-[#94A3B8] hover:text-red-500 transition-colors p-1">
-                        <Trash2 size={13} />
-                      </button>
+                      {leg.status !== 'APROBADA' && (
+                        <button onClick={() => setDeleteTarget(leg)}
+                          className="text-[#94A3B8] hover:text-red-500 transition-colors p-1">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -355,10 +357,12 @@ export function LegalizacionesClient({ legalizaciones: initial }: { legalizacion
                       className="text-xs text-[#2563EB] font-medium min-h-[36px] flex items-center px-1">Editar</Link>
                   )}
                   <ExportComprobanteButton legId={leg.id} compact />
-                  <button onClick={() => setDeleteTarget(leg)}
-                    className="text-[#94A3B8] hover:text-red-500 min-h-[36px] px-1">
-                    <Trash2 size={13} />
-                  </button>
+                  {leg.status !== 'APROBADA' && (
+                    <button onClick={() => setDeleteTarget(leg)}
+                      className="text-[#94A3B8] hover:text-red-500 min-h-[36px] px-1">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

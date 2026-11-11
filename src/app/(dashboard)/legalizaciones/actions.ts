@@ -4,7 +4,15 @@ import { supabase } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
 export async function eliminarLegalizacionAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  await supabase.from('legalization_expenses').delete().eq('legalization_id', id)
+  // Guard: una APROBADA ya está contabilizada (CG inmutable). Borrarla dejaría el asiento huérfano
+  // y sin sus gastos de soporte. Primero se reabre con "Reabrir para corregir".
+  const { data: actual, error: actErr } = await supabase.from('legalizations').select('status').eq('id', id).maybeSingle()
+  if (actErr) return { ok: false, error: actErr.message }
+  if (actual?.status === 'APROBADA') {
+    return { ok: false, error: 'Esta legalización está aprobada (contabilizada) y no se puede eliminar. Usa "Reabrir para corregir" primero.' }
+  }
+  const { error: expErr } = await supabase.from('legalization_expenses').delete().eq('legalization_id', id)
+  if (expErr) return { ok: false, error: expErr.message }
   const { error } = await supabase.from('legalizations').delete().eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/legalizaciones')

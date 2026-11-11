@@ -456,6 +456,22 @@ export async function registrarFacturaManualAction(params: {
 }
 
 export async function eliminarViajeAction(tripId: string): Promise<{ ok: boolean; error?: string }> {
+  // 0. Guards de integridad contable: un viaje con legalización APROBADA (CG contabilizado) o con
+  //    factura electrónica emitida no se borra — dejaría asientos huérfanos y borraría el rastro
+  //    de una FE ya reportada a la DIAN.
+  const { data: tripActual, error: tripActErr } = await supabase
+    .from('trips').select('dataico_invoice_id').eq('id', tripId).maybeSingle()
+  if (tripActErr) return { ok: false, error: tripActErr.message }
+  if (tripActual?.dataico_invoice_id) {
+    return { ok: false, error: 'El viaje tiene una factura electrónica emitida y no se puede eliminar. Anula la factura primero.' }
+  }
+  const { count: aprobadas, error: aprErr } = await supabase
+    .from('legalizations').select('id', { count: 'exact', head: true }).eq('trip_id', tripId).eq('status', 'APROBADA')
+  if (aprErr) return { ok: false, error: aprErr.message }
+  if ((aprobadas ?? 0) > 0) {
+    return { ok: false, error: 'El viaje tiene una legalización aprobada (contabilizada) y no se puede eliminar. Reabre la legalización primero.' }
+  }
+
   // 1. Get legalization IDs
   const { data: legs, error: legsErr } = await supabase
     .from('legalizations').select('id').eq('trip_id', tripId)
