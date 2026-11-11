@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Route, ClipboardCheck, Landmark, GitMerge, FileText,
-  Building2, HandCoins, PiggyBank, Users, Truck, User, Contact, Folder,
+  HandCoins, PiggyBank, Users, Truck, User, Folder,
   Wallet, Receipt, IdCard, FileCheck, Banknote, ArrowLeftRight, UsersRound, Coins, BookOpen, BookText, Scale, TrafficCone, CreditCard, Building, TrendingUp, Lock, FileSpreadsheet, Map, ShieldCheck, type LucideIcon,
 } from 'lucide-react'
 
@@ -19,7 +19,6 @@ const sections: NavSection[] = [
     { href: '/conductores', label: 'Conductores', icon: User },
     { href: '/vehiculos',   label: 'Vehículos',   icon: Truck },
     { href: '/terceros',    label: 'Terceros',    icon: IdCard },
-    { href: '/clientes',    label: 'Clientes',    icon: Contact, badge: 'solo lectura' },
   ] },
   { title: 'Operación', items: [
     { href: '/viajes',              label: 'Viajes',         icon: Route },
@@ -28,7 +27,6 @@ const sections: NavSection[] = [
     { href: '/bancos',              label: 'Bancos',         icon: Landmark },
     { href: '/bancos/conciliacion', label: 'Conciliación',   icon: GitMerge },
     { href: '/cartera',             label: 'Cartera',        icon: Wallet },
-    { href: '/proveedores',         label: 'Proveedores',    icon: Building2, badge: 'solo lectura' },
     { href: '/documentos',          label: 'Documentos',     icon: Folder },
     { href: '/prestamos',           label: 'Préstamos',      icon: HandCoins },
     { href: '/prestaciones',        label: 'Prestaciones',   icon: PiggyBank },
